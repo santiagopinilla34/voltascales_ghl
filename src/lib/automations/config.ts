@@ -31,6 +31,161 @@ function nonEmptyString(value: Json | undefined): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// trigger_config
+// ---------------------------------------------------------------------------
+
+/**
+ * `keyword` trigger parameters (PRD 3, `{ "keyword": "STOP" }`).
+ *
+ * `keyword` accepts a single string or a list, so one rule can cover
+ * "STOP"/"UNSUBSCRIBE" without duplicating its actions.
+ */
+export type KeywordTriggerConfig = {
+  keywords: string[];
+  match: KeywordMatchMode;
+};
+
+/**
+ * - `word`     — the keyword appears as a whole word or phrase. The default:
+ *                "stop" matches "Please stop." but not "stopwatch".
+ * - `exact`    — the entire message is the keyword, carrier opt-out style.
+ * - `contains` — plain substring. Loosest; matches inside other words.
+ *
+ * All three ignore case.
+ */
+export type KeywordMatchMode = "word" | "exact" | "contains";
+
+const KEYWORD_MATCH_MODES = ["word", "exact", "contains"] as const;
+const KEYWORD_CONFIG_KEYS = ["keyword", "match"] as const;
+
+export function parseKeywordTriggerConfig(
+  raw: Json,
+): ParseResult<KeywordTriggerConfig> {
+  if (!isRecord(raw)) {
+    return { ok: false, error: "trigger_config must be a JSON object" };
+  }
+
+  const unknown = Object.keys(raw).filter(
+    (key) => !(KEYWORD_CONFIG_KEYS as readonly string[]).includes(key),
+  );
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      error: `unknown trigger_config key ${unknown.map((key) => `"${key}"`).join(", ")} (supported: ${KEYWORD_CONFIG_KEYS.join(", ")})`,
+    };
+  }
+
+  const rawKeywords = Array.isArray(raw.keyword) ? raw.keyword : [raw.keyword];
+  if (rawKeywords.length === 0) {
+    return { ok: false, error: "trigger_config.keyword must not be an empty array" };
+  }
+
+  const keywords: string[] = [];
+  for (const entry of rawKeywords) {
+    const keyword = nonEmptyString(entry);
+    if (keyword === null) {
+      return {
+        ok: false,
+        error: `trigger_config.keyword has invalid entry ${JSON.stringify(entry)} (expected a non-empty string)`,
+      };
+    }
+    keywords.push(keyword.trim());
+  }
+
+  let match: KeywordMatchMode = "word";
+  if (raw.match !== undefined && raw.match !== null) {
+    if (
+      typeof raw.match !== "string" ||
+      !(KEYWORD_MATCH_MODES as readonly string[]).includes(raw.match)
+    ) {
+      return {
+        ok: false,
+        error: `trigger_config.match must be one of ${KEYWORD_MATCH_MODES.join(", ")}`,
+      };
+    }
+    match = raw.match as KeywordMatchMode;
+  }
+
+  return { ok: true, value: { keywords, match } };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Returns the keyword that matched `body`, or null. */
+export function matchKeyword(
+  config: KeywordTriggerConfig,
+  body: string,
+): string | null {
+  const text = body.trim();
+  if (!text) {
+    return null;
+  }
+
+  for (const keyword of config.keywords) {
+    switch (config.match) {
+      case "exact":
+        if (text.toLowerCase() === keyword.toLowerCase()) return keyword;
+        break;
+      case "contains":
+        if (text.toLowerCase().includes(keyword.toLowerCase())) return keyword;
+        break;
+      case "word": {
+        // Non-word char or string edge on either side, rather than \b, so
+        // multi-word phrases and trailing punctuation both work. The keyword is
+        // escaped, so nothing in it can alter the pattern.
+        const pattern = new RegExp(
+          `(?:^|\\W)${escapeRegExp(keyword)}(?:\\W|$)`,
+          "i",
+        );
+        if (pattern.test(text)) return keyword;
+        break;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * `form_submit` trigger parameters. Optional `source` restricts a rule to one
+ * form, matched case-insensitively against the `source` field in the payload;
+ * `{}` fires for every form.
+ */
+export type FormTriggerConfig = { source?: string };
+
+export function parseFormTriggerConfig(
+  raw: Json,
+): ParseResult<FormTriggerConfig> {
+  if (isEmptyConfig(raw)) {
+    return { ok: true, value: {} };
+  }
+  if (!isRecord(raw)) {
+    return { ok: false, error: "trigger_config must be a JSON object" };
+  }
+
+  const unknown = Object.keys(raw).filter((key) => key !== "source");
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      error: `unknown trigger_config key ${unknown.map((key) => `"${key}"`).join(", ")} (supported: source)`,
+    };
+  }
+
+  if (raw.source === undefined || raw.source === null) {
+    return { ok: true, value: {} };
+  }
+
+  const source = nonEmptyString(raw.source);
+  if (source === null) {
+    return { ok: false, error: "trigger_config.source must be a non-empty string" };
+  }
+
+  return { ok: true, value: { source: source.trim() } };
+}
+
+// ---------------------------------------------------------------------------
 // conditions
 // ---------------------------------------------------------------------------
 

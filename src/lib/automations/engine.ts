@@ -5,7 +5,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   Automation,
   AutomationRunStatus,
-  AutomationTriggerType,
   Contact,
   Database,
 } from "@/types/database";
@@ -13,8 +12,11 @@ import type {
 import { executeAction, templateVariablesFor } from "./actions";
 import {
   explainConditionMismatch,
+  matchKeyword,
   parseActions,
   parseConditions,
+  parseFormTriggerConfig,
+  parseKeywordTriggerConfig,
 } from "./config";
 import type { TemplateVariables } from "./template";
 
@@ -48,12 +50,19 @@ const RERUN_COOLDOWN_MS = 60_000;
 /** Longest `detail` written to `automation_runs`; the column is unbounded text. */
 const MAX_DETAIL_LENGTH = 2000;
 
-export type AutomationEvent = {
-  trigger: AutomationTriggerType;
-  contact: Contact;
-  /** Trigger-specific template variables, layered over the contact's own. */
-  variables?: TemplateVariables;
-};
+/**
+ * What happened, in the shape each trigger needs. A union rather than a loose
+ * bag so a webhook can't fire `keyword` without supplying the message text.
+ */
+export type AutomationEvent =
+  | { trigger: "missed_call"; contact: Contact }
+  | { trigger: "keyword"; contact: Contact; body: string }
+  | {
+      trigger: "form_submit";
+      contact: Contact;
+      source: string | null;
+      message: string | null;
+    };
 
 export type AutomationRunOutcome = {
   automationId: string;
@@ -62,24 +71,77 @@ export type AutomationRunOutcome = {
   detail: string;
 };
 
-/**
- * Trigger-level matching, i.e. does this rule's `trigger_config` apply to this
- * particular event?
- *
- * `missed_call` takes no parameters, so every active missed-call rule matches.
- * `keyword` (step 4) and `form_submit` (step 5) read `trigger_config` here.
- * Returns the reason for *not* matching, or null.
- */
-function explainTriggerMismatch(
-  automation: Automation,
-  event: AutomationEvent,
-): string | null {
+/** Template variables the event contributes, before any rule is considered. */
+function eventVariables(event: AutomationEvent): TemplateVariables {
   switch (event.trigger) {
     case "missed_call":
-      return null;
+      return {};
     case "keyword":
+      return { message: event.body };
     case "form_submit":
-      return `trigger "${automation.trigger_type}" is not wired up yet`;
+      return { message: event.message ?? "", source: event.source ?? "" };
+  }
+}
+
+/**
+ * Trigger-level matching: does this rule's `trigger_config` apply to this
+ * particular event?
+ *
+ * Three outcomes, and the difference matters for the run log. `no-match` is
+ * routine — most keyword rules don't match most texts — and writes nothing.
+ * `invalid` means the rule itself is broken and must be visible.
+ */
+type TriggerMatch =
+  | { status: "match"; variables: TemplateVariables }
+  | { status: "no-match"; reason: string }
+  | { status: "invalid"; reason: string };
+
+function matchTrigger(
+  automation: Automation,
+  event: AutomationEvent,
+): TriggerMatch {
+  switch (event.trigger) {
+    case "missed_call":
+      // No parameters: every active missed-call rule applies.
+      return { status: "match", variables: {} };
+
+    case "keyword": {
+      const config = parseKeywordTriggerConfig(automation.trigger_config);
+      if (!config.ok) {
+        return { status: "invalid", reason: config.error };
+      }
+
+      const hit = matchKeyword(config.value, event.body);
+      if (!hit) {
+        return {
+          status: "no-match",
+          reason: `no ${config.value.match} match for ${config.value.keywords.map((keyword) => `"${keyword}"`).join(", ")}`,
+        };
+      }
+
+      // Which keyword fired, for templates like "You asked about {{keyword}}".
+      return { status: "match", variables: { keyword: hit } };
+    }
+
+    case "form_submit": {
+      const config = parseFormTriggerConfig(automation.trigger_config);
+      if (!config.ok) {
+        return { status: "invalid", reason: config.error };
+      }
+
+      const wanted = config.value.source;
+      if (
+        wanted &&
+        wanted.toLowerCase() !== (event.source ?? "").trim().toLowerCase()
+      ) {
+        return {
+          status: "no-match",
+          reason: `form source is "${event.source ?? ""}", rule wants "${wanted}"`,
+        };
+      }
+
+      return { status: "match", variables: {} };
+    }
   }
 }
 
@@ -148,6 +210,7 @@ async function runAutomation(
   supabase: SupabaseClient<Database>,
   automation: Automation,
   event: AutomationEvent,
+  matchVariables: TemplateVariables,
 ): Promise<AutomationRunOutcome> {
   const { contact } = event;
 
@@ -178,7 +241,7 @@ async function runAutomation(
     return logRun(supabase, automation, contact, "failed", actions.error);
   }
 
-  const triggerVariables = event.variables ?? {};
+  const triggerVariables = { ...eventVariables(event), ...matchVariables };
   let current = contact;
   let variables = templateVariablesFor(current, triggerVariables);
   const done: string[] = [];
@@ -245,19 +308,37 @@ export async function runAutomationsForEvent(
   const outcomes: AutomationRunOutcome[] = [];
 
   for (const automation of automations) {
+    const match = matchTrigger(automation, event);
+
     // A rule whose trigger config doesn't apply never "ran", so it gets a
-    // console line instead of an automation_runs row — otherwise step 4's
-    // keyword rules would log a skip for every inbound SMS they don't match.
-    const triggerMismatch = explainTriggerMismatch(automation, event);
-    if (triggerMismatch) {
+    // console line instead of an automation_runs row — otherwise every keyword
+    // rule would log a skip for every inbound SMS it doesn't match.
+    if (match.status === "no-match") {
       console.log(
-        `[automations] "${automation.name}" not applicable: ${triggerMismatch}`,
+        `[automations] "${automation.name}" not applicable: ${match.reason}`,
+      );
+      continue;
+    }
+
+    // A broken trigger_config is a different story: that's a rule that will
+    // never fire and the owner needs to see why.
+    if (match.status === "invalid") {
+      console.error(
+        `[automations] "${automation.name}" has an invalid trigger_config: ${match.reason}`,
+      );
+      outcomes.push(
+        await logRun(supabase, automation, event.contact, "failed", match.reason),
       );
       continue;
     }
 
     try {
-      const outcome = await runAutomation(supabase, automation, event);
+      const outcome = await runAutomation(
+        supabase,
+        automation,
+        event,
+        match.variables,
+      );
       outcomes.push(outcome);
       console.log(
         `[automations] "${automation.name}" → ${outcome.status}: ${outcome.detail}`,

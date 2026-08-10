@@ -65,6 +65,20 @@ export const serverEnv = {
 };
 
 /**
+ * Shared secret for `/api/webhooks/form` (PRD 4.6). Not in PRD section 7.
+ *
+ * That endpoint has no signature to verify the way the Twilio ones do, and it
+ * can cause an SMS to be sent to any number posted to it. Without a secret it
+ * is an open SMS relay on your Twilio account, so the route refuses to serve
+ * at all when this is unset — failing closed rather than quietly accepting
+ * anonymous submissions.
+ */
+export function formWebhookSecret(): string | null {
+  const value = process.env.FORM_WEBHOOK_SECRET?.trim();
+  return value ? value : null;
+}
+
+/**
  * Public origin Twilio reaches this app on — the ngrok URL locally, the
  * deployment URL in production. Not in PRD section 7; added in step 2.
  *

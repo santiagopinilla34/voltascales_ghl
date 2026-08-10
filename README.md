@@ -4,10 +4,10 @@ Personal automation & CRM tool. Spec: [PRD.md](./PRD.md).
 
 Next.js (App Router) · TypeScript · Tailwind CSS · Supabase (Postgres + Auth).
 
-**Status: build step 4 of 8, partially** — scaffold, auth, schema, the Twilio
-inbound SMS/voice webhooks, manual outbound replies, and the automation engine
-wired to the `missed_call` trigger. The `keyword` and `form_submit` triggers,
-the dashboard UI, and the AI chatbot are not built yet.
+**Status: build steps 1–5 of 8** — scaffold, auth, schema, the Twilio inbound
+SMS/voice webhooks, manual outbound replies, the contact form webhook, and the
+automation engine wired to all three v1 triggers. The dashboard UI, the AI
+chatbot, and the settings page are not built yet.
 
 ## Setup
 
@@ -131,13 +131,37 @@ Edit or delete the row to change it; migrations won't put it back.
 
 ### Triggers
 
-| `trigger_type` | Fires on                              | Status        |
-| -------------- | ------------------------------------- | ------------- |
-| `missed_call`  | Any inbound call that isn't answered  | Working       |
-| `keyword`      | Inbound SMS matching a keyword        | Step 4        |
-| `form_submit`  | `POST /api/webhooks/form`             | Step 5        |
+| `trigger_type` | Fires on                              | `trigger_config`            |
+| -------------- | ------------------------------------- | --------------------------- |
+| `missed_call`  | Any inbound call that isn't answered  | none                        |
+| `keyword`      | Inbound SMS matching a keyword        | `keyword`, `match`          |
+| `form_submit`  | `POST /api/webhooks/form`             | `source` (optional)         |
 
-`missed_call` takes no `trigger_config`.
+**`keyword`** — `keyword` is a string or an array, so one rule can cover
+`["STOP", "UNSUBSCRIBE"]`. `match` picks how it's compared, always
+case-insensitively:
+
+| `match`    | Matches                                                    |
+| ---------- | ---------------------------------------------------------- |
+| `word`     | Whole word or phrase (default). `stop` hits "Please stop." but not "stopwatch" |
+| `exact`    | The entire message is the keyword — carrier opt-out style   |
+| `contains` | Plain substring, including inside other words               |
+
+```json
+{ "keyword": ["INFO", "PRICING"], "match": "word" }
+```
+
+Don't give `STOP` a rule that sends an SMS: Twilio handles it as a carrier-level
+opt-out and blocks further messages to that number, so the send fails with error
+21610. Use `add_tag` / `set_status` there instead.
+
+**`form_submit`** — optional `source` restricts a rule to one form, compared
+case-insensitively against the payload's `source`. Omit it and the rule fires
+for every form.
+
+A rule whose trigger doesn't match writes nothing to `automation_runs` —
+otherwise every keyword rule would log a skip for every text. A rule whose
+`trigger_config` is *malformed* does log, as `failed`.
 
 ### Conditions
 
@@ -166,9 +190,31 @@ stopping halfway.
 is rejected at parse time with that reason in `automation_runs.detail`. `wait`
 needs the scheduled runner; `notify_me` needs step 8's notification prefs.
 
-Templates support `{{name}}`, `{{first_name}}` and `{{phone}}`. Unknown
-placeholders render as empty string and are named in the run detail. Outbound
-automation SMS is logged to `messages` with `sent_by: 'system'`.
+Templates support `{{name}}`, `{{first_name}}` and `{{phone}}` everywhere, plus
+per-trigger variables:
+
+| Trigger       | Extra variables         |
+| ------------- | ----------------------- |
+| `missed_call` | —                       |
+| `keyword`     | `{{message}}`, `{{keyword}}` (the one that matched) |
+| `form_submit` | `{{message}}`, `{{source}}` |
+
+Unknown placeholders render as empty string and are named in the run detail.
+Outbound automation SMS is logged to `messages` with `sent_by: 'system'`.
+
+### Seeded rules
+
+Three ship as migrations, each with a fixed id and `on conflict do nothing`, so
+editing or deleting one sticks:
+
+| Rule                         | Trigger       | Does                                      |
+| ---------------------------- | ------------- | ----------------------------------------- |
+| Missed call auto text-back   | `missed_call` | `send_sms`                                |
+| Keyword: INFO                | `keyword`     | `add_tag` + `send_sms`                    |
+| Form submission follow-up    | `form_submit` | `add_tag` + `set_status` + `send_sms`     |
+
+The copy in the last two is generic placeholder text — rewrite it for your
+business.
 
 ### Run log
 
@@ -188,11 +234,53 @@ from automation_runs r join automations a on a.id = r.automation_id
 order by r.ran_at desc limit 20;
 ```
 
+## Contact form webhook
+
+`POST /api/webhooks/form` (PRD 4.6) accepts JSON, creates or updates the
+contact, and fires the `form_submit` trigger.
+
+```bash
+curl -X POST "$BASE/api/webhooks/form" \
+  -H 'Content-Type: application/json' \
+  -H "X-Form-Secret: $FORM_WEBHOOK_SECRET" \
+  -d '{"phone":"(514) 555-0142","name":"Test Lead",
+       "message":"Do you service EV chargers?","source":"website-contact"}'
+```
+
+Only `phone` is required. The response echoes the contact id and every rule that
+ran, which makes it usable as a smoke test:
+
+```json
+{ "ok": true, "contactId": "f6decf04-…",
+  "runs": [{ "automation": "…", "status": "success", "detail": "add_tag \"web-lead\"" }] }
+```
+
+**Authentication.** Unlike the Twilio routes there's no signature to verify, and
+this endpoint can send an SMS to any number posted to it — open, it's an SMS
+relay billed to your Twilio account. It requires `FORM_WEBHOOK_SECRET`, sent as
+an `X-Form-Secret` header, or `?token=` for form builders that can't set
+headers. The route returns **503 while the secret is unset**, so a missing
+config fails closed rather than accepting anonymous submissions.
+
+**Phone handling.** Forms send whatever the visitor typed, so the number is
+normalised to E.164 before lookup — otherwise `(514) 555-0142` would create a
+second contact alongside `+15145550142`. Bare 10- and 11-digit numbers are
+assumed North American; anything else needs an explicit `+` country code or the
+request is rejected with 400 rather than guessed at.
+
+**Other behaviour.** `name` fills an empty contact name but never overwrites one
+you set by hand. `message` is stored as an inbound `messages` row so the text
+isn't lost — PRD 4.6 doesn't ask for that, but the engine otherwise only sees it
+as a template variable. There's no idempotency key for forms, so a provider that
+retries logs the message twice; the engine's cooldown still prevents a second
+auto-reply.
+
 ## Routes
 
 | Route                                   | Auth               | Does                                                     |
 | --------------------------------------- | ------------------ | -------------------------------------------------------- |
-| `POST /api/webhooks/twilio/sms`          | Twilio signature   | Logs inbound SMS (deduped on `MessageSid`), creates contact|
+| `POST /api/webhooks/form`                | `FORM_WEBHOOK_SECRET` | Contact form intake; fires `form_submit`               |
+| `POST /api/webhooks/twilio/sms`          | Twilio signature   | Logs inbound SMS (deduped on `MessageSid`); fires `keyword`|
 | `POST /api/webhooks/twilio/voice`        | Twilio signature   | Returns `<Dial>` TwiML forwarding the call                |
 | `POST /api/webhooks/twilio/voice/status` | Twilio signature   | Logs the call (deduped on `CallSid`); fires `missed_call`  |
 | `POST /api/contacts/[id]/messages`       | Session cookie     | Sends a manual SMS reply; flips `ai_enabled` to false     |
@@ -219,10 +307,11 @@ src/
       dashboard/
     api/
       webhooks/twilio/       Signature-verified Twilio callbacks
+      webhooks/form/         Contact form intake, shared-secret auth
       contacts/[id]/messages Manual outbound SMS
   lib/
     env.ts                   Typed env access, fails loudly when unset
-    contacts.ts              find-or-create by phone number
+    contacts.ts              find-or-create by phone, E.164 normalisation
     automations/
       engine.ts              Match rules, run actions, log to automation_runs
       config.ts              Parse/validate conditions and actions jsonb

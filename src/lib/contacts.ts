@@ -7,6 +7,39 @@ import type { Contact, Database } from "@/types/database";
 const UNIQUE_VIOLATION = "23505";
 
 /**
+ * Coerces a phone number to E.164, the format Twilio sends and `contacts.phone`
+ * is keyed on.
+ *
+ * Only needed for the form webhook (PRD 4.6) — Twilio's own payloads are
+ * already E.164. Web forms send whatever the visitor typed, and storing
+ * "(514) 581-8570" verbatim would create a second contact for someone who
+ * already exists as "+15145818570".
+ *
+ * Bare 10- and 11-digit numbers are assumed to be North American, matching the
+ * app's own number. Anything else must arrive with an explicit country code, or
+ * it's rejected rather than guessed at — a wrong guess texts a stranger.
+ */
+export function normalizePhone(input: string): string | null {
+  const trimmed = input.trim();
+  const hasPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D/g, "");
+
+  if (hasPlus) {
+    // E.164 allows up to 15 digits, and needs at least a country code plus a
+    // subscriber number.
+    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+  }
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+${digits}`;
+  }
+
+  return null;
+}
+
+/**
  * Finds the contact for a phone number, creating it if this is the first time
  * we've heard from them (PRD 4.3 — inbound SMS and calls both create/update a
  * contact).

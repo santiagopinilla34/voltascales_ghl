@@ -1,3 +1,4 @@
+import { runAutomationsForEvent } from "@/lib/automations/engine";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { twimlResponse, verifyTwilioRequest } from "@/lib/twilio/webhook";
@@ -5,15 +6,19 @@ import { twimlResponse, verifyTwilioRequest } from "@/lib/twilio/webhook";
 /** Twilio's SDK needs Node APIs; keep this off the edge runtime. */
 export const runtime = "nodejs";
 
-/** Empty TwiML — acknowledge without auto-replying (PRD 4.3, replies are manual until step 4). */
+/**
+ * Empty TwiML. Any reply goes out through the Twilio REST API from the
+ * automation engine, not as TwiML here — that keeps every outbound message on
+ * one path that logs to `messages`.
+ */
 const NO_REPLY = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
 /**
  * Inbound SMS webhook (PRD 4.3).
  *
- * Creates or updates the contact, logs the message, and returns empty TwiML.
- * The `keyword` trigger (step 4) hooks in after the duplicate check below, so
- * a redelivered message can't fire an automation twice.
+ * Creates or updates the contact, logs the message, then fires the `keyword`
+ * trigger. The trigger runs after the duplicate check, so a redelivered
+ * message can't fire an automation twice.
  */
 export async function POST(request: Request) {
   const verified = await verifyTwilioRequest(request);
@@ -63,6 +68,14 @@ export async function POST(request: Request) {
     console.log(
       `[twilio/sms] inbound ${messageSid ?? "(no sid)"} from ${from} → contact ${contact.id}`,
     );
+
+    // Keyword trigger (PRD 4.5). Rules whose keyword doesn't match this text
+    // are passed over silently by the engine.
+    await runAutomationsForEvent(supabase, {
+      trigger: "keyword",
+      contact,
+      body,
+    });
   } catch (error) {
     // A 500 makes Twilio retry, which would duplicate the message. Log loudly
     // and acknowledge instead.
