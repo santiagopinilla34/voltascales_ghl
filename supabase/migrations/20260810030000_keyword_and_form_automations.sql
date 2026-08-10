@@ -11,11 +11,16 @@ insert into public.automations (
 values
   (
     '00000000-0000-4000-8000-000000000002',
-    'Keyword: INFO',
+    'Keyword: PRICING',
     'keyword',
-    -- Whole-word, case-insensitive: matches "INFO", "info please", "Info?"
-    -- but not "information".
-    '{"keyword": "INFO", "match": "word"}'::jsonb,
+    -- Whole-word, case-insensitive: matches "PRICING", "pricing?", "what's your
+    -- pricing" but not "pricings".
+    --
+    -- Not INFO: Twilio treats INFO as a reserved HELP-family keyword on US and
+    -- Canadian long codes, answers it itself, and never calls the webhook — so
+    -- a rule keyed on it can never fire. Same goes for HELP, STOP, START, YES,
+    -- CANCEL, END, QUIT, UNSTOP and the rest of the opt-in/opt-out set.
+    '{"keyword": "PRICING", "match": "word"}'::jsonb,
     '{}'::jsonb,
     '[
        {"type": "add_tag", "tag": "info-request"},
