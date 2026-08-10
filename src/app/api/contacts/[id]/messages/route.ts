@@ -63,8 +63,9 @@ export async function POST(
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
 
+  let sent;
   try {
-    await sendSms(contact.phone, body);
+    sent = await sendSms(contact.phone, body);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown Twilio error";
     return NextResponse.json(
@@ -82,6 +83,7 @@ export async function POST(
       direction: "out",
       body,
       sent_by: "human",
+      twilio_message_sid: sent.sid,
     })
     .select()
     .single();

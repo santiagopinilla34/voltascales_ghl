@@ -12,8 +12,8 @@ const NO_REPLY = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
  * Inbound SMS webhook (PRD 4.3).
  *
  * Creates or updates the contact, logs the message, and returns empty TwiML.
- * The automation engine (step 4) will hook in here later; for now this only
- * records what came in.
+ * The `keyword` trigger (step 4) hooks in after the duplicate check below, so
+ * a redelivered message can't fire an automation twice.
  */
 export async function POST(request: Request) {
   const verified = await verifyTwilioRequest(request);
@@ -35,15 +35,29 @@ export async function POST(request: Request) {
     const supabase = createAdminClient();
     const contact = await findOrCreateContactByPhone(supabase, from);
 
-    const { error } = await supabase.from("messages").insert({
-      contact_id: contact.id,
-      direction: "in",
-      body,
-      sent_by: "human",
-    });
+    // Idempotent on MessageSid: a replayed or retried delivery hits the unique
+    // index and inserts nothing. An empty result means this was a duplicate.
+    const { data: logged, error } = await supabase
+      .from("messages")
+      .upsert(
+        {
+          contact_id: contact.id,
+          direction: "in",
+          body,
+          sent_by: "human",
+          twilio_message_sid: messageSid ?? null,
+        },
+        { onConflict: "twilio_message_sid", ignoreDuplicates: true },
+      )
+      .select("id");
 
     if (error) {
       throw new Error(`Failed to log message: ${error.message}`);
+    }
+
+    if (logged.length === 0) {
+      console.log(`[twilio/sms] duplicate delivery for ${messageSid}, ignored`);
+      return twimlResponse(NO_REPLY);
     }
 
     console.log(

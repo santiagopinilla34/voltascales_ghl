@@ -63,6 +63,7 @@ export type Database = {
           direction: MessageDirection;
           body: string | null;
           sent_by: MessageSender;
+          twilio_message_sid: string | null;
           created_at: string;
         };
         Insert: {
@@ -71,6 +72,7 @@ export type Database = {
           direction: MessageDirection;
           body?: string | null;
           sent_by: MessageSender;
+          twilio_message_sid?: string | null;
           created_at?: string;
         };
         Update: {
@@ -79,6 +81,7 @@ export type Database = {
           direction?: MessageDirection;
           body?: string | null;
           sent_by?: MessageSender;
+          twilio_message_sid?: string | null;
           created_at?: string;
         };
         Relationships: [
@@ -97,6 +100,7 @@ export type Database = {
           direction: CallDirection;
           status: CallStatus;
           duration: number | null;
+          twilio_call_sid: string | null;
           created_at: string;
         };
         Insert: {
@@ -105,6 +109,7 @@ export type Database = {
           direction: CallDirection;
           status: CallStatus;
           duration?: number | null;
+          twilio_call_sid?: string | null;
           created_at?: string;
         };
         Update: {
@@ -113,6 +118,7 @@ export type Database = {
           direction?: CallDirection;
           status?: CallStatus;
           duration?: number | null;
+          twilio_call_sid?: string | null;
           created_at?: string;
         };
         Relationships: [
