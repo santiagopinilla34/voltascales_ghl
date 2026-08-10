@@ -1,5 +1,13 @@
 import { redirect } from "next/navigation";
 
+import { AppSidebar } from "@/components/app-sidebar";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 import { createClient } from "@/lib/supabase/server";
 
 import { signOut } from "./actions";
@@ -7,8 +15,13 @@ import { signOut } from "./actions";
 /**
  * Shell for every authenticated page.
  *
- * The middleware already redirects anonymous requests, but this re-checks on
- * the server so a page can never render without a verified user.
+ * The proxy already redirects anonymous requests, but this re-checks on the
+ * server so a page can never render without a verified user.
+ *
+ * The shell owns no scrolling of its own: `SidebarInset` is a flex column and
+ * each page decides what scrolls inside it. The Inbox needs its two panes to
+ * scroll independently against a fixed viewport, which a page-level scroll
+ * container would make impossible.
  */
 export default async function AppLayout({
   children,
@@ -25,22 +38,24 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-3">
-        <span className="text-sm font-semibold tracking-tight">VoltaScales</span>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-neutral-500">{user.email}</span>
-          <form action={signOut}>
-            <button
-              type="submit"
-              className="text-sm text-neutral-500 transition hover:text-neutral-900"
-            >
-              Sign out
-            </button>
-          </form>
-        </div>
-      </header>
-      <main className="flex-1 px-6 py-6">{children}</main>
-    </div>
+    // Radix tooltips throw outside a provider, and both the thread timestamps
+    // and the sidebar's collapsed-icon labels use them.
+    <TooltipProvider>
+      <SidebarProvider>
+        <AppSidebar email={user.email ?? "Signed in"} signOut={signOut} />
+        <SidebarInset className="h-dvh min-w-0 overflow-hidden">
+          {/* Only reason for a top bar: somewhere to hang the collapse control,
+              which is the sidebar's only affordance on mobile. */}
+          <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4 md:hidden">
+            <SidebarTrigger />
+            <span className="text-sm font-semibold tracking-tight">
+              VoltaScales
+            </span>
+          </div>
+          {children}
+        </SidebarInset>
+        <Toaster position="top-center" />
+      </SidebarProvider>
+    </TooltipProvider>
   );
 }

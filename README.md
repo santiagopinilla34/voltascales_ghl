@@ -57,7 +57,7 @@ users to sign up**.
 npm run dev
 ```
 
-http://localhost:3000 redirects to `/dashboard`, which redirects to `/login`
+http://localhost:3000 redirects to `/inbox`, which redirects to `/login`
 until you sign in.
 
 ## Scripts

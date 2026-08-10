@@ -23,7 +23,7 @@ values
     '{"keyword": "PRICING", "match": "word"}'::jsonb,
     '{}'::jsonb,
     '[
-       {"type": "add_tag", "tag": "info-request"},
+       {"type": "add_tag", "tag": "pricing-request"},
        {"type": "send_sms", "template": "Thanks for reaching out — someone will get back to you shortly."}
      ]'::jsonb,
     true

@@ -52,6 +52,12 @@ export const serverEnv = {
   /**
    * Real phone that inbound calls are forwarded to. Not in PRD section 7 —
    * added in step 2 because <Dial> needs a destination.
+   *
+   * No longer the only source: `settings.forward_to_number` takes precedence,
+   * and this is the fallback. Nothing calls this getter now — the voice webhook
+   * goes through `resolveForwardToNumber`, which reads the environment without
+   * throwing so an unset value can fall through to the settings row instead of
+   * failing the call. Kept as the documented home of the variable.
    */
   get twilioForwardToNumber() {
     return required(

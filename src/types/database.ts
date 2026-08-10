@@ -23,6 +23,16 @@ export type CallStatus = "missed" | "answered" | "voicemail";
 export type AutomationTriggerType = "missed_call" | "keyword" | "form_submit";
 export type AutomationRunStatus = "success" | "failed" | "skipped";
 
+/** Mirrors `settings_ai_mode_check`. */
+export type AiMode = "off" | "draft" | "live";
+/** Mirrors `settings_ai_model_check`. Adding one needs a migration. */
+export type AiModel =
+  | "claude-sonnet-5"
+  | "claude-opus-4-8"
+  | "claude-haiku-4-5-20251001";
+/** Mirrors `ai_drafts_source_check`. */
+export type AiDraftSource = "shadow" | "preview";
+
 export type Database = {
   public: {
     Tables: {
@@ -163,6 +173,88 @@ export type Database = {
         };
         Relationships: [];
       };
+      settings: {
+        Row: {
+          id: boolean;
+          ai_system_prompt: string;
+          ai_mode: AiMode;
+          ai_model: AiModel;
+          notification_email: string | null;
+          forward_to_number: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: boolean;
+          ai_system_prompt?: string;
+          ai_mode?: AiMode;
+          ai_model?: AiModel;
+          notification_email?: string | null;
+          forward_to_number?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          id?: boolean;
+          ai_system_prompt?: string;
+          ai_mode?: AiMode;
+          ai_model?: AiModel;
+          notification_email?: string | null;
+          forward_to_number?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      ai_drafts: {
+        Row: {
+          id: string;
+          contact_id: string;
+          message_id: string | null;
+          body: string;
+          needs_human: boolean;
+          model: string;
+          source: AiDraftSource;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          contact_id: string;
+          message_id?: string | null;
+          body: string;
+          needs_human?: boolean;
+          model: string;
+          source: AiDraftSource;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          contact_id?: string;
+          message_id?: string | null;
+          body?: string;
+          needs_human?: boolean;
+          model?: string;
+          source?: AiDraftSource;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_drafts_contact_id_fkey";
+            columns: ["contact_id"];
+            referencedRelation: "contacts";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ai_drafts_message_id_fkey";
+            columns: ["message_id"];
+            referencedRelation: "messages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       automation_runs: {
         Row: {
           id: string;
@@ -225,3 +317,5 @@ export type Message = Tables<"messages">;
 export type Call = Tables<"calls">;
 export type Automation = Tables<"automations">;
 export type AutomationRun = Tables<"automation_runs">;
+export type Settings = Tables<"settings">;
+export type AiDraft = Tables<"ai_drafts">;

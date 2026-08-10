@@ -2,9 +2,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Contact, Database } from "@/types/database";
+import type { Call, Contact, Database } from "@/types/database";
 
-const UNIQUE_VIOLATION = "23505";
+export const UNIQUE_VIOLATION = "23505";
 
 /**
  * Coerces a phone number to E.164, the format Twilio sends and `contacts.phone`
@@ -93,4 +93,82 @@ export async function findOrCreateContactByPhone(
   throw new Error(
     `Failed to create contact ${phone}: ${insertError?.message ?? "unknown error"}`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard queries (step 6)
+// ---------------------------------------------------------------------------
+
+export type ContactWithActivity = Contact & {
+  /** Newest message or call, or the contact's own creation if neither. */
+  lastActivityAt: string;
+  messageCount: number;
+  callCount: number;
+};
+
+/**
+ * Every contact for the Contacts table, most recently active first.
+ *
+ * "Last activity" here counts calls as well as messages — unlike the Inbox,
+ * which is a list of conversations and orders by message alone. Someone who
+ * only ever calls still belongs at the top of a CRM contact list.
+ *
+ * One round trip: PostgREST applies each embedded resource's own order/limit
+ * per parent row. The counts come back as separate embeds because a count
+ * aggregate and a limited row set can't be asked for in the same embed.
+ */
+export async function listContactsWithActivity(
+  supabase: SupabaseClient<Database>,
+): Promise<ContactWithActivity[]> {
+  const { data, error } = await supabase
+    .from("contacts")
+    .select(
+      `*,
+       messages ( created_at ),
+       calls ( created_at ),
+       messageCount:messages ( count ),
+       callCount:calls ( count )`,
+    )
+    .order("created_at", { referencedTable: "messages", ascending: false })
+    .limit(1, { referencedTable: "messages" })
+    .order("created_at", { referencedTable: "calls", ascending: false })
+    .limit(1, { referencedTable: "calls" });
+
+  if (error) {
+    throw new Error(`Failed to load contacts: ${error.message}`);
+  }
+
+  return (data ?? [])
+    .map(({ messages, calls, messageCount, callCount, ...contact }) => {
+      const stamps = [messages.at(0)?.created_at, calls.at(0)?.created_at].filter(
+        (value): value is string => Boolean(value),
+      );
+
+      return {
+        ...contact,
+        lastActivityAt:
+          stamps.sort((a, b) => b.localeCompare(a)).at(0) ?? contact.created_at,
+        messageCount: messageCount.at(0)?.count ?? 0,
+        callCount: callCount.at(0)?.count ?? 0,
+      };
+    })
+    .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+}
+
+/** Call history for one contact, newest first. */
+export async function listCalls(
+  supabase: SupabaseClient<Database>,
+  contactId: string,
+): Promise<Call[]> {
+  const { data, error } = await supabase
+    .from("calls")
+    .select("*")
+    .eq("contact_id", contactId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to load calls: ${error.message}`);
+  }
+
+  return data ?? [];
 }
