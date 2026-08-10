@@ -5,6 +5,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { serverEnv } from "@/lib/env";
 import type { AiModel } from "@/types/database";
 
+import { looksCorrupted } from "./integrity";
 import type { ConversationTurn } from "./prompt";
 
 /**
@@ -37,20 +38,41 @@ const MAX_RETRIES = 1;
 /**
  * Per-model request shaping.
  *
- * The three models do not share a request surface: `effort` is rejected
- * outright by Haiku 4.5, and thinking is configured differently on each
- * generation. Encoded as data rather than discovered at runtime, because the
- * failure mode is a 400 in the middle of a live conversation.
+ * `effort` is rejected outright by Haiku 4.5, so it cannot be sent
+ * unconditionally. Encoded as data rather than discovered at runtime, because
+ * the failure mode is a 400 in the middle of a live conversation.
+ *
+ * Thinking is off everywhere — see THINKING below.
  */
-const MODEL_CAPABILITIES: Record<AiModel, { effort: boolean; thinking: boolean }> = {
-  // Adaptive thinking is the default; effort supports the full ladder.
-  "claude-sonnet-5": { effort: true, thinking: true },
-  // Adaptive is the only on-mode, and omitting `thinking` means none at all.
-  "claude-opus-4-8": { effort: true, thinking: true },
-  // Older generation: `effort` errors, and thinking needs a token budget.
-  // Omitted entirely — for a 300-character reply the latency isn't worth it.
-  "claude-haiku-4-5-20251001": { effort: false, thinking: false },
+const MODEL_SUPPORTS_EFFORT: Record<AiModel, boolean> = {
+  "claude-sonnet-5": true,
+  "claude-opus-4-8": true,
+  // Older generation: `effort` errors on this model.
+  "claude-haiku-4-5-20251001": false,
 };
+
+/**
+ * Thinking is disabled for this task.
+ *
+ * Writing one short text message needs no reasoning, and leaving thinking on
+ * cost more than it bought:
+ *
+ * - A draft generated in testing came back visibly corrupted — the reply began
+ *   mid-word and had words missing from the middle. It was the one generation
+ *   where heavy thinking occurred (294 output tokens against 26–107 in every
+ *   clean run), on an input byte-identical to a clean generation seconds
+ *   earlier. 27 attempts could not reproduce it, so this is a correlation
+ *   rather than a proven cause — but the state it correlates with buys us
+ *   nothing here.
+ * - It made `outputTokens` useless as an integrity signal, because thinking
+ *   tokens are counted in it. With thinking off the count tracks the reply,
+ *   which is what makes the check below possible at all.
+ * - On a 6-case handoff test, thinking off scored 6/6 against 5/6 with it on,
+ *   at comparable latency. There was no accuracy to protect.
+ */
+const THINKING = { type: "disabled" as const };
+
+/** Reply sanity checks live in `integrity.ts`, kept pure so they're testable. */
 
 /**
  * The model's output contract.
@@ -161,21 +183,48 @@ export async function generateAiReply({
     return { ok: false, error: "No AI system prompt is configured", retryable: false };
   }
 
-  const capabilities = MODEL_CAPABILITIES[model];
+  // The integrity check below rejects a visibly damaged reply. That failure has
+  // only ever been seen once in ~30 generations, so a single retry is very
+  // likely to succeed — and retrying is far better than the alternatives, which
+  // are sending a mangled text or going silent on a lead.
+  let lastError = "";
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const result = await attemptGeneration({ systemPrompt, model, conversation });
 
+    if (result.ok || !result.regenerate) {
+      return result.ok ? result : { ok: false, error: result.error, retryable: result.retryable };
+    }
+
+    lastError = result.error;
+    console.warn(`[ai] discarding attempt ${attempt}: ${result.error}`);
+  }
+
+  return { ok: false, error: lastError, retryable: true };
+}
+
+type Attempt =
+  | (Extract<AiReplyResult, { ok: true }> & { regenerate?: false })
+  | { ok: false; error: string; retryable: boolean; regenerate: boolean };
+
+async function attemptGeneration({
+  systemPrompt,
+  model,
+  conversation,
+}: {
+  systemPrompt: string;
+  model: AiModel;
+  conversation: ConversationTurn[];
+}): Promise<Attempt> {
   try {
     const response = await client().messages.create({
       model,
       max_tokens: MAX_TOKENS,
       system: systemPrompt,
       messages: conversation,
-      ...(capabilities.thinking ? { thinking: { type: "adaptive" as const } } : {}),
+      thinking: THINKING,
       output_config: {
-        // Low effort keeps latency down for a short reply. Thinking stays on
-        // where supported rather than being disabled — on current models
-        // disabling it can leak internal tags into the visible response, and
-        // that response goes straight to a customer.
-        ...(capabilities.effort ? { effort: "low" as const } : {}),
+        // Low effort keeps latency down for a reply that needs no deliberation.
+        ...(MODEL_SUPPORTS_EFFORT[model] ? { effort: "low" as const } : {}),
         format: { type: "json_schema" as const, schema: OUTPUT_SCHEMA },
       },
     });
@@ -185,36 +234,77 @@ export async function generateAiReply({
         ok: false,
         error: `Model declined to answer (${response.stop_details?.category ?? "unspecified"})`,
         retryable: false,
+        regenerate: false,
       };
     }
     if (response.stop_reason === "max_tokens") {
       // The JSON is truncated, so there is nothing safe to parse.
-      return { ok: false, error: "Reply hit the token limit", retryable: true };
+      return {
+        ok: false,
+        error: "Reply hit the token limit",
+        retryable: true,
+        regenerate: false,
+      };
     }
 
-    const text = response.content.find((block) => block.type === "text")?.text;
+    // Every text block, concatenated — not just the first. A response has only
+    // ever contained one, but taking `[0]` of a split payload would parse a
+    // fragment as if it were whole, which is precisely the class of bug this
+    // function must not have.
+    const text = response.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+
     if (!text) {
-      return { ok: false, error: "Model returned no text", retryable: true };
+      return {
+        ok: false,
+        error: "Model returned no text",
+        retryable: true,
+        regenerate: false,
+      };
     }
 
     let parsed: { reply?: unknown; needs_human?: unknown };
     try {
       parsed = JSON.parse(text) as typeof parsed;
     } catch {
-      return { ok: false, error: "Model returned unparseable JSON", retryable: true };
+      return {
+        ok: false,
+        error: "Model returned unparseable JSON",
+        retryable: true,
+        regenerate: true,
+      };
     }
 
     const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
     if (!reply) {
-      return { ok: false, error: "Model returned an empty reply", retryable: true };
+      return {
+        ok: false,
+        error: "Model returned an empty reply",
+        retryable: true,
+        regenerate: true,
+      };
+    }
+
+    const corruption = looksCorrupted(reply, response.usage.output_tokens);
+    if (corruption) {
+      return {
+        ok: false,
+        error: `Discarded a malformed reply: ${corruption}`,
+        retryable: true,
+        regenerate: true,
+      };
     }
     if (reply.length > MAX_SMS_LENGTH) {
       // Refused rather than truncated: cutting a message mid-sentence sends a
-      // lead something that reads as broken.
+      // lead something that reads as broken. Worth another attempt — an
+      // over-long reply is usually a one-off, not a property of the thread.
       return {
         ok: false,
         error: `Reply is ${reply.length} characters, over the ${MAX_SMS_LENGTH} SMS limit`,
         retryable: false,
+        regenerate: true,
       };
     }
 
@@ -231,6 +321,8 @@ export async function generateAiReply({
   } catch (error) {
     const described = describeError(error);
     console.error(`[ai] generation failed: ${described.error}`);
-    return { ok: false, ...described };
+    // Transport and API failures are the SDK's to retry; regenerating here
+    // would stack another round of attempts on top of the ones it already made.
+    return { ok: false, ...described, regenerate: false };
   }
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { InboxPanes } from "@/components/inbox/inbox-panes";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { listConversations } from "@/lib/conversations";
 import { createClient } from "@/lib/supabase/server";
 
@@ -20,5 +21,12 @@ export default async function InboxLayout({
   const supabase = await createClient();
   const conversations = await listConversations(supabase);
 
-  return <InboxPanes conversations={conversations}>{children}</InboxPanes>;
+  return (
+    <>
+      {/* In the layout, not the thread page, so the conversation list restacks
+          on a new message even when no conversation is open. */}
+      <RealtimeRefresh channel="inbox" />
+      <InboxPanes conversations={conversations}>{children}</InboxPanes>
+    </>
+  );
 }

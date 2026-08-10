@@ -4,10 +4,12 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { StatusBadge } from "@/components/contacts/status-badge";
+import { AiPreviewPanel } from "@/components/inbox/ai-preview-panel";
 import { AiToggle } from "@/components/inbox/ai-toggle";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ReplyBox } from "@/components/inbox/reply-box";
 import { Button } from "@/components/ui/button";
+import { getLatestDraft } from "@/lib/ai/drafts";
 import { getContact, listMessages } from "@/lib/conversations";
 import { contactLabel, formatPhone } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
@@ -37,7 +39,10 @@ export default async function ThreadPage({ params }: PageProps) {
     notFound();
   }
 
-  const messages = await listMessages(supabase, contact.id);
+  const [messages, latestDraft] = await Promise.all([
+    listMessages(supabase, contact.id),
+    getLatestDraft(supabase, contact.id),
+  ]);
   const label = contactLabel(contact);
 
   return (
@@ -75,6 +80,8 @@ export default async function ThreadPage({ params }: PageProps) {
       </header>
 
       <MessageThread messages={messages} />
+
+      <AiPreviewPanel contactId={contact.id} latestDraft={latestDraft} />
 
       <ReplyBox
         contactId={contact.id}

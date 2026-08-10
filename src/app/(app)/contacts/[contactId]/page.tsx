@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/contacts/status-badge";
 import { AiToggle } from "@/components/inbox/ai-toggle";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ReplyBox } from "@/components/inbox/reply-box";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getContact, listMessages } from "@/lib/conversations";
@@ -49,6 +50,10 @@ export default async function ContactDetailPage({ params }: PageProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* This page renders the same thread as the Inbox, so it needs the same
+          live updates. */}
+      <RealtimeRefresh channel="contact-detail" />
+
       <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 md:px-4">
         <Button
           asChild
