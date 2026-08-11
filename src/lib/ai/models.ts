@@ -30,8 +30,9 @@ export const AI_MODE_OPTIONS: {
     label: "Live",
     description:
       "Texts the reply back automatically, to contacts with AI handling on. " +
-      "If the model asks for a human, nothing is sent: AI handling switches " +
-      "off for that contact and the reply waits in the Inbox as a draft.",
+      "When the model hands the conversation over, it sends that reply too — " +
+      "the sign-off the lead should get — and then switches AI handling off " +
+      "for that contact.",
   },
 ];
 

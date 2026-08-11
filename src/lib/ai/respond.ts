@@ -28,10 +28,10 @@ import { buildConversation, canReply } from "./prompt";
 /** Everything that stops a generated reply from being sent. Logged, not thrown. */
 type Held =
   | "ai_mode is draft"
-  | "the model asked for a human"
   | "AI handling is off for this contact"
   | "a newer inbound message has arrived"
-  | "could not confirm it was safe to send";
+  | "could not confirm it was safe to send"
+  | "Twilio rejected the message";
 
 export async function respondToInbound(
   supabase: SupabaseClient<Database>,
@@ -174,14 +174,6 @@ async function deliver(
     return "ai_mode is draft";
   }
 
-  // PRD 5 calls this the most important rule in the app. The model raising it
-  // does two things: the reply is held back, and the contact stops being the
-  // AI's to answer until a human turns it back on by hand.
-  if (needsHuman) {
-    await disableAi(supabase, contact.id, "the model asked for a human");
-    return "the model asked for a human";
-  }
-
   // Re-read rather than trusting the `contact` row the webhook loaded. Minutes
   // can pass between that read and this send: generation is slow, and a manual
   // reply in the meantime is a human takeover that flips this flag off. Sending
@@ -229,7 +221,19 @@ async function deliver(
     return "a newer inbound message has arrived";
   }
 
-  const sent = await sendSms(contact.phone, reply);
+  let sent;
+  try {
+    sent = await sendSms(contact.phone, reply);
+  } catch (error) {
+    // Held rather than thrown so the hand-off below doesn't run: nothing
+    // reached the contact, so this conversation has not actually been passed
+    // to a human yet and the next inbound text should still get an answer.
+    console.error(
+      `[ai] Twilio rejected the reply for contact ${contact.id}`,
+      error,
+    );
+    return "Twilio rejected the message";
+  }
 
   // Logged only after Twilio accepts it, so the thread never shows a message
   // that was never sent — same ordering as the manual reply route and the
@@ -249,6 +253,17 @@ async function deliver(
       `[ai] SMS ${sent.sid} sent to contact ${contact.id} but not logged to messages`,
       logError,
     );
+  }
+
+  // The hand-off happens *after* the reply is out, and this ordering is the
+  // whole point. The prompt tells the model to sign off — "someone will follow
+  // up shortly" — and raise `needs_human` on the same reply. Turning AI off
+  // first would swallow exactly that sentence, leaving the lead with silence
+  // straight after they answered a question. Send the goodbye, then stop
+  // answering: the contact is a human's from here until someone turns AI back
+  // on by hand.
+  if (needsHuman) {
+    await disableAi(supabase, contact.id, "the model handed the conversation over");
   }
 
   return null;

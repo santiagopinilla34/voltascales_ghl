@@ -96,17 +96,19 @@ export async function POST(
     outputTokens: result.outputTokens,
   });
 
-  // The same gates the live path will apply, evaluated but not enforced, so
-  // the preview says plainly whether this would have gone out.
+  // The same gates the live path applies, evaluated but not enforced, so the
+  // preview says plainly whether this would have gone out.
+  //
+  // `needs_human` is deliberately absent: it no longer blocks a send. The live
+  // path texts the reply — which is the model's sign-off — and only then turns
+  // AI off for the contact. The draft's `needs_human` flag is what the Inbox
+  // renders to say so.
   const blockedBy: string[] = [];
   if (settings.ai_mode !== "live") {
     blockedBy.push(`AI mode is "${settings.ai_mode}"`);
   }
   if (!contact.ai_enabled) {
     blockedBy.push("AI handling is off for this contact");
-  }
-  if (result.needsHuman) {
-    blockedBy.push("the model asked for a human");
   }
 
   return NextResponse.json(

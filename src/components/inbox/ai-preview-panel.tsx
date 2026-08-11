@@ -116,7 +116,7 @@ export function AiPreviewPanel({
                 variant="secondary"
                 className="border-transparent bg-amber-100 text-[10px] font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-300"
               >
-                Wants a human
+                {sent ? "Handed off to you" : "Hands off after sending"}
               </Badge>
             )}
             <Button
