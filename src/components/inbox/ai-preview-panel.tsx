@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Loader2, Sparkles, TriangleAlert, X } from "lucide-react";
+import { Check, Copy, Loader2, Send, Sparkles, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { aiModelLabel } from "@/lib/ai/models";
 import { formatFullTimestamp } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { AiDraft } from "@/types/database";
 
 type PreviewResponse = {
@@ -18,11 +19,16 @@ type PreviewResponse = {
 };
 
 /**
- * Generates an AI reply on demand and shows it. Never sends.
+ * Shows the newest AI reply for a contact, and generates one on demand.
  *
- * The endpoint behind this cannot send either — it does not import the Twilio
- * client. The only way this text reaches the contact is if you copy it into the
- * reply box and press send yourself.
+ * The button here never sends: the route behind it does not import the Twilio
+ * client, so the only way a reply generated from this panel reaches the contact
+ * is if you copy it into the reply box yourself.
+ *
+ * What it *displays* may well have been sent already — in Live mode the webhook
+ * texts the reply and stamps `sent_at` on the same row. Saying "not sent" over
+ * a message the contact has already received would be worse than saying
+ * nothing, so the header reads that field rather than assuming.
  */
 export function AiPreviewPanel({
   contactId,
@@ -40,6 +46,11 @@ export function AiPreviewPanel({
   // A fresh generation wins; otherwise fall back to whatever was stored.
   const draft = result?.draft ?? latestDraft;
   const visible = draft && !dismissed;
+
+  // Set only by the Live-mode send path. A generation made here is never sent,
+  // so a fresh `result` is always unsent — the two cases stay distinct without
+  // any special-casing of where the draft came from.
+  const sent = Boolean(draft?.sent_at);
 
   async function generate() {
     setPending(true);
@@ -76,11 +87,29 @@ export function AiPreviewPanel({
   return (
     <div className="shrink-0 px-3 pt-3">
       {visible && (
-        <div className="mb-2 rounded-lg border border-violet-200 bg-violet-50/60 p-3 dark:border-violet-900 dark:bg-violet-950/30">
+        <div
+          className={cn(
+            "mb-2 rounded-lg border p-3",
+            sent
+              ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30"
+              : "border-violet-200 bg-violet-50/60 dark:border-violet-900 dark:bg-violet-950/30",
+          )}
+        >
           <div className="mb-1.5 flex items-center gap-2">
-            <Sparkles className="size-3.5 shrink-0 text-violet-700 dark:text-violet-400" />
-            <span className="text-xs font-semibold text-violet-900 dark:text-violet-200">
-              Draft — not sent
+            {sent ? (
+              <Send className="size-3.5 shrink-0 text-emerald-700 dark:text-emerald-400" />
+            ) : (
+              <Sparkles className="size-3.5 shrink-0 text-violet-700 dark:text-violet-400" />
+            )}
+            <span
+              className={cn(
+                "text-xs font-semibold",
+                sent
+                  ? "text-emerald-900 dark:text-emerald-200"
+                  : "text-violet-900 dark:text-violet-200",
+              )}
+            >
+              {sent ? "Sent by AI" : "Draft — not sent"}
             </span>
             {draft.needs_human && (
               <Badge
@@ -128,8 +157,10 @@ export function AiPreviewPanel({
             <span aria-hidden>·</span>
             <span className="tabular-nums">{draft.body.length} chars</span>
             <span aria-hidden>·</span>
-            <time dateTime={draft.created_at}>
-              {formatFullTimestamp(draft.created_at)}
+            {/* Once it has gone out, when it went out is the more useful of the
+                two timestamps — and they are seconds apart anyway. */}
+            <time dateTime={draft.sent_at ?? draft.created_at}>
+              {formatFullTimestamp(draft.sent_at ?? draft.created_at)}
             </time>
 
             <Button

@@ -118,6 +118,23 @@ export async function respondToInbound(
       return;
     }
 
+    // The SMS is already out; this only records that for the Inbox, which
+    // otherwise has no way to tell a sent reply from a held-back one. Logged
+    // rather than thrown for the same reason as the `messages` insert above —
+    // the text cannot be unsent, and nothing here retries.
+    const { error: markError } = await supabase
+      .from("ai_drafts")
+      .update({ sent_at: new Date().toISOString() })
+      .eq("id", draft.id);
+
+    if (markError) {
+      console.error(
+        `[ai] sent the reply for contact ${contact.id} but could not mark draft ${draft.id} as sent — ` +
+          `the Inbox will show it as unsent`,
+        markError,
+      );
+    }
+
     console.log(`[ai] draft ${draft.id} for contact ${contact.id} (${usage}) — sent`);
   } catch (error) {
     // Nothing is awaiting this callback, so an escaping rejection would be

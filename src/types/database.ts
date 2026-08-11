@@ -214,6 +214,7 @@ export type Database = {
           source: AiDraftSource;
           input_tokens: number | null;
           output_tokens: number | null;
+          sent_at: string | null;
           created_at: string;
         };
         Insert: {
@@ -226,6 +227,7 @@ export type Database = {
           source: AiDraftSource;
           input_tokens?: number | null;
           output_tokens?: number | null;
+          sent_at?: string | null;
           created_at?: string;
         };
         Update: {
@@ -238,6 +240,7 @@ export type Database = {
           source?: AiDraftSource;
           input_tokens?: number | null;
           output_tokens?: number | null;
+          sent_at?: string | null;
           created_at?: string;
         };
         Relationships: [
