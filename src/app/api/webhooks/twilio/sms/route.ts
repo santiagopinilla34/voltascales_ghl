@@ -1,6 +1,6 @@
 import { after } from "next/server";
 
-import { generateShadowDraft } from "@/lib/ai/shadow";
+import { respondToInbound } from "@/lib/ai/respond";
 import { runAutomationsForEvent } from "@/lib/automations/engine";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -84,20 +84,20 @@ export async function POST(request: Request) {
     );
 
     // AI reply (PRD 5). Scheduled here rather than after the automations below
-    // so that a throwing automation costs us the automation, not the draft.
+    // so that a throwing automation costs us the automation, not the reply.
     //
     // Registration order is not execution order: `after` runs once the TwiML
     // response is out, so the automations have already finished and any reply
     // they sent is in `messages` by the time the model sees the thread.
-    // Deliberate — an automation that already answered should suppress the
-    // draft rather than race it.
+    // Deliberate — an automation that already answered should suppress the AI
+    // rather than race it into texting the contact twice.
     //
     // Off the response path because a generation can take tens of seconds and
     // Twilio times these out in 15, then retries. A retry would be deduped by
     // MessageSid, but only after burning a second Claude call.
     const [loggedMessage] = logged;
     after(() =>
-      generateShadowDraft(supabase, { contact, messageId: loggedMessage.id }),
+      respondToInbound(supabase, { contact, messageId: loggedMessage.id }),
     );
 
     // Keyword trigger (PRD 4.5). Rules whose keyword doesn't match this text

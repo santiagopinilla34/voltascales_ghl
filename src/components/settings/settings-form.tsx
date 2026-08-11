@@ -119,9 +119,9 @@ export function SettingsForm({
             <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
               <span>
-                Once saved, the AI will text real contacts on its own — every
-                contact whose AI handling is on. Texts cannot be unsent. Read a
-                few drafts first.
+                Once saved, the AI texts contacts on its own — every contact
+                whose AI handling is on, without anyone approving the wording
+                first. Texts cannot be unsent. Read a few drafts first.
               </span>
             </p>
           )}

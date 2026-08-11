@@ -28,7 +28,10 @@ export const AI_MODE_OPTIONS: {
   {
     value: "live",
     label: "Live",
-    description: "Replies are sent by SMS to contacts with AI handling on.",
+    description:
+      "Texts the reply back automatically, to contacts with AI handling on. " +
+      "If the model asks for a human, nothing is sent: AI handling switches " +
+      "off for that contact and the reply waits in the Inbox as a draft.",
   },
 ];
 
