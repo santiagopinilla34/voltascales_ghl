@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { listMessages } from "@/lib/conversations";
+import { notifyHandoff } from "@/lib/notify/handoff";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import type { AiMode, Contact, Database } from "@/types/database";
@@ -264,6 +265,10 @@ async function deliver(
   // on by hand.
   if (needsHuman) {
     await disableAi(supabase, contact.id, "the model handed the conversation over");
+    // Awaited, not fired and forgotten: this runs inside the webhook's
+    // `after()` callback, and an un-awaited promise would race the function
+    // being torn down. Nothing it can do throws.
+    await notifyHandoff(supabase, { contact, reply });
   }
 
   return null;

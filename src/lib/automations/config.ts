@@ -327,9 +327,15 @@ export function explainConditionMismatch(
 export type AutomationAction =
   | { type: "send_sms"; template: string }
   | { type: "add_tag"; tag: string }
-  | { type: "set_status"; status: ContactStatus };
+  | { type: "set_status"; status: ContactStatus }
+  | { type: "notify_me"; note: string };
 
-const SUPPORTED_ACTION_TYPES = ["send_sms", "add_tag", "set_status"] as const;
+const SUPPORTED_ACTION_TYPES = [
+  "send_sms",
+  "add_tag",
+  "set_status",
+  "notify_me",
+] as const;
 
 /**
  * In PRD 4.5 but deliberately not implemented yet, with the reason shown to
@@ -337,11 +343,12 @@ const SUPPORTED_ACTION_TYPES = ["send_sms", "add_tag", "set_status"] as const;
  *
  * - `wait` needs the scheduled runner (`/api/automations/run-scheduled`), which
  *   also means persisting a resume point mid-run.
- * - `notify_me` needs the notification prefs that PRD 9 defers to step 8.
+ *
+ * `notify_me` was here too, waiting on the settings table for somewhere to put
+ * a notification address. That landed, and it now sends email through Resend.
  */
 const DEFERRED_ACTION_TYPES: Record<string, string> = {
   wait: "the scheduled runner is not built yet",
-  notify_me: "notification prefs land with the settings table in step 8",
 };
 
 /**
@@ -411,6 +418,14 @@ export function parseActions(raw: Json): ParseResult<AutomationAction[]> {
           };
         }
         actions.push({ type, status: entry.status });
+        break;
+      }
+
+      case "notify_me": {
+        // Optional, unlike send_sms's template: an alert with no note still
+        // says which contact tripped which rule, which is most of the value.
+        const note = typeof entry.note === "string" ? entry.note.trim() : "";
+        actions.push({ type, note });
         break;
       }
 

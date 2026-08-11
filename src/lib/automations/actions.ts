@@ -2,6 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { appBaseUrl } from "@/lib/env";
+import { contactLabel, formatPhone } from "@/lib/format";
+import { sendEmail } from "@/lib/notify/email";
+import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import type { Contact, Database } from "@/types/database";
 
@@ -44,7 +48,73 @@ export async function executeAction(
       return addTagAction(action.tag, context);
     case "set_status":
       return setStatusAction(action.status, context);
+    case "notify_me":
+      return notifyMeAction(action.note, context);
   }
+}
+
+/**
+ * Emails the operator that this rule fired.
+ *
+ * Unlike `send_sms`, a failure here does not throw and so does not fail the
+ * run. The alert is commentary on the work, not the work: a rule that tags a
+ * contact and emails about it should still apply the tag when the email
+ * bounces. The failure goes in the run detail, which the run log renders.
+ */
+async function notifyMeAction(
+  note: string,
+  { supabase, contact, variables }: ActionContext,
+): Promise<ActionResult> {
+  const settings = await getSettings(supabase);
+  const to = settings?.notification_email?.trim();
+
+  if (!to) {
+    return {
+      summary: "notify_me skipped: no notification email set in Settings",
+      contact,
+    };
+  }
+
+  const { text, unknown } = renderTemplate(note, variables);
+  const label = contactLabel(contact);
+
+  const body = [
+    `${label} triggered an automation.`,
+    "",
+    `Phone: ${formatPhone(contact.phone)}`,
+    ...(text ? ["", text] : []),
+  ];
+
+  const base = appBaseUrl();
+  if (base) {
+    body.push("", `${base}/inbox/${contact.id}`);
+  }
+
+  const result = await sendEmail({
+    to,
+    subject: `VoltaScales: ${label}`,
+    text: body.join("\n"),
+  });
+
+  const notes: string[] = [];
+  if (unknown.length > 0) {
+    notes.push(`unknown placeholders: ${unknown.join(", ")}`);
+  }
+  if (!result.ok) {
+    console.error(
+      `[automations] notify_me failed for contact ${contact.id}: ${result.error}`,
+    );
+    notes.push(`NOT sent: ${result.error}`);
+  }
+
+  const suffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
+
+  return {
+    summary: result.ok
+      ? `notify_me → ${to} [${result.id}]${suffix}`
+      : `notify_me → ${to}${suffix}`,
+    contact,
+  };
 }
 
 async function sendSmsAction(

@@ -18,7 +18,8 @@ export type AiCondition = "any" | "true" | "false";
 export type EditorAction =
   | { type: "send_sms"; template: string }
   | { type: "add_tag"; tag: string }
-  | { type: "set_status"; status: string };
+  | { type: "set_status"; status: string }
+  | { type: "notify_me"; note: string };
 
 export type EditorState = {
   name: string;
@@ -91,10 +92,17 @@ export function toEditorState(automation: Automation): EditorState {
             status: typeof action.status === "string" ? action.status : "new",
           },
         ];
+      case "notify_me":
+        return [
+          {
+            type: "notify_me",
+            note: typeof action.note === "string" ? action.note : "",
+          },
+        ];
       default:
-        // Unsupported or deferred types (`wait`, `notify_me`) are dropped
-        // rather than shown as something the form can't represent. Saving
-        // would rewrite them away, which the editor warns about.
+        // Unsupported or deferred types (`wait`) are dropped rather than shown
+        // as something the form can't represent. Saving would rewrite them
+        // away, which the editor warns about.
         return [];
     }
   });

@@ -85,6 +85,33 @@ export function formWebhookSecret(): string | null {
 }
 
 /**
+ * Resend API key, for notification email (PRD 4.5 `notify_me`, PRD 9).
+ *
+ * Null rather than throwing when unset, deliberately. Every caller is a
+ * notification *about* something else that already happened — an AI hand-off,
+ * an automation run — and none of them should fail because the alert couldn't
+ * go out. They log the miss and carry on.
+ */
+export function resendApiKey(): string | null {
+  const value = process.env.RESEND_API_KEY?.trim();
+  return value ? value : null;
+}
+
+/**
+ * Who notification email comes from.
+ *
+ * Defaults to Resend's shared sender, which needs no DNS setup but will only
+ * deliver to the address the Resend account was registered with. That is
+ * exactly the shape of these alerts — they go to the operator, not to leads —
+ * so the default is the whole configuration for now. Verifying a domain with
+ * Resend and setting this is what changes if that ever stops being true.
+ */
+export function notifyFromAddress(): string {
+  const value = process.env.NOTIFY_FROM_EMAIL?.trim();
+  return value || "VoltaScales <onboarding@resend.dev>";
+}
+
+/**
  * Public origin Twilio reaches this app on — the ngrok URL locally, the
  * deployment URL in production. Not in PRD section 7; added in step 2.
  *

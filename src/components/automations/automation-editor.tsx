@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   Loader2,
+  Mail,
   MessageSquare,
   Plus,
   Tag,
@@ -64,6 +65,7 @@ const ACTION_META = {
   send_sms: { label: "Send SMS", Icon: MessageSquare },
   add_tag: { label: "Add tag", Icon: Tag },
   set_status: { label: "Set status", Icon: ToggleRight },
+  notify_me: { label: "Email me", Icon: Mail },
 } as const;
 
 function newAction(type: EditorAction["type"]): EditorAction {
@@ -74,6 +76,8 @@ function newAction(type: EditorAction["type"]): EditorAction {
       return { type: "add_tag", tag: "" };
     case "set_status":
       return { type: "set_status", status: "active" };
+    case "notify_me":
+      return { type: "notify_me", note: "" };
   }
 }
 
@@ -456,6 +460,25 @@ export function AutomationEditor({
                     disabled={pending}
                     aria-label="Tag to add"
                   />
+                )}
+
+                {action.type === "notify_me" && (
+                  <div className="grid gap-1.5">
+                    <Textarea
+                      value={action.note}
+                      onChange={(event) =>
+                        patchAction(index, { note: event.target.value })
+                      }
+                      rows={2}
+                      disabled={pending}
+                      placeholder="Optional note to include — e.g. {{name}} asked about pricing"
+                      aria-label="Note to include in the email"
+                    />
+                    <p className="text-muted-foreground text-xs">
+                      Goes to the notification email in Settings. The contact and
+                      a link to the thread are always included.
+                    </p>
+                  </div>
                 )}
 
                 {action.type === "set_status" && (
