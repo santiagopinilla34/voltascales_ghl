@@ -102,7 +102,12 @@ export function AiPreviewPanel({
             </Button>
           </div>
 
-          <p className="text-sm break-words whitespace-pre-wrap">{draft.body}</p>
+          {/* Capped because this panel is `shrink-0`: a draft near the 1600-char
+              SMS limit would otherwise squeeze the thread above it to nothing
+              and then push past the bottom of the pane. */}
+          <p className="max-h-32 overflow-y-auto text-sm break-words whitespace-pre-wrap">
+            {draft.body}
+          </p>
 
           {result && !result.wouldSend && (
             <p className="text-muted-foreground mt-2 flex items-start gap-1.5 text-[11px]">

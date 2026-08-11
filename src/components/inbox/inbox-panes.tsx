@@ -35,9 +35,13 @@ export function InboxPanes({
         <ConversationList conversations={conversations} />
       </div>
 
+      {/* `overflow-hidden` is load-bearing, not cosmetic: without it a child
+          taller than the pane spills into the app shell, which is `h-dvh
+          overflow-hidden` and so clips it with no way to scroll it back. The
+          thread inside is the one thing that scrolls. */}
       <div
         className={cn(
-          "h-full min-w-0 flex-1 flex-col",
+          "h-full min-w-0 flex-1 flex-col overflow-hidden",
           selected ? "flex" : "hidden md:flex",
         )}
       >

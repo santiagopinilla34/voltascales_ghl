@@ -31,13 +31,24 @@ function senderOf(message: Message) {
 }
 
 export function MessageThread({ messages }: { messages: Message[] }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Jump to the newest message on open and after each send. `instant` on first
   // paint so the thread doesn't visibly scroll itself on arrival.
+  //
+  // Scrolls this container directly rather than calling `scrollIntoView` on a
+  // sentinel at the bottom. `scrollIntoView` adjusts *every* scrollable
+  // ancestor, and an `overflow-hidden` ancestor still scrolls programmatically
+  // — so it dragged the app shell up and clipped the thread header off the top
+  // of the screen, where nothing could scroll it back. Setting `scrollTop` here
+  // cannot move anything but this element.
   const firstRender = useRef(true);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
+    const container = scrollRef.current;
+    if (!container) return;
+
+    container.scrollTo({
+      top: container.scrollHeight,
       behavior: firstRender.current ? "instant" : "smooth",
     });
     firstRender.current = false;
@@ -63,7 +74,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
   );
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
       <div className="mx-auto flex max-w-2xl flex-col gap-1">
         {messages.map((message, index) => {
           const outbound = message.direction === "out";
@@ -140,7 +151,6 @@ export function MessageThread({ messages }: { messages: Message[] }) {
             </div>
           );
         })}
-        <div ref={bottomRef} />
       </div>
     </div>
   );
