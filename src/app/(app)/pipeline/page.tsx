@@ -21,16 +21,18 @@ export default async function PipelinePage() {
     // region. The board scrolls horizontally inside it rather than the page.
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
-        <div className="flex items-baseline gap-2">
-          <h1 className="text-sm font-semibold tracking-tight">Pipeline</h1>
-          <span className="text-muted-foreground text-xs tabular-nums">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h1 className="truncate text-sm font-semibold tracking-tight">
+            Pipeline
+          </h1>
+          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
             {total}
           </span>
         </div>
         <AddToPipelineDialog candidates={candidates} />
       </header>
 
-      <div className="min-h-0 flex-1 p-4">
+      <div className="min-h-0 min-w-0 flex-1 p-4">
         <PipelineBoard columns={columns} />
       </div>
     </div>

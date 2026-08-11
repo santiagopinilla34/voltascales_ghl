@@ -69,14 +69,17 @@ export default async function AutomationDetailPage({ params }: PageProps) {
 
       {/* Editor and log side by side on wide screens: the log is what tells you
           whether the edit you just made did what you meant. */}
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      {/* One scrolling column below `lg`: the editor and the log each expect to
+          scroll inside a fixed-height pane, which a phone viewport cannot give
+          both of them without clipping one against the shell's overflow. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+        <div className="min-w-0 flex-1 px-4 py-4 lg:min-h-0 lg:overflow-y-auto">
           <div className="mx-auto max-w-xl">
             <AutomationEditor automation={automation} />
           </div>
         </div>
 
-        <aside className="w-full shrink-0 overflow-y-auto border-t p-4 lg:w-96 lg:border-t-0 lg:border-l">
+        <aside className="w-full min-w-0 border-t p-4 lg:w-96 lg:shrink-0 lg:overflow-y-auto lg:border-t-0 lg:border-l">
           <h2 className="mb-3 text-sm font-semibold tracking-tight">
             Run log
             {runs.length > 0 && (

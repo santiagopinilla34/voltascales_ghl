@@ -4,9 +4,9 @@ import { findOrCreateContactByPhone } from "@/lib/contacts";
 import { resolveForwardToNumber } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  publicUrlFor,
   twimlResponse,
   verifyTwilioRequest,
+  webhookUrl,
 } from "@/lib/twilio/webhook";
 
 export const runtime = "nodejs";
@@ -63,19 +63,27 @@ export async function POST(request: Request) {
     return twimlResponse(misconfigured.toString());
   }
 
-  const statusUrl = new URL(publicUrlFor(request));
-  statusUrl.pathname = "/api/webhooks/twilio/voice/status";
-  statusUrl.search = "";
-
   const response = new twilio.twiml.VoiceResponse();
   const dial = response.dial({
     timeout: DIAL_TIMEOUT_SECONDS,
-    action: statusUrl.toString(),
+    action: webhookUrl(request, "/api/webhooks/twilio/voice/status"),
     method: "POST",
     // Show the caller's number, not the Twilio number, on the forwarded leg.
     callerId: from,
   });
-  dial.number(forwardTo);
+
+  // Screened rather than connected outright: `url` runs TwiML on the forwarded
+  // leg before the parties are bridged, and that leg has to press a key to be
+  // connected. Without it, carrier voicemail answering the call is reported as
+  // DialCallStatus=completed and is indistinguishable from a real pickup — the
+  // reason declined calls were logged as answered and never auto-texted.
+  dial.number(
+    {
+      url: webhookUrl(request, "/api/webhooks/twilio/voice/screen"),
+      method: "POST",
+    },
+    forwardTo,
+  );
 
   return twimlResponse(response.toString());
 }

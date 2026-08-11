@@ -34,6 +34,20 @@ export function publicUrlFor(request: Request): string {
   return requestUrl.toString();
 }
 
+/**
+ * Absolute URL for a sibling webhook, built the same way Twilio will sign it.
+ *
+ * Every TwiML callback URL has to survive `verifyTwilioRequest` on the way back
+ * in, which reconstructs the URL with `publicUrlFor`. Deriving both from the
+ * same function is what keeps them in agreement behind ngrok and Vercel.
+ */
+export function webhookUrl(request: Request, pathname: string): string {
+  const url = new URL(publicUrlFor(request));
+  url.pathname = pathname;
+  url.search = "";
+  return url.toString();
+}
+
 export type VerifiedWebhook =
   | { ok: true; params: TwilioParams; url: string }
   | { ok: false; status: number; reason: string };

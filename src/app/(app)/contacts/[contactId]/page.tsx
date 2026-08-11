@@ -85,9 +85,17 @@ export default async function ContactDetailPage({ params }: PageProps) {
       </header>
 
       {/* Thread on the left, record on the right. Stacks below `lg`, where two
-          columns would leave neither wide enough to read. */}
-      <div className="flex min-h-0 flex-1 flex-col-reverse lg:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col border-t lg:border-t-0">
+          columns would leave neither wide enough to read.
+
+          Below `lg` this is one ordinary scrolling column. The two-pane version
+          relies on each pane scrolling inside a fixed-height shell, and on a
+          phone that shell is shorter than either pane's content — so both panes
+          were being clipped by the app's `overflow-hidden` with no way to
+          scroll to what had been cut off. */}
+      <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto lg:flex-row lg:overflow-hidden">
+        {/* A floor on mobile so the thread stays readable once the details
+            panel below it is competing for the same column. */}
+        <div className="flex min-h-[60vh] min-w-0 flex-1 flex-col border-t lg:min-h-0 lg:border-t-0">
           <MessageThread messages={messages} />
           <ReplyBox
             contactId={contact.id}
@@ -96,7 +104,7 @@ export default async function ContactDetailPage({ params }: PageProps) {
           />
         </div>
 
-        <aside className="w-full shrink-0 overflow-y-auto p-4 lg:w-80 lg:border-l">
+        <aside className="w-full min-w-0 p-4 lg:w-80 lg:shrink-0 lg:overflow-y-auto lg:border-l">
           <ContactDetailsForm contact={contact} />
 
           <Separator className="my-5" />

@@ -150,7 +150,7 @@ export function InvoiceHistory({ invoices }: { invoices: Row[] }) {
             <iframe
               title={`Invoice ${viewing.invoice_number}`}
               srcDoc={viewing.html}
-              className="h-[32rem] w-full rounded-lg border bg-white"
+              className="h-[22rem] w-full rounded-lg border bg-white sm:h-[32rem]"
             />
           )}
         </DialogContent>

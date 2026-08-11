@@ -10,11 +10,11 @@ function describe(call: Call) {
     return { Icon: PhoneMissed, label: "Missed", className: "text-destructive" };
   }
   if (call.status === "voicemail") {
-    return { Icon: Voicemail, label: "Voicemail", className: "text-amber-600" };
+    return { Icon: Voicemail, label: "Voicemail", className: "text-amber-600 dark:text-amber-400" };
   }
   return call.direction === "inbound"
-    ? { Icon: PhoneIncoming, label: "Answered", className: "text-emerald-600" }
-    : { Icon: PhoneOutgoing, label: "Outgoing", className: "text-emerald-600" };
+    ? { Icon: PhoneIncoming, label: "Answered", className: "text-emerald-600 dark:text-emerald-400" }
+    : { Icon: PhoneOutgoing, label: "Outgoing", className: "text-emerald-600 dark:text-emerald-400" };
 }
 
 function formatDuration(seconds: number | null): string | null {

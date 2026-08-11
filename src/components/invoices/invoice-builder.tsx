@@ -353,7 +353,10 @@ export function InvoiceBuilder({
           <iframe
             title="Invoice preview"
             srcDoc={html}
-            className="h-[36rem] w-full rounded-lg border bg-white"
+            // Shorter on a phone: the invoice is a fixed-width document that
+            // scrolls inside its own frame, and 36rem of it crowds out every
+            // control on the page above.
+            className="h-[24rem] w-full rounded-lg border bg-white sm:h-[36rem]"
           />
 
           <p className="text-muted-foreground text-xs">

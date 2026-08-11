@@ -201,6 +201,8 @@ export type Database = {
           business_phone: string | null;
           business_address: string | null;
           business_website: string | null;
+          twilio_low_balance_cents: number;
+          anthropic_monthly_budget_cents: number | null;
           updated_at: string;
         };
         Insert: {
@@ -215,6 +217,8 @@ export type Database = {
           business_phone?: string | null;
           business_address?: string | null;
           business_website?: string | null;
+          twilio_low_balance_cents?: number;
+          anthropic_monthly_budget_cents?: number | null;
           updated_at?: string;
         };
         Update: {
@@ -229,6 +233,8 @@ export type Database = {
           business_phone?: string | null;
           business_address?: string | null;
           business_website?: string | null;
+          twilio_low_balance_cents?: number;
+          anthropic_monthly_budget_cents?: number | null;
           updated_at?: string;
         };
         Relationships: [];
@@ -318,6 +324,27 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      // NOTE: `settings` also carries twilio_low_balance_cents (integer, not
+      // null, default 1000) and anthropic_monthly_budget_cents (integer, null
+      // = no budget). They are declared on the Settings row type below.
+      call_screenings: {
+        Row: {
+          child_call_sid: string;
+          parent_call_sid: string | null;
+          accepted_at: string;
+        };
+        Insert: {
+          child_call_sid: string;
+          parent_call_sid?: string | null;
+          accepted_at?: string;
+        };
+        Update: {
+          child_call_sid?: string;
+          parent_call_sid?: string | null;
+          accepted_at?: string;
+        };
+        Relationships: [];
       };
       packages: {
         Row: {

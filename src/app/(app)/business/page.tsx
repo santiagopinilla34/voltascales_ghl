@@ -22,8 +22,8 @@ export default async function BusinessPage() {
         <h1 className="text-sm font-semibold tracking-tight">My Business</h1>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex max-w-2xl flex-col gap-6 pb-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
+        <div className="mx-auto flex min-w-0 max-w-2xl flex-col gap-6 pb-4">
           <section className="flex flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold tracking-tight">Details</h2>

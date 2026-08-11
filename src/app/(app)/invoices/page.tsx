@@ -43,8 +43,8 @@ export default async function InvoicesPage() {
         <h1 className="text-sm font-semibold tracking-tight">Invoices</h1>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
+        <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 pb-4">
           <InvoiceBuilder
             contacts={contactsResult.data ?? []}
             packages={packages}

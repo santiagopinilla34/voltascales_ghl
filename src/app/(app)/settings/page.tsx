@@ -15,15 +15,20 @@ export default async function SettingsPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
-        <h1 className="text-sm font-semibold tracking-tight">Settings</h1>
+        <h1 className="shrink-0 text-sm font-semibold tracking-tight">
+          Settings
+        </h1>
         {settings && (
-          <span className="text-muted-foreground text-xs">
+          // Hidden on phones: the full stamp is wider than the space left over
+          // beside the title, and it is reference detail rather than something
+          // the page is for.
+          <span className="text-muted-foreground hidden truncate text-xs sm:inline">
             Updated {formatFullTimestamp(settings.updated_at)}
           </span>
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4">
         <div className="mx-auto max-w-2xl py-4">
           {settings ? (
             <SettingsForm

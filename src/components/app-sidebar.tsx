@@ -6,6 +6,7 @@ import {
   Bot,
   Briefcase,
   FileText,
+  Gauge,
   Inbox,
   KanbanSquare,
   Settings,
@@ -13,6 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -34,6 +36,7 @@ const NAV = [
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/business", label: "My Business", icon: Briefcase },
   { href: "/automations", label: "Automations", icon: Bot },
+  { href: "/usage", label: "Usage", icon: Gauge },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -90,11 +93,19 @@ export function AppSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t">
-        <div className="flex flex-col gap-1 group-data-[collapsible=icon]:hidden">
-          <span className="text-muted-foreground truncate px-2 text-xs" title={email}>
-            {email}
-          </span>
-          <form action={signOut}>
+        <span
+          className="text-muted-foreground truncate px-2 text-xs group-data-[collapsible=icon]:hidden"
+          title={email}
+        >
+          {email}
+        </span>
+
+        {/* Sign out and the theme toggle share a row so the toggle sits in the
+            bottom-left corner without costing the footer another line. When the
+            sidebar collapses to icons the label goes and the toggle stays,
+            centred — it is an icon button already. */}
+        <div className="flex items-center gap-1 group-data-[collapsible=icon]:flex-col">
+          <form action={signOut} className="flex-1 group-data-[collapsible=icon]:hidden">
             <Button
               type="submit"
               variant="ghost"
@@ -104,6 +115,7 @@ export function AppSidebar({
               Sign out
             </Button>
           </form>
+          <ThemeToggle />
         </div>
       </SidebarFooter>
 

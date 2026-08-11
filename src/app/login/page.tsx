@@ -11,7 +11,7 @@ export default function LoginPage() {
     <main className="flex min-h-dvh items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <h1 className="text-lg font-semibold tracking-tight">VoltaScales</h1>
-        <p className="mt-1 mb-6 text-sm text-neutral-500">
+        <p className="text-muted-foreground mt-1 mb-6 text-sm">
           Sign in to continue.
         </p>
         <LoginForm />

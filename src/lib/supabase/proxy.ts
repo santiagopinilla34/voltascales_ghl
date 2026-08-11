@@ -71,7 +71,9 @@ export async function updateSession(request: NextRequest) {
 
   if (user && pathname === "/login") {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    // /inbox, not /dashboard: there is no /dashboard route, so an already
+    // signed-in user visiting /login was being redirected into a 404.
+    url.pathname = "/inbox";
     url.search = "";
     return NextResponse.redirect(url);
   }
