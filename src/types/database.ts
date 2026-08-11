@@ -32,6 +32,15 @@ export type AiModel =
   | "claude-haiku-4-5-20251001";
 /** Mirrors `ai_drafts_source_check`. */
 export type AiDraftSource = "shadow" | "preview";
+/** Mirrors `pipeline_entries_stage_check`. Adding one needs a migration. */
+export type PipelineStage =
+  | "interested"
+  | "booked"
+  | "attended"
+  | "not_attended"
+  | "closed"
+  | "contact_again_later"
+  | "not_closed";
 
 export type Database = {
   public: {
@@ -264,6 +273,37 @@ export type Database = {
           },
         ];
       };
+      pipeline_entries: {
+        Row: {
+          id: string;
+          contact_id: string;
+          stage: PipelineStage;
+          stage_changed_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          contact_id: string;
+          stage?: PipelineStage;
+          stage_changed_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          contact_id?: string;
+          stage?: PipelineStage;
+          stage_changed_at?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_entries_contact_id_fkey";
+            columns: ["contact_id"];
+            referencedRelation: "contacts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       automation_runs: {
         Row: {
           id: string;
@@ -328,3 +368,4 @@ export type Automation = Tables<"automations">;
 export type AutomationRun = Tables<"automation_runs">;
 export type Settings = Tables<"settings">;
 export type AiDraft = Tables<"ai_drafts">;
+export type PipelineEntry = Tables<"pipeline_entries">;
