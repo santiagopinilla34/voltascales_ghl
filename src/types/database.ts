@@ -196,6 +196,11 @@ export type Database = {
           ai_model: AiModel;
           notification_email: string | null;
           forward_to_number: string | null;
+          business_name: string | null;
+          business_email: string | null;
+          business_phone: string | null;
+          business_address: string | null;
+          business_website: string | null;
           updated_at: string;
         };
         Insert: {
@@ -205,6 +210,11 @@ export type Database = {
           ai_model?: AiModel;
           notification_email?: string | null;
           forward_to_number?: string | null;
+          business_name?: string | null;
+          business_email?: string | null;
+          business_phone?: string | null;
+          business_address?: string | null;
+          business_website?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -214,6 +224,11 @@ export type Database = {
           ai_model?: AiModel;
           notification_email?: string | null;
           forward_to_number?: string | null;
+          business_name?: string | null;
+          business_email?: string | null;
+          business_phone?: string | null;
+          business_address?: string | null;
+          business_website?: string | null;
           updated_at?: string;
         };
         Relationships: [];
@@ -304,6 +319,76 @@ export type Database = {
           },
         ];
       };
+      packages: {
+        Row: {
+          id: string;
+          name: string;
+          description: string | null;
+          price_cents: number;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          description?: string | null;
+          price_cents: number;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          description?: string | null;
+          price_cents?: number;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      invoices: {
+        Row: {
+          id: string;
+          invoice_number: number;
+          contact_id: string | null;
+          client_name: string;
+          total_cents: number;
+          issued_on: string;
+          html: string;
+          details: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          invoice_number?: number;
+          contact_id?: string | null;
+          client_name: string;
+          total_cents: number;
+          issued_on?: string;
+          html: string;
+          details: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          invoice_number?: number;
+          contact_id?: string | null;
+          client_name?: string;
+          total_cents?: number;
+          issued_on?: string;
+          html?: string;
+          details?: Json;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "invoices_contact_id_fkey";
+            columns: ["contact_id"];
+            referencedRelation: "contacts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       automation_runs: {
         Row: {
           id: string;
@@ -369,3 +454,5 @@ export type AutomationRun = Tables<"automation_runs">;
 export type Settings = Tables<"settings">;
 export type AiDraft = Tables<"ai_drafts">;
 export type PipelineEntry = Tables<"pipeline_entries">;
+export type Package = Tables<"packages">;
+export type Invoice = Tables<"invoices">;

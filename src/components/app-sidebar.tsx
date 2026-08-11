@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, Inbox, KanbanSquare, Settings, Users, Zap } from "lucide-react";
+import {
+  Bot,
+  Briefcase,
+  FileText,
+  Inbox,
+  KanbanSquare,
+  Settings,
+  Users,
+  Zap,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +31,8 @@ const NAV = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
+  { href: "/invoices", label: "Invoices", icon: FileText },
+  { href: "/business", label: "My Business", icon: Briefcase },
   { href: "/automations", label: "Automations", icon: Bot },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
