@@ -61,7 +61,18 @@ export async function setAiEnabled(
 }
 
 /**
- * Edits the fields a human owns: name, status and tags.
+ * Deliberately permissive: one `@`, no whitespace, something either side.
+ *
+ * This field exists so an invoice can be addressed to someone, and the person
+ * typing it is the same person who will notice it bounce. A stricter pattern
+ * buys nothing here and reliably rejects addresses that are actually valid.
+ */
+function isPlausibleEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+/**
+ * Edits the fields a human owns: name, email, business name, status and tags.
  *
  * `phone` is deliberately not editable. It is the natural key every webhook
  * looks a contact up by, so changing it would silently detach this record from
@@ -70,13 +81,24 @@ export async function setAiEnabled(
  */
 export async function updateContact(
   contactId: string,
-  input: { name: string; status: string; tags: string[] },
+  input: {
+    name: string;
+    email: string;
+    businessName: string;
+    status: string;
+    tags: string[];
+  },
 ): Promise<ActionResult> {
   const supabase = await requireUser();
   if (!supabase) return { ok: false, error: "Not authenticated" };
 
   if (!CONTACT_STATUSES.includes(input.status as ContactStatus)) {
     return { ok: false, error: `"${input.status}" is not a valid status` };
+  }
+
+  const email = input.email.trim();
+  if (email && !isPlausibleEmail(email)) {
+    return { ok: false, error: `"${email}" doesn't look like an email address` };
   }
 
   // Deduplicated case-insensitively but stored as typed: "Lead" and "lead"
@@ -93,12 +115,16 @@ export async function updateContact(
   }
 
   const name = input.name.trim();
+  const businessName = input.businessName.trim();
 
   const { error } = await supabase
     .from("contacts")
     .update({
-      // Empty means "we don't know their name", which is null, not "".
+      // Empty means "we don't know this", which is null, not "". Keeps the
+      // "unknown" case a single value everywhere it's read.
       name: name || null,
+      email: email || null,
+      business_name: businessName || null,
       status: input.status as ContactStatus,
       tags,
     })

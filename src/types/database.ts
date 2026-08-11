@@ -41,6 +41,8 @@ export type Database = {
           id: string;
           phone: string;
           name: string | null;
+          email: string | null;
+          business_name: string | null;
           tags: string[];
           status: ContactStatus;
           ai_enabled: boolean;
@@ -50,6 +52,8 @@ export type Database = {
           id?: string;
           phone: string;
           name?: string | null;
+          email?: string | null;
+          business_name?: string | null;
           tags?: string[];
           status?: ContactStatus;
           ai_enabled?: boolean;
@@ -59,6 +63,8 @@ export type Database = {
           id?: string;
           phone?: string;
           name?: string | null;
+          email?: string | null;
+          business_name?: string | null;
           tags?: string[];
           status?: ContactStatus;
           ai_enabled?: boolean;

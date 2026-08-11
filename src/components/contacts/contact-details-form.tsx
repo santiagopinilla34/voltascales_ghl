@@ -21,7 +21,7 @@ import {
 import type { Contact } from "@/types/database";
 
 /**
- * Editable name / status / tags.
+ * Editable name / email / business name / status / tags.
  *
  * Explicit save rather than save-on-change: tags commit one at a time, and
  * autosaving each keystroke of a name would write a row per character.
@@ -31,6 +31,8 @@ export function ContactDetailsForm({ contact }: { contact: Contact }) {
   const [pending, startTransition] = useTransition();
 
   const [name, setName] = useState(contact.name ?? "");
+  const [email, setEmail] = useState(contact.email ?? "");
+  const [businessName, setBusinessName] = useState(contact.business_name ?? "");
   // Widened to string because Select hands back a plain string. The action
   // validates it against the allowed values before it reaches the database.
   const [status, setStatus] = useState<string>(contact.status);
@@ -38,6 +40,8 @@ export function ContactDetailsForm({ contact }: { contact: Contact }) {
 
   const dirty =
     name !== (contact.name ?? "") ||
+    email !== (contact.email ?? "") ||
+    businessName !== (contact.business_name ?? "") ||
     status !== contact.status ||
     tags.length !== contact.tags.length ||
     tags.some((tag, index) => tag !== contact.tags[index]);
@@ -46,7 +50,13 @@ export function ContactDetailsForm({ contact }: { contact: Contact }) {
     event.preventDefault();
 
     startTransition(async () => {
-      const result = await updateContact(contact.id, { name, status, tags });
+      const result = await updateContact(contact.id, {
+        name,
+        email,
+        businessName,
+        status,
+        tags,
+      });
 
       if (!result.ok) {
         toast.error("Could not save changes", { description: result.error });
@@ -60,6 +70,8 @@ export function ContactDetailsForm({ contact }: { contact: Contact }) {
 
   function reset() {
     setName(contact.name ?? "");
+    setEmail(contact.email ?? "");
+    setBusinessName(contact.business_name ?? "");
     setStatus(contact.status);
     setTags(contact.tags);
   }
@@ -72,6 +84,29 @@ export function ContactDetailsForm({ contact }: { contact: Contact }) {
           id="contact-name"
           value={name}
           onChange={(event) => setName(event.target.value)}
+          placeholder="Not known yet"
+          disabled={pending}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="contact-email">Email</Label>
+        <Input
+          id="contact-email"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="Not known yet"
+          disabled={pending}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="contact-business">Business name</Label>
+        <Input
+          id="contact-business"
+          value={businessName}
+          onChange={(event) => setBusinessName(event.target.value)}
           placeholder="Not known yet"
           disabled={pending}
         />

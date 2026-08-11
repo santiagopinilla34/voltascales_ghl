@@ -39,15 +39,20 @@ export function ContactsTable({ contacts }: { contacts: ContactWithActivity[] })
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border">
+    // `overflow-x-auto`, not `hidden`: seven columns don't fit a narrow window,
+    // and clipping the last two would hide status entirely rather than let it
+    // be scrolled to.
+    <div className="overflow-x-auto rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead>Name</TableHead>
             <TableHead>Phone</TableHead>
+            <TableHead>Email</TableHead>
+            <TableHead>Business</TableHead>
+            <TableHead>Last activity</TableHead>
             <TableHead>Tags</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="text-right">Last activity</TableHead>
           </TableRow>
         </TableHeader>
 
@@ -87,6 +92,46 @@ export function ContactsTable({ contacts }: { contacts: ContactWithActivity[] })
                 {formatPhone(contact.phone)}
               </TableCell>
 
+              <TableCell className="text-muted-foreground max-w-48 truncate">
+                {contact.email ?? (
+                  <span className="text-muted-foreground/60 text-xs">—</span>
+                )}
+              </TableCell>
+
+              <TableCell className="max-w-40 truncate">
+                {contact.business_name ?? (
+                  <span className="text-muted-foreground/60 text-xs">—</span>
+                )}
+              </TableCell>
+
+              <TableCell>
+                <span className="flex items-center gap-3">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <time
+                        dateTime={contact.lastActivityAt}
+                        className="text-xs tabular-nums"
+                      >
+                        {formatListTimestamp(contact.lastActivityAt)}
+                      </time>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {formatFullTimestamp(contact.lastActivityAt)}
+                    </TooltipContent>
+                  </Tooltip>
+                  <span className="text-muted-foreground flex items-center gap-2 text-xs tabular-nums">
+                    <span className="flex items-center gap-1">
+                      <MessageSquare className="size-3" />
+                      {contact.messageCount}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Phone className="size-3" />
+                      {contact.callCount}
+                    </span>
+                  </span>
+                </span>
+              </TableCell>
+
               <TableCell>
                 {contact.tags.length === 0 ? (
                   <span className="text-muted-foreground/60 text-xs">—</span>
@@ -103,34 +148,6 @@ export function ContactsTable({ contacts }: { contacts: ContactWithActivity[] })
 
               <TableCell>
                 <StatusBadge status={contact.status} />
-              </TableCell>
-
-              <TableCell className="text-right">
-                <span className="flex items-center justify-end gap-3">
-                  <span className="text-muted-foreground flex items-center gap-2 text-xs tabular-nums">
-                    <span className="flex items-center gap-1">
-                      <MessageSquare className="size-3" />
-                      {contact.messageCount}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Phone className="size-3" />
-                      {contact.callCount}
-                    </span>
-                  </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <time
-                        dateTime={contact.lastActivityAt}
-                        className="w-20 text-right text-xs tabular-nums"
-                      >
-                        {formatListTimestamp(contact.lastActivityAt)}
-                      </time>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {formatFullTimestamp(contact.lastActivityAt)}
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
               </TableCell>
             </TableRow>
           ))}
