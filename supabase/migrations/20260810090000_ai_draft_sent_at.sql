@@ -11,8 +11,13 @@
 -- message row it became: the record that a reply reached a real person has to
 -- survive that message being deleted.
 
+-- `if not exists` because this migration first shipped under a version number
+-- already taken by 20260810080000_realtime_inbox.sql. That push failed on the
+-- duplicate version, and whether the column survived depends on whether the
+-- CLI had already run this statement when it hit the conflict — so the retry
+-- under the corrected version has to tolerate finding its own work done.
 alter table public.ai_drafts
-  add column sent_at timestamptz;
+  add column if not exists sent_at timestamptz;
 
 comment on column public.ai_drafts.sent_at is
   'When this reply went out over SMS. Null means it never did — a preview, a draft-mode generation, or one a delivery gate held back.';
