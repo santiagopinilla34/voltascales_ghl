@@ -24,6 +24,8 @@ export type SettingsInput = {
   forward_to_number: string;
   booking_min_notice_minutes: number;
   booking_notify_number: string;
+  booking_meeting_link: string;
+  booking_host_name: string;
 };
 
 export async function saveSettings(
@@ -82,6 +84,29 @@ export async function saveSettings(
     }
   }
 
+  // Checked because this link is texted to clients, and a typo'd one is a
+  // meeting nobody can join — discovered at the worst possible moment, by
+  // someone sitting there trying to get in. `new URL` catches what a regex
+  // would, plus the schemes: an https link opens, "zoom.us/j/123" does not.
+  const rawMeetingLink = input.booking_meeting_link.trim();
+  let meetingLink: string | null = null;
+  if (rawMeetingLink) {
+    let parsed: URL;
+    try {
+      parsed = new URL(rawMeetingLink);
+    } catch {
+      return {
+        ok: false,
+        error:
+          "The meeting link needs to be a full URL, starting with https:// — paste it straight from Zoom.",
+      };
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { ok: false, error: "The meeting link has to be an http or https URL." };
+    }
+    meetingLink = parsed.toString();
+  }
+
   // Mirrors settings_booking_min_notice_check. A negative notice would mean
   // slots open in the past, which the generator would silently offer.
   const minNotice = Math.round(input.booking_min_notice_minutes);
@@ -97,6 +122,8 @@ export async function saveSettings(
     .update({
       booking_min_notice_minutes: minNotice,
       booking_notify_number: bookingNotifyNumber,
+      booking_meeting_link: meetingLink,
+      booking_host_name: input.booking_host_name.trim() || null,
       ai_system_prompt: input.ai_system_prompt,
       ai_mode: input.ai_mode as AiMode,
       ai_model: input.ai_model as AiModel,

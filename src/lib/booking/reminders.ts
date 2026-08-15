@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { cancelUrl, formatBookingTime } from "@/lib/notify/booking";
+import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import type { Booking, Database, TablesUpdate } from "@/types/database";
 
@@ -43,8 +44,13 @@ type ReminderSpec = {
    * texts inside an hour is nagging.
    */
   floor: number;
-  body: (booking: Booking) => string;
+  body: (booking: Booking, join: string | null) => string;
 };
+
+/** Drops the lines a missing link or origin would leave empty. */
+function lines(parts: (string | null)[]): string {
+  return parts.filter((part) => part !== null).join("\n");
+}
 
 const SPECS: Record<ReminderKind, ReminderSpec> = {
   "24h": {
@@ -52,14 +58,15 @@ const SPECS: Record<ReminderKind, ReminderSpec> = {
     stamp: (at) => ({ reminder_24h_sent_at: at }),
     lead: 24 * HOUR,
     floor: 2 * HOUR,
-    body: (booking) => {
+    body: (booking, join) => {
       const cancel = cancelUrl(booking);
-      return [
+      return lines([
         `Reminder: your ${MEETING_NAME} is ${formatBookingTime(booking)}.`,
-        cancel ? `\nCan't make it? ${cancel}` : "",
-      ]
-        .join("")
-        .trim();
+        join ? "" : null,
+        join ? `Join here:\n${join}` : null,
+        cancel ? "" : null,
+        cancel ? `Can't make it? ${cancel}` : null,
+      ]);
     },
   },
   "1h": {
@@ -67,8 +74,16 @@ const SPECS: Record<ReminderKind, ReminderSpec> = {
     stamp: (at) => ({ reminder_1h_sent_at: at }),
     lead: HOUR,
     floor: 0,
-    body: (booking) =>
-      `Your ${MEETING_NAME} starts in about an hour — ${formatBookingTime(booking)}. Talk soon.`,
+    // No cancel link on this one. An hour out, cancelling by link and not
+    // turning up look the same from your side, and the useful thing to put in
+    // front of them is the way in.
+    body: (booking, join) =>
+      lines([
+        `Your ${MEETING_NAME} starts in about an hour - ${formatBookingTime(booking)}.`,
+        join ? "" : null,
+        join ? `Join here:\n${join}` : null,
+        join ? null : "Talk soon.",
+      ]),
   },
 };
 
@@ -139,12 +154,18 @@ export async function runReminderPass(
   let sent = 0;
   let failed = 0;
 
+  // Read once for the whole pass rather than per booking: it is the same row
+  // for all of them, and a reminder run should not make one settings query per
+  // client it texts.
+  const settings = ready.length > 0 ? await getSettings(supabase) : null;
+  const join = settings?.booking_meeting_link?.trim() || null;
+
   // Sequential, deliberately. These are texts on a shared Twilio number and
   // there is no deadline — a burst of parallel sends buys nothing and is the
   // easiest way to trip a rate limit on a busy day.
   for (const booking of ready) {
     try {
-      await sendSms(booking.client_phone, spec.body(booking));
+      await sendSms(booking.client_phone, spec.body(booking, join));
     } catch (error) {
       failed++;
       console.error(

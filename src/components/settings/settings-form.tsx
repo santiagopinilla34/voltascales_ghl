@@ -70,6 +70,10 @@ export function SettingsForm({
   const [notifyNumber, setNotifyNumber] = useState(
     settings.booking_notify_number ?? "",
   );
+  const [meetingLink, setMeetingLink] = useState(
+    settings.booking_meeting_link ?? "",
+  );
+  const [hostName, setHostName] = useState(settings.booking_host_name ?? "");
 
   const dirty =
     prompt !== settings.ai_system_prompt ||
@@ -78,7 +82,9 @@ export function SettingsForm({
     email !== (settings.notification_email ?? "") ||
     forwardTo !== (settings.forward_to_number ?? "") ||
     minNotice !== String(settings.booking_min_notice_minutes) ||
-    notifyNumber !== (settings.booking_notify_number ?? "");
+    notifyNumber !== (settings.booking_notify_number ?? "") ||
+    meetingLink !== (settings.booking_meeting_link ?? "") ||
+    hostName !== (settings.booking_host_name ?? "");
 
   function save(event: React.FormEvent) {
     event.preventDefault();
@@ -93,6 +99,8 @@ export function SettingsForm({
         forward_to_number: forwardTo,
         booking_min_notice_minutes: Number(minNotice),
         booking_notify_number: notifyNumber,
+        booking_meeting_link: meetingLink,
+        booking_host_name: hostName,
       });
 
       if (!result.ok) {
@@ -264,6 +272,63 @@ export function SettingsForm({
         </div>
 
         <div className="grid gap-2">
+          <Label htmlFor="meeting-link">Meeting link</Label>
+          <Input
+            id="meeting-link"
+            type="url"
+            inputMode="url"
+            value={meetingLink}
+            onChange={(event) => setMeetingLink(event.target.value)}
+            placeholder="https://zoom.us/j/1234567890"
+            disabled={pending}
+          />
+          <Note>
+            {meetingLink.trim()
+              ? "Sent in the confirmation and both reminders. Change it here and every future message uses the new one, including for meetings already booked."
+              : "Empty, so the confirmation tells them you'll call the number they gave you instead."}
+          </Note>
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="host-name">Your first name</Label>
+          <Input
+            id="host-name"
+            value={hostName}
+            onChange={(event) => setHostName(event.target.value)}
+            placeholder="Aleck"
+            autoComplete="given-name"
+            disabled={pending}
+          />
+          <Note>
+            Signs the messages to clients. A text from a person gets replies; one
+            from a company reads like an ad.
+          </Note>
+        </div>
+
+        {/* The actual text, assembled the same way the sender assembles it.
+            These messages go to strangers and can't be unsent, so being able
+            to read one before saving is worth the duplication. */}
+        <div className="grid gap-1.5">
+          <span className="text-xs font-medium">
+            What they get when they book
+          </span>
+          <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
+            {[
+              `Thanks for booking, Jane! Your Discovery Call is Tuesday, August 18 at 2:00 p.m. Eastern.`,
+              meetingLink.trim() ? `\nHere's the link to join:\n${meetingLink.trim()}` : null,
+              `\nNeed to cancel? …/book/cancel/…`,
+              `\n${
+                hostName.trim()
+                  ? `— ${hostName.trim()} from ${settings.business_name?.trim() || "VoltaScales"}`
+                  : `— ${settings.business_name?.trim() || "VoltaScales"}`
+              }`,
+            ]
+              .filter((line) => line !== null)
+              .join("\n")}
+          </pre>
+        </div>
+
+        <div className="grid gap-2">
           <Label htmlFor="booking-notify">Text me at</Label>
           <Input
             id="booking-notify"
@@ -360,6 +425,8 @@ export function SettingsForm({
               setForwardTo(settings.forward_to_number ?? "");
               setMinNotice(String(settings.booking_min_notice_minutes));
               setNotifyNumber(settings.booking_notify_number ?? "");
+              setMeetingLink(settings.booking_meeting_link ?? "");
+              setHostName(settings.booking_host_name ?? "");
               setError(null);
             }}
           >

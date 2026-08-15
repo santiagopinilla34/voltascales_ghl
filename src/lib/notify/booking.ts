@@ -55,6 +55,33 @@ export function cancelUrl(booking: Pick<Booking, "cancel_token">): string | null
   return base ? `${base}/book/cancel/${booking.cancel_token}` : null;
 }
 
+/**
+ * How the client-facing messages introduce themselves.
+ *
+ * Signed by a person where one is configured, because these are texts to
+ * someone about to take a call with you: "Aleck from VoltaScales" reads like
+ * the person they are meeting, "VoltaScales" reads like a marketing blast, and
+ * people reply to the first and ignore the second.
+ *
+ * Falls back through both halves rather than leaving a dangling comma or an
+ * empty signature when either is unset.
+ *
+ * A plain hyphen, not an em dash, and that is a billing decision rather than a
+ * typographic one. A single character outside GSM-7 switches the whole message
+ * to UCS-2, which cuts an SMS segment from 153 characters to 67 — one em dash
+ * takes the confirmation from two segments to four. Every client-facing SMS in
+ * this file is deliberately ASCII for the same reason.
+ */
+function signature(settings: {
+  booking_host_name: string | null;
+  business_name: string | null;
+}): string {
+  const host = settings.booking_host_name?.trim();
+  const business = settings.business_name?.trim() || "VoltaScales";
+
+  return host ? `- ${host} from ${business}` : `- ${business}`;
+}
+
 /** SMS bodies are trimmed of empty lines a missing link would leave behind. */
 function joinLines(lines: (string | null)[]): string {
   return lines.filter((line) => line !== null).join("\n");
@@ -103,8 +130,8 @@ async function textOperator(
   { cancelled }: { cancelled: boolean },
 ) {
   const body = cancelled
-    ? `Cancelled: ${booking.client_name} — ${formatBookingTime(booking)}. ${formatPhone(booking.client_phone)}`
-    : `New booking: ${booking.client_name} — ${formatBookingTime(booking)}. ${formatPhone(booking.client_phone)}`;
+    ? `Cancelled: ${booking.client_name} - ${formatBookingTime(booking)}. ${formatPhone(booking.client_phone)}`
+    : `New booking: ${booking.client_name} - ${formatBookingTime(booking)}. ${formatPhone(booking.client_phone)}`;
 
   try {
     await sendSms(to, body);
@@ -220,13 +247,27 @@ export async function sendBookingConfirmation(
     const cancel = cancelUrl(booking);
     const firstName = booking.client_name.trim().split(/\s+/)[0];
 
+    // Read fresh rather than snapshotted onto the booking: changing the meeting
+    // link in Settings is meant to fix every future message, including for
+    // meetings booked before the change.
+    const settings = await getSettings(supabase);
+    const join = settings?.booking_meeting_link?.trim() || null;
+    const signOff = settings ? signature(settings) : "- VoltaScales";
+
     await Promise.all([
       textClient(
         booking,
         joinLines([
-          `You're booked for a ${MEETING_NAME} — ${when}.`,
+          `Thanks for booking, ${firstName}! Your ${MEETING_NAME} is ${when}.`,
           "",
+          // The join link leads, because it is the one thing they need at the
+          // moment the call starts and the one thing they will scroll back to
+          // find.
+          join ? `Here's the link to join:\n${join}` : null,
+          join ? "" : null,
           cancel ? `Need to cancel? ${cancel}` : "Reply here if you need to change it.",
+          "",
+          signOff,
         ]),
         "confirmation",
       ),
@@ -236,14 +277,18 @@ export async function sendBookingConfirmation(
         joinLines([
           `Hi ${firstName},`,
           "",
-          `Your ${MEETING_NAME} is confirmed for ${when}. It runs about an hour, and I'll call the number you gave me: ${formatPhone(booking.client_phone)}.`,
+          `Your ${MEETING_NAME} is confirmed for ${when}. It runs about an hour.`,
+          "",
+          join
+            ? `Join here:\n${join}`
+            : `I'll call the number you gave me: ${formatPhone(booking.client_phone)}.`,
           booking.notes ? `\nYou mentioned: ${booking.notes}` : null,
           "",
           cancel
             ? `If something changes you can cancel here:\n${cancel}`
             : "If something changes, just reply to the text you got.",
           "",
-          "— VoltaScales",
+          signOff,
         ]),
         "confirmation email",
       ),
@@ -270,6 +315,9 @@ export async function sendCancellationNotice(
     const base = appBaseUrl();
     const firstName = booking.client_name.trim().split(/\s+/)[0];
 
+    const settings = await getSettings(supabase);
+    const signOff = settings ? signature(settings) : "- VoltaScales";
+
     await Promise.all([
       textClient(
         booking,
@@ -277,6 +325,8 @@ export async function sendCancellationNotice(
           `Your ${MEETING_NAME} on ${when} is cancelled.`,
           "",
           base ? `Want another time? ${base}/book` : "Reply here to pick another time.",
+          "",
+          signOff,
         ]),
         "cancellation",
       ),
@@ -290,7 +340,7 @@ export async function sendCancellationNotice(
           "",
           base ? `Whenever you want to rebook:\n${base}/book` : null,
           "",
-          "— VoltaScales",
+          signOff,
         ]),
         "cancellation email",
       ),

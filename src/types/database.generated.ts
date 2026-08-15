@@ -517,6 +517,8 @@ export type Database = {
           ai_model: string
           ai_system_prompt: string
           anthropic_monthly_budget_cents: number | null
+          booking_host_name: string | null
+          booking_meeting_link: string | null
           booking_min_notice_minutes: number
           booking_notify_number: string | null
           business_address: string | null
@@ -535,6 +537,8 @@ export type Database = {
           ai_model?: string
           ai_system_prompt?: string
           anthropic_monthly_budget_cents?: number | null
+          booking_host_name?: string | null
+          booking_meeting_link?: string | null
           booking_min_notice_minutes?: number
           booking_notify_number?: string | null
           business_address?: string | null
@@ -553,6 +557,8 @@ export type Database = {
           ai_model?: string
           ai_system_prompt?: string
           anthropic_monthly_budget_cents?: number | null
+          booking_host_name?: string | null
+          booking_meeting_link?: string | null
           booking_min_notice_minutes?: number
           booking_notify_number?: string | null
           business_address?: string | null
