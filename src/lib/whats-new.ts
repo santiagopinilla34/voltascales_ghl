@@ -1,0 +1,103 @@
+/**
+ * The "What's new" changelog.
+ *
+ * A hand-written list in the repo rather than a table, on purpose: an entry is
+ * written when the feature ships, in the same commit, by the person who
+ * shipped it. A database-backed changelog is one more thing to remember to
+ * fill in, and it is always empty.
+ *
+ * Newest first. `id` is what the "seen" marker is stored against, so it must
+ * never be reused or reordered.
+ */
+
+export type ChangelogEntry = {
+  id: string;
+  /** ISO date the entry shipped. */
+  date: string;
+  title: string;
+  body: string;
+  /** Where to go to try it, if there is somewhere. */
+  href?: string;
+  tag: "New" | "Improved" | "Fixed";
+};
+
+export const CHANGELOG: ChangelogEntry[] = [
+  {
+    id: "2026-08-15-calendar-views",
+    date: "2026-08-15",
+    title: "Month, week and day views on the calendar",
+    body: "The calendar now shows a real grid you can page through, not just a list. Switch between month, week and day, and click any booking to see who it is with and cancel it.",
+    href: "/calendar",
+    tag: "New",
+  },
+  {
+    id: "2026-08-15-topbar",
+    date: "2026-08-15",
+    title: "Alerts, this changelog, and a dialer in the top bar",
+    body: "Three bubbles at the top right: what needs your attention, what changed in the app, and a keypad for calling out from your own number.",
+    tag: "New",
+  },
+  {
+    id: "2026-08-15-vcard-import",
+    date: "2026-08-15",
+    title: "Import contacts from your phone",
+    body: "Import beside Add contact takes a .vcf file — what your phone produces when you share or export contacts. It reads the name, number, email and business name, shows you what it found, and skips anyone already in your CRM.",
+    href: "/contacts",
+    tag: "New",
+  },
+  {
+    id: "2026-08-15-domains",
+    date: "2026-08-15",
+    title: "Domains and email setup",
+    body: "Search and buy a domain without leaving the app, and set one up as a sending domain so email comes from your address instead of a shared one.",
+    href: "/domains",
+    tag: "New",
+  },
+  {
+    id: "2026-08-15-phone-system",
+    date: "2026-08-15",
+    title: "Phone System",
+    body: "See every number you rent, what each one can do, and buy another one by area code without opening the Twilio console.",
+    href: "/phone",
+    tag: "New",
+  },
+  {
+    id: "2026-08-10-booking-meeting-link",
+    date: "2026-08-10",
+    title: "Bookings carry the meeting link",
+    body: "Confirmation texts and emails now include the meeting link, signed by a person rather than the app.",
+    href: "/calendar",
+    tag: "Improved",
+  },
+];
+
+/**
+ * Entries newer than the last one the operator acknowledged.
+ *
+ * Compared by date rather than by position so an entry back-dated into the
+ * middle of the list does not silently reopen the bubble for everything above
+ * it. `null` — nothing acknowledged yet — means only the most recent day counts
+ * as unread, so a first-time visitor gets a dot rather than a badge reading 6.
+ */
+export function unreadEntries(
+  lastSeenId: string | null,
+  entries: ChangelogEntry[] = CHANGELOG,
+): ChangelogEntry[] {
+  if (entries.length === 0) return [];
+
+  if (lastSeenId === null) {
+    const newest = entries[0].date;
+    return entries.filter((entry) => entry.date === newest);
+  }
+
+  const seen = entries.find((entry) => entry.id === lastSeenId);
+  // An id that is no longer in the list means the entry was removed; treating
+  // that as "everything is new" would be a false alarm, so it reads as
+  // "nothing is new" instead.
+  if (!seen) return [];
+
+  return entries.filter((entry) => entry.date > seen.date);
+}
+
+/** Where the acknowledgement is kept. No backend needed for a per-device flag. */
+export const WHATS_NEW_STORAGE_KEY = "voltascales:whats-new-seen";

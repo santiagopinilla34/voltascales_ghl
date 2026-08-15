@@ -22,6 +22,20 @@
 
 import { normalizePhone } from "@/lib/phone/normalize";
 
+/**
+ * How many contacts one import may create.
+ *
+ * A phone address book is routinely a few thousand cards. Inserting all of
+ * them in one statement is fine for Postgres and not fine for a CRM that texts
+ * people — an accidental full-address-book import is a mess to undo by hand.
+ * The dialog says what the cap is before the file is chosen.
+ *
+ * Here rather than beside the server action that enforces it: a `"use server"`
+ * file may only export async functions, and both the dialog and the action
+ * need this number.
+ */
+export const IMPORT_LIMIT = 500;
+
 /** Exactly the fields the contact form has. */
 export type ParsedContact = {
   /** Stable within one parse, for React keys and selection. */

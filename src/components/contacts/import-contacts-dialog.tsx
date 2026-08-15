@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { IMPORT_LIMIT, importContacts } from "@/app/(app)/contacts/actions";
+import { importContacts } from "@/app/(app)/contacts/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +25,12 @@ import {
 } from "@/components/ui/dialog";
 import { formatPhone } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone/normalize";
-import { dedupe, parseVCards, type ParsedContact } from "@/lib/vcard";
+import {
+  IMPORT_LIMIT,
+  dedupe,
+  parseVCards,
+  type ParsedContact,
+} from "@/lib/vcard";
 
 /**
  * Import contacts from a `.vcf` file, on desktop and on a phone.

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { UNIQUE_VIOLATION } from "@/lib/contacts";
 import { normalizePhone } from "@/lib/phone/normalize";
+import { IMPORT_LIMIT } from "@/lib/vcard";
 import { createClient } from "@/lib/supabase/server";
 import type { ContactStatus } from "@/types/database";
 
@@ -190,16 +191,6 @@ export async function createContact(input: {
   revalidateContact(data.id);
   return { ok: true, value: { id: data.id } };
 }
-
-/**
- * How many contacts one import may create.
- *
- * A phone address book is routinely a few thousand cards. Inserting all of
- * them in one statement is fine for Postgres and not fine for a CRM that texts
- * people — an accidental full-address-book import is a mess to undo by hand.
- * The dialog says what the cap is before the file is chosen.
- */
-export const IMPORT_LIMIT = 500;
 
 export type ImportSummary = {
   created: number;

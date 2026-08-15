@@ -1,14 +1,10 @@
 import { redirect } from "next/navigation";
 
 import { AppSidebar } from "@/components/app-sidebar";
-import { Logo } from "@/components/logo";
+import { AppTopbar } from "@/components/topbar/app-topbar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { createClient } from "@/lib/supabase/server";
 
 import { signOut } from "./actions";
@@ -45,12 +41,7 @@ export default async function AppLayout({
       <SidebarProvider>
         <AppSidebar email={user.email ?? "Signed in"} signOut={signOut} />
         <SidebarInset className="h-dvh min-w-0 overflow-hidden">
-          {/* Only reason for a top bar: somewhere to hang the collapse control,
-              which is the sidebar's only affordance on mobile. */}
-          <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4 md:hidden">
-            <SidebarTrigger />
-            <Logo className="h-6" />
-          </div>
+          <AppTopbar />
           {children}
         </SidebarInset>
         <Toaster position="top-center" />
