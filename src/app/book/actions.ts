@@ -1,8 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 
+import { cancelBookingByToken } from "@/lib/booking/cancel";
 import { createBooking, type BookingInput } from "@/lib/booking/create";
+import {
+  sendBookingConfirmation,
+  sendCancellationNotice,
+} from "@/lib/notify/booking";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type BookResult =
@@ -37,6 +43,11 @@ export async function book(input: BookingInput): Promise<BookResult> {
   // The slot the next visitor sees must no longer include this one.
   revalidatePath("/book");
 
+  // Off the response path: two SMS/email round trips and an operator alert
+  // would otherwise sit between the button press and the confirmation screen,
+  // and none of them can change the answer — the meeting is already booked.
+  after(() => sendBookingConfirmation(supabase, result.booking, result.contact));
+
   return {
     ok: true,
     booking: {
@@ -45,4 +56,32 @@ export async function book(input: BookingInput): Promise<BookResult> {
       name: result.booking.client_name,
     },
   };
+}
+
+export type CancelResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Cancels a booking from its emailed link.
+ *
+ * Public, like `book`, and authorised the same way: by holding the token. It is
+ * a Server Action rather than a GET route on purpose — email clients, link
+ * scanners and chat previews all follow URLs, and a cancellation that happened
+ * because someone's mail provider fetched the link would be a meeting silently
+ * lost. Confirming with a button means only a person cancels.
+ */
+export async function cancelBooking(token: string): Promise<CancelResult> {
+  const supabase = createAdminClient();
+  const result = await cancelBookingByToken(supabase, token);
+
+  if (!result.ok) return { ok: false, error: result.error };
+
+  // The freed slot has to reappear on the calendar.
+  revalidatePath("/book");
+  revalidatePath(`/book/cancel/${token}`);
+
+  after(() =>
+    sendCancellationNotice(supabase, result.booking, result.booking.contact),
+  );
+
+  return { ok: true };
 }
