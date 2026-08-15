@@ -11,10 +11,6 @@
 -- see src/lib/booking/time.ts — because it is a display and slot-generation
 -- concern, not a storage one.
 
--- Needed by the overlap constraint on `bookings` below: it mixes an equality
--- test on `status` with a range overlap, and plain gist can't index the former.
-create extension if not exists btree_gist;
-
 -- ---------------------------------------------------------------------------
 -- availability_rules
 -- ---------------------------------------------------------------------------
@@ -153,11 +149,19 @@ comment on column public.bookings.reminder_24h_sent_at is
 -- The range runs to end_time + 15 minutes, so the buffer is part of what the
 -- constraint protects: a meeting starting 5 minutes after another ends is a
 -- conflict here, exactly as it is in the generator. Cancelled rows are
--- excluded, which is what frees the slot on cancellation.
+-- excluded by the WHERE, which is what frees the slot on cancellation.
+--
+-- No btree_gist needed: gist indexes range types natively, and the status test
+-- is a partial-index predicate rather than an equality member of the
+-- constraint, which is what would have required the extension.
+--
+-- The doubled parentheses are load bearing — an EXCLUDE element that is an
+-- expression rather than a bare column has to be parenthesised in its own
+-- right, inside the constraint's element list.
 alter table public.bookings
   add constraint bookings_no_overlap
   exclude using gist (
-    tstzrange(start_time, end_time + interval '15 minutes') with &&
+    (tstzrange(start_time, end_time + interval '15 minutes')) with &&
   ) where (status = 'confirmed');
 
 -- Serves the slot generator (a window of upcoming confirmed bookings) and the

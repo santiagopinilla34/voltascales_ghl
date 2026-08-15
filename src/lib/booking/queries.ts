@@ -3,12 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getSettings } from "@/lib/settings";
-import type {
-  AvailabilityRule,
-  BlockedDate,
-  Booking,
-  Database,
-} from "@/types/database";
+import type { AvailabilityRule, BlockedDate, Database } from "@/types/database";
 
 import {
   BOOKING_HORIZON_DAYS,
@@ -177,23 +172,4 @@ export async function getDaySlots(
     now,
     minNoticeMinutes: settings?.booking_min_notice_minutes ?? 120,
   })[0];
-}
-
-/** Confirmed bookings from now forward, soonest first. */
-export async function listUpcomingBookings(
-  supabase: SupabaseClient<Database>,
-  now: Date = new Date(),
-): Promise<Booking[]> {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("status", "confirmed")
-    .gte("start_time", now.toISOString())
-    .order("start_time");
-
-  if (error) {
-    throw new Error(`Failed to load bookings: ${error.message}`);
-  }
-
-  return data ?? [];
 }
