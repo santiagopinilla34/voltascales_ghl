@@ -21,9 +21,13 @@ export const MEETING_NAME = "Discovery Call";
 export const MEETING_DURATION_MINUTES = 60;
 
 /**
- * Dead time after a meeting, before the next one can start. Mirrored in the
- * `bookings_no_overlap` exclusion constraint — change one and you must change
- * the other, or the database will start rejecting slots this file offers.
+ * Dead time after a meeting, before the next one can start.
+ *
+ * Mirrored in the database by `public.booking_span()`, the function the
+ * `bookings_no_overlap` exclusion constraint indexes. Change one and you must
+ * change the other, or the database will start rejecting slots this file
+ * offers. The duplication is forced: an index expression has to be IMMUTABLE,
+ * which is what pushed the arithmetic into a function of its own.
  */
 export const MEETING_BUFFER_MINUTES = 15;
 

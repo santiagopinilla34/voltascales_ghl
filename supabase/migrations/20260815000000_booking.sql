@@ -138,6 +138,44 @@ comment on column public.bookings.cancel_token is
 comment on column public.bookings.reminder_24h_sent_at is
   'Set by the reminder cron. Null means "not yet sent", which is what makes the job idempotent.';
 
+-- The span a booking actually consumes: the meeting plus its buffer.
+--
+-- This exists only because an index expression has to be IMMUTABLE, and the
+-- obvious inline version isn't. `tstzrange(timestamptz, timestamptz)` is
+-- immutable, but `timestamptz + interval` is merely STABLE — adding an interval
+-- with a day or month component depends on the session's TimeZone, so Postgres
+-- marks the whole operator stable and rejects it in an index.
+--
+-- Declaring this IMMUTABLE is therefore a promise the inline expression could
+-- not make, and it is one this function can actually keep: the interval here is
+-- a pure time quantity with no calendar component, and adding minutes to a
+-- timestamptz is arithmetic on the stored microsecond value. No zone is
+-- consulted, so the result genuinely depends on nothing but the arguments.
+--
+-- The 15 minutes lives here rather than in the constraint because it has to —
+-- it is the part that could not be inlined. That makes this the database's
+-- copy of MEETING_BUFFER_MINUTES in src/lib/booking/slots.ts; changing one
+-- without the other makes the generator offer slots the constraint refuses.
+--
+-- search_path is pinned empty and pg_catalog spelled out, so the function
+-- cannot be redirected by whatever search_path a caller happens to have.
+create or replace function public.booking_span(
+  starts_at timestamptz,
+  ends_at   timestamptz
+)
+returns tstzrange
+language sql
+immutable
+strict
+parallel safe
+set search_path = ''
+as $$
+  select pg_catalog.tstzrange(starts_at, ends_at + interval '15 minutes')
+$$;
+
+comment on function public.booking_span(timestamptz, timestamptz) is
+  'Meeting plus its 15 minute buffer. IMMUTABLE so bookings_no_overlap can index it.';
+
 -- The buffer, enforced by the database rather than only by the slot generator.
 --
 -- Two people can submit the same slot in the same instant: the generator would
@@ -146,10 +184,9 @@ comment on column public.bookings.reminder_24h_sent_at is
 -- impossible rather than unlikely — the second INSERT fails and the booking
 -- action turns that into "that time was just taken".
 --
--- The range runs to end_time + 15 minutes, so the buffer is part of what the
--- constraint protects: a meeting starting 5 minutes after another ends is a
--- conflict here, exactly as it is in the generator. Cancelled rows are
--- excluded by the WHERE, which is what frees the slot on cancellation.
+-- The span includes the buffer, so a meeting starting 5 minutes after another
+-- ends is a conflict here, exactly as it is in the generator. Cancelled rows
+-- are excluded by the WHERE, which is what frees the slot on cancellation.
 --
 -- No btree_gist needed: gist indexes range types natively, and the status test
 -- is a partial-index predicate rather than an equality member of the
@@ -161,7 +198,7 @@ comment on column public.bookings.reminder_24h_sent_at is
 alter table public.bookings
   add constraint bookings_no_overlap
   exclude using gist (
-    (tstzrange(start_time, end_time + interval '15 minutes')) with &&
+    (public.booking_span(start_time, end_time)) with &&
   ) where (status = 'confirmed');
 
 -- Serves the slot generator (a window of upcoming confirmed bookings) and the
