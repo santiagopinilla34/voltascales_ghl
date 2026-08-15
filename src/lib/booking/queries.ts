@@ -194,6 +194,41 @@ export type BookingsView = {
 };
 
 /**
+ * Every booking overlapping a window of calendar days, for the grid.
+ *
+ * Cancelled ones are included rather than filtered: the grid draws them struck
+ * through, because "that slot is free again" is information the operator wants
+ * on the day it was going to happen, not a row silently missing.
+ *
+ * The window is widened by a day at each end and then filtered by start day in
+ * the caller — the same reason `listBusyBookings` does it. A booking starting
+ * at 11pm on the day before the window is a different question from one whose
+ * *start day* is in it, and the zone offset means an exact midnight bound in
+ * UTC cuts the wrong instant.
+ */
+export async function listBookingsBetween(
+  supabase: SupabaseClient<Database>,
+  fromDayKey: string,
+  toDayKey: string,
+): Promise<BookingWithContact[]> {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*, contacts (id, name, business_name)")
+    .gte("start_time", zonedTimeToUtc(addDays(fromDayKey, -1), 0).toISOString())
+    .lt("start_time", zonedTimeToUtc(addDays(toDayKey, 2), 0).toISOString())
+    .order("start_time");
+
+  if (error) {
+    throw new Error(`Failed to load bookings: ${error.message}`);
+  }
+
+  return (data ?? []).map(({ contacts, ...booking }) => ({
+    ...booking,
+    contact: contacts,
+  }));
+}
+
+/**
  * Everything the Calendar page shows, in one round trip.
  *
  * Split in memory rather than by three queries: the whole set is small — this
