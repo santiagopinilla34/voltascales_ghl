@@ -8,8 +8,10 @@ import {
   CalendarDays,
   FileText,
   Gauge,
+  Globe,
   Inbox,
   KanbanSquare,
+  PhoneCall,
   Settings,
   Users,
 } from "lucide-react";
@@ -40,6 +42,10 @@ const NAV = [
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/business", label: "My Business", icon: Briefcase },
   { href: "/automations", label: "Automations", icon: Bot },
+  // Infrastructure the CRM runs on, grouped after the day-to-day pages: you
+  // buy a number or a domain once and then forget about it.
+  { href: "/phone", label: "Phone System", icon: PhoneCall },
+  { href: "/domains", label: "Domains", icon: Globe },
   { href: "/usage", label: "Usage", icon: Gauge },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
