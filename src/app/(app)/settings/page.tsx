@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import { TriangleAlert } from "lucide-react";
 
+import { AvailabilityEditor } from "@/components/settings/availability-editor";
+import { BlockedDatesEditor } from "@/components/settings/blocked-dates-editor";
+import { BookLink } from "@/components/settings/book-link";
 import { SettingsForm } from "@/components/settings/settings-form";
+import { Separator } from "@/components/ui/separator";
+import { listAvailabilityRules, listBlockedDates } from "@/lib/booking/queries";
+import { appBaseUrl } from "@/lib/env";
 import { environmentForwardToNumber, getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 import { formatFullTimestamp } from "@/lib/format";
@@ -10,7 +16,11 @@ export const metadata: Metadata = { title: "Settings · VoltaScales" };
 
 export default async function SettingsPage() {
   const supabase = await createClient();
-  const settings = await getSettings(supabase);
+  const [settings, rules, blockedDates] = await Promise.all([
+    getSettings(supabase),
+    listAvailabilityRules(supabase),
+    listBlockedDates(supabase),
+  ]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -31,10 +41,22 @@ export default async function SettingsPage() {
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4">
         <div className="mx-auto max-w-2xl py-4">
           {settings ? (
-            <SettingsForm
-              settings={settings}
-              environmentForwardTo={environmentForwardToNumber()}
-            />
+            <div className="flex flex-col gap-6">
+              <SettingsForm
+                settings={settings}
+                environmentForwardTo={environmentForwardToNumber()}
+              />
+
+              {/* Below the settings form rather than inside it: these write
+                  rows of their own and save independently, so sharing that
+                  form's single Save button would be a lie about what it does. */}
+              <Separator />
+              <AvailabilityEditor rules={rules} />
+              <Separator />
+              <BlockedDatesEditor dates={blockedDates} />
+              <Separator />
+              <BookLink configuredOrigin={appBaseUrl()} />
+            </div>
           ) : (
             // The migration seeds the row, so its absence means the migration
             // hasn't run. Say that plainly instead of rendering an empty form

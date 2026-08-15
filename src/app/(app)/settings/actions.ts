@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { AI_MODEL_OPTIONS, AI_MODE_OPTIONS } from "@/lib/ai/models";
+import { MINUTES_PER_DAY, parseTimeOfDay } from "@/lib/booking/time";
 import { normalizePhone } from "@/lib/contacts";
 import { SETTINGS_ID } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
@@ -21,6 +22,7 @@ export type SettingsInput = {
   ai_model: string;
   notification_email: string;
   forward_to_number: string;
+  booking_min_notice_minutes: number;
 };
 
 export async function saveSettings(
@@ -62,9 +64,20 @@ export async function saveSettings(
     }
   }
 
+  // Mirrors settings_booking_min_notice_check. A negative notice would mean
+  // slots open in the past, which the generator would silently offer.
+  const minNotice = Math.round(input.booking_min_notice_minutes);
+  if (!Number.isFinite(minNotice) || minNotice < 0) {
+    return { ok: false, error: "Minimum notice must be zero or more minutes." };
+  }
+  if (minNotice > 30 * MINUTES_PER_DAY) {
+    return { ok: false, error: "Minimum notice can't be more than 30 days." };
+  }
+
   const { error } = await supabase
     .from("settings")
     .update({
+      booking_min_notice_minutes: minNotice,
       ai_system_prompt: input.ai_system_prompt,
       ai_mode: input.ai_mode as AiMode,
       ai_model: input.ai_model as AiModel,
@@ -79,5 +92,159 @@ export async function saveSettings(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/settings");
+  // Minimum notice decides which slots /book offers, so a saved change has to
+  // reach the public page too.
+  revalidatePath("/book");
   return { ok: true, value: { forwardToNumber } };
+}
+
+// ---------------------------------------------------------------------------
+// Availability (booking phase 2)
+// ---------------------------------------------------------------------------
+//
+// Separate actions rather than fields on `saveSettings`, because these are rows
+// and it is a row. The Settings *page* is one screen; the Settings *table* is
+// one row, and conflating the two would mean rebuilding the whole weekly
+// pattern on every unrelated save.
+
+/**
+ * Every action here re-checks the session.
+ *
+ * Server Actions are reachable by direct POST, not only through the form that
+ * renders them, and `proxy.ts` is about to start letting unauthenticated
+ * traffic through to `/book`. The guard in the proxy is no longer the only
+ * thing standing between the internet and these writes.
+ */
+async function requireSession() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  return user ? supabase : null;
+}
+
+/** Both `/settings` and the public calendar it configures. */
+function revalidateCalendar() {
+  revalidatePath("/settings");
+  revalidatePath("/book");
+}
+
+export type AvailabilityRuleInput = {
+  day_of_week: number;
+  /** `HH:MM`, as an `<input type="time">` produces. */
+  start_time: string;
+  end_time: string;
+  active: boolean;
+};
+
+/**
+ * Replaces the entire weekly pattern.
+ *
+ * Delete-then-insert rather than a per-row diff. The editor hands over the
+ * whole week as one object, the table has no foreign keys pointing into it, and
+ * nothing anywhere holds an availability rule's id — a booking records its own
+ * start and end, not the rule that offered it. So there is nothing a fresh set
+ * of ids can break, and this avoids reconciling adds, edits and removes.
+ *
+ * Not a transaction, which is the honest tradeoff: PostgREST has no way to send
+ * one. A failure between the delete and the insert leaves no availability, so
+ * the insert goes first in the error message the operator sees.
+ */
+export async function saveAvailability(
+  rules: AvailabilityRuleInput[],
+): Promise<ActionResult> {
+  const supabase = await requireSession();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  for (const rule of rules) {
+    if (rule.day_of_week < 0 || rule.day_of_week > 6) {
+      return { ok: false, error: `${rule.day_of_week} is not a day of the week` };
+    }
+    if (parseTimeOfDay(rule.end_time) <= parseTimeOfDay(rule.start_time)) {
+      return {
+        ok: false,
+        error: `${rule.start_time}–${rule.end_time} ends before it starts.`,
+      };
+    }
+  }
+
+  const { error: deleteError } = await supabase
+    .from("availability_rules")
+    .delete()
+    // PostgREST refuses an unfiltered delete. Every id is a uuid, so this
+    // matches every row while still being a filter.
+    .not("id", "is", null);
+
+  if (deleteError) {
+    return { ok: false, error: `Could not clear availability: ${deleteError.message}` };
+  }
+
+  if (rules.length > 0) {
+    const { error: insertError } = await supabase
+      .from("availability_rules")
+      .insert(rules);
+
+    if (insertError) {
+      return {
+        ok: false,
+        error:
+          `Availability was cleared but not saved: ${insertError.message}. ` +
+          "Nothing is bookable until you save again.",
+      };
+    }
+  }
+
+  revalidateCalendar();
+  return { ok: true, value: null };
+}
+
+/** Blocks one whole day. `date` is `YYYY-MM-DD` in the app time zone. */
+export async function addBlockedDate(
+  date: string,
+  reason: string,
+): Promise<ActionResult> {
+  const supabase = await requireSession();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { ok: false, error: "Pick a date first." };
+  }
+
+  const { error } = await supabase
+    .from("blocked_dates")
+    .insert({ date, reason: reason.trim() || null });
+
+  if (error) {
+    // The unique index is the only thing that can realistically fail here, and
+    // "already blocked" is not an error worth a stack trace.
+    return {
+      ok: false,
+      error:
+        error.code === "23505"
+          ? "That date is already blocked."
+          : `Could not block that date: ${error.message}`,
+    };
+  }
+
+  revalidateCalendar();
+  return { ok: true, value: null };
+}
+
+/**
+ * Unblocks a day.
+ *
+ * Note this does not resurrect anything: blocking a day never cancelled the
+ * meetings already on it, it only stopped new ones being booked. Any bookings
+ * that survived the block are still there and still occupy their slots.
+ */
+export async function removeBlockedDate(id: string): Promise<ActionResult> {
+  const supabase = await requireSession();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  const { error } = await supabase.from("blocked_dates").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateCalendar();
+  return { ok: true, value: null };
 }

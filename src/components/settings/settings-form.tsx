@@ -22,6 +22,18 @@ import { AI_MODEL_OPTIONS, AI_MODE_OPTIONS } from "@/lib/ai/models";
 import { formatPhone } from "@/lib/format";
 import type { Settings } from "@/types/database";
 
+/** "90 minutes" is harder to picture than "1h 30m" once it passes an hour. */
+function describeMinutes(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes < 0) return "an invalid amount of time";
+  if (minutes < 60) return `${minutes} minutes`;
+
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const hoursLabel = `${hours} hour${hours === 1 ? "" : "s"}`;
+
+  return rest === 0 ? hoursLabel : `${hoursLabel} ${rest} min`;
+}
+
 function Note({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-muted-foreground flex items-start gap-1.5 text-xs">
@@ -50,13 +62,19 @@ export function SettingsForm({
   const [model, setModel] = useState<string>(settings.ai_model);
   const [email, setEmail] = useState(settings.notification_email ?? "");
   const [forwardTo, setForwardTo] = useState(settings.forward_to_number ?? "");
+  // String, not number: an empty field is a real intermediate state while
+  // typing, and a number-typed state would snap it to 0 mid-edit.
+  const [minNotice, setMinNotice] = useState(
+    String(settings.booking_min_notice_minutes),
+  );
 
   const dirty =
     prompt !== settings.ai_system_prompt ||
     mode !== settings.ai_mode ||
     model !== settings.ai_model ||
     email !== (settings.notification_email ?? "") ||
-    forwardTo !== (settings.forward_to_number ?? "");
+    forwardTo !== (settings.forward_to_number ?? "") ||
+    minNotice !== String(settings.booking_min_notice_minutes);
 
   function save(event: React.FormEvent) {
     event.preventDefault();
@@ -69,6 +87,7 @@ export function SettingsForm({
         ai_model: model,
         notification_email: email,
         forward_to_number: forwardTo,
+        booking_min_notice_minutes: Number(minNotice),
       });
 
       if (!result.ok) {
@@ -200,8 +219,41 @@ export function SettingsForm({
             disabled={pending}
           />
           <Note>
-            Stored, but nothing sends email yet — the <code>notify_me</code>{" "}
-            automation action is still unimplemented.
+            Where the <code>notify_me</code> automation action, AI hand-off
+            alerts and new-booking alerts are sent. Leave empty to switch all of
+            them off.
+          </Note>
+        </div>
+      </section>
+
+      <Separator />
+
+      <section className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-sm font-semibold tracking-tight">Booking</h2>
+          <p className="text-muted-foreground text-xs">
+            How the public booking page offers your time. The hours themselves
+            are below.
+          </p>
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="min-notice">Minimum notice (minutes)</Label>
+          <Input
+            id="min-notice"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={15}
+            value={minNotice}
+            onChange={(event) => setMinNotice(event.target.value)}
+            disabled={pending}
+            className="w-40"
+          />
+          <Note>
+            {Number(minNotice) === 0
+              ? "Zero — someone can book a slot that starts in a minute."
+              : `A slot stops being bookable ${describeMinutes(Number(minNotice))} before it starts.`}
           </Note>
         </div>
       </section>
@@ -275,6 +327,7 @@ export function SettingsForm({
               setModel(settings.ai_model);
               setEmail(settings.notification_email ?? "");
               setForwardTo(settings.forward_to_number ?? "");
+              setMinNotice(String(settings.booking_min_notice_minutes));
               setError(null);
             }}
           >
