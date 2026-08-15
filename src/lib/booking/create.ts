@@ -2,7 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { normalizePhone, UNIQUE_VIOLATION } from "@/lib/contacts";
+import { UNIQUE_VIOLATION } from "@/lib/contacts";
+import { normalizePhone } from "@/lib/phone/normalize";
 import type { Booking, Contact, Database } from "@/types/database";
 
 import { getDaySlots } from "./queries";

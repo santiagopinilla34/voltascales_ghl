@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { AI_MODEL_OPTIONS, AI_MODE_OPTIONS } from "@/lib/ai/models";
 import { MINUTES_PER_DAY, parseTimeOfDay } from "@/lib/booking/time";
-import { normalizePhone } from "@/lib/contacts";
+import { normalizePhone } from "@/lib/phone/normalize";
 import { SETTINGS_ID } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 import type { AiMode, AiModel } from "@/types/database";

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { AddContactDialog } from "@/components/contacts/add-contact-dialog";
 import { ContactsTable } from "@/components/contacts/contacts-table";
+import { ImportContactsDialog } from "@/components/contacts/import-contacts-dialog";
 import { listContactsWithActivity } from "@/lib/contacts";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,7 +23,14 @@ export default async function ContactsPage() {
             {contacts.length}
           </span>
         </div>
-        <AddContactDialog />
+        {/* Import sits before Add: the two do the same job at different
+            scales, and the primary button belongs closest to the edge. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <ImportContactsDialog
+            existingPhones={contacts.map((contact) => contact.phone)}
+          />
+          <AddContactDialog />
+        </div>
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">

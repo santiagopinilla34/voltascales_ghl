@@ -3,7 +3,8 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { runAutomationsForEvent } from "@/lib/automations/engine";
-import { findOrCreateContactByPhone, normalizePhone } from "@/lib/contacts";
+import { findOrCreateContactByPhone } from "@/lib/contacts";
+import { normalizePhone } from "@/lib/phone/normalize";
 import { formWebhookSecret } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 

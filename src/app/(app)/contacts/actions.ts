@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { UNIQUE_VIOLATION, normalizePhone } from "@/lib/contacts";
+import { UNIQUE_VIOLATION } from "@/lib/contacts";
+import { normalizePhone } from "@/lib/phone/normalize";
 import { createClient } from "@/lib/supabase/server";
 import type { ContactStatus } from "@/types/database";
 
@@ -188,4 +189,103 @@ export async function createContact(input: {
 
   revalidateContact(data.id);
   return { ok: true, value: { id: data.id } };
+}
+
+/**
+ * How many contacts one import may create.
+ *
+ * A phone address book is routinely a few thousand cards. Inserting all of
+ * them in one statement is fine for Postgres and not fine for a CRM that texts
+ * people — an accidental full-address-book import is a mess to undo by hand.
+ * The dialog says what the cap is before the file is chosen.
+ */
+export const IMPORT_LIMIT = 500;
+
+export type ImportSummary = {
+  created: number;
+  /** Rows the unique index rejected — someone else imported them first. */
+  duplicates: number;
+};
+
+/**
+ * Bulk-creates contacts from a parsed vCard file.
+ *
+ * The client does the parsing (`src/lib/vcard.ts`) and shows a preview; this
+ * takes only the four fields the contact form has, and re-normalises the phone
+ * rather than trusting what arrived. A server action is a public endpoint, so
+ * the browser having already normalised it means nothing.
+ *
+ * `upsert` with `ignoreDuplicates` rather than a plain insert: a single
+ * conflicting row would otherwise abort the whole statement, and one contact
+ * that already exists is the most ordinary thing an import can contain. It is
+ * not an update — an import must never overwrite a name or a tag that was
+ * edited in the CRM with a stale one off a phone.
+ */
+export async function importContacts(
+  rows: {
+    name: string;
+    phone: string;
+    email: string | null;
+    businessName: string | null;
+  }[],
+): Promise<ActionResult<ImportSummary>> {
+  const supabase = await requireUser();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  if (rows.length === 0) {
+    return { ok: false, error: "Nothing to import." };
+  }
+  if (rows.length > IMPORT_LIMIT) {
+    return {
+      ok: false,
+      error: `That file has ${rows.length} contacts. Import at most ${IMPORT_LIMIT} at a time.`,
+    };
+  }
+
+  // Deduplicated here too, not only in the browser: `upsert` refuses a batch
+  // that names the same conflict target twice within itself.
+  const seen = new Set<string>();
+  const payload: {
+    phone: string;
+    name: string | null;
+    email: string | null;
+    business_name: string | null;
+  }[] = [];
+
+  for (const row of rows) {
+    const phone = normalizePhone(row.phone);
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+
+    const email = row.email?.trim();
+
+    payload.push({
+      phone,
+      name: row.name.trim() || null,
+      // Same permissive check the edit form uses. An address that fails it is
+      // dropped rather than failing the import — the contact is still worth
+      // having, and the field is editable afterwards.
+      email: email && isPlausibleEmail(email) ? email : null,
+      business_name: row.businessName?.trim() || null,
+    });
+  }
+
+  if (payload.length === 0) {
+    return { ok: false, error: "None of those had a usable phone number." };
+  }
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .upsert(payload, { onConflict: "phone", ignoreDuplicates: true })
+    .select("id");
+
+  if (error) return { ok: false, error: error.message };
+
+  const created = data?.length ?? 0;
+
+  revalidateContact();
+  return {
+    ok: true,
+    value: { created, duplicates: payload.length - created },
+  };
 }
