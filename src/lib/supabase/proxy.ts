@@ -4,8 +4,18 @@ import { createServerClient } from "@supabase/ssr";
 import { publicEnv } from "@/lib/env";
 import type { Database } from "@/types/database";
 
-/** Routes reachable without a session. Everything else redirects to /login. */
-const PUBLIC_PATHS = ["/login"];
+/**
+ * Routes reachable without a session. Everything else redirects to /login.
+ *
+ * `/book` is public by design — it is the self-serve booking page, and the
+ * whole point is that a lead can use it without an account. It reaches the
+ * database through the service-role client on the server, never as `anon`,
+ * which has no RLS policy on any table. Nothing under it renders anything
+ * belonging to another visitor: the calendar shows free slots, never who holds
+ * the busy ones, and `/book/cancel/[token]` shows one booking to whoever holds
+ * its unguessable token.
+ */
+const PUBLIC_PATHS = ["/login", "/book"];
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PATHS.some(
