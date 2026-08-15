@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Logo } from "@/components/logo";
 
 import { LoginForm } from "./login-form";
+import { OAuthButtons } from "./oauth-buttons";
 
 export const metadata: Metadata = {
   title: "Sign in · VoltaScales",
@@ -19,7 +20,12 @@ export default function LoginPage() {
         <p className="text-muted-foreground mt-1 mb-6 text-sm">
           Sign in to continue.
         </p>
-        <LoginForm />
+        {/* Above the form, which is the convention: the one-tap options come
+            first and the password is the fallback under them. */}
+        <OAuthButtons />
+        <div className="mt-3">
+          <LoginForm />
+        </div>
       </div>
     </main>
   );
