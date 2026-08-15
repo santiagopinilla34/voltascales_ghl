@@ -106,3 +106,36 @@ export async function cancelBookingByToken(
   const { contacts, ...booking } = data;
   return { ok: true, booking: { ...booking, contact: contacts } };
 }
+
+/**
+ * Cancels a booking from the dashboard, by id.
+ *
+ * The operator's counterpart to the token route. Separate rather than looking
+ * the token up first, because the two are authorised by different things — a
+ * session here, a bearer token there — and a dashboard action that went through
+ * the client's token would be one refactor away from leaking it into a page.
+ *
+ * Same conditional update, for the same reason: two clicks cancel once.
+ */
+export async function cancelBookingById(
+  supabase: SupabaseClient<Database>,
+  id: string,
+): Promise<CancelOutcome> {
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "confirmed")
+    .select("*, contacts (*)")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, error: `Couldn't cancel that booking: ${error.message}` };
+  }
+  if (!data) {
+    return { ok: false, error: "That booking is already cancelled." };
+  }
+
+  const { contacts, ...booking } = data;
+  return { ok: true, booking: { ...booking, contact: contacts } };
+}

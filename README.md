@@ -300,9 +300,14 @@ wall-clock arithmetic against `Intl`.
 
 ### Managing it
 
+**Calendar** in the sidebar lists what's booked — upcoming first, then
+cancelled meetings that haven't happened yet, then recent history. Cancelling
+from there texts and emails the client, exactly as their own cancel link would.
+
 Settings holds the weekly hours (multiple ranges per day, for a lunch break),
-blocked dates, minimum notice, and the shareable `/book` link. The migration
-seeds Monday–Friday 9–5 so the page isn't empty on first load.
+blocked dates, minimum notice, the alert number, and the shareable `/book`
+link. The migration seeds Monday–Friday 9–5 so the page isn't empty on first
+load.
 
 ### What happens on a booking
 

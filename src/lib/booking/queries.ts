@@ -3,7 +3,13 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getSettings } from "@/lib/settings";
-import type { AvailabilityRule, BlockedDate, Database } from "@/types/database";
+import type {
+  AvailabilityRule,
+  BlockedDate,
+  Booking,
+  Contact,
+  Database,
+} from "@/types/database";
 
 import {
   BOOKING_HORIZON_DAYS,
@@ -172,4 +178,71 @@ export async function getDaySlots(
     now,
     minNoticeMinutes: settings?.booking_min_notice_minutes ?? 120,
   })[0];
+}
+
+/** A booking with whatever contact it was linked to, for the dashboard. */
+export type BookingWithContact = Booking & {
+  contact: Pick<Contact, "id" | "name" | "business_name"> | null;
+};
+
+export type BookingsView = {
+  upcoming: BookingWithContact[];
+  /** Most recent first — the opposite of `upcoming`, because recency is what matters. */
+  past: BookingWithContact[];
+  /** Cancelled meetings still ahead of us, kept separate rather than dropped. */
+  cancelled: BookingWithContact[];
+};
+
+/**
+ * Everything the Calendar page shows, in one round trip.
+ *
+ * Split in memory rather than by three queries: the whole set is small — this
+ * is one person's meetings — and one ordered read is cheaper than three
+ * round trips plus the risk of them disagreeing about where "now" is.
+ *
+ * Past bookings are capped rather than unbounded. The page is for what's
+ * coming; history is context, and an unbounded list would grow forever behind
+ * a scrollbar nobody reaches.
+ */
+export async function getBookingsView(
+  supabase: SupabaseClient<Database>,
+  now: Date = new Date(),
+  pastLimit = 25,
+): Promise<BookingsView> {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*, contacts (id, name, business_name)")
+    .order("start_time", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to load bookings: ${error.message}`);
+  }
+
+  const view: BookingsView = { upcoming: [], past: [], cancelled: [] };
+  const nowMs = now.getTime();
+
+  for (const row of data ?? []) {
+    const { contacts, ...booking } = row;
+    const entry: BookingWithContact = { ...booking, contact: contacts };
+
+    // A meeting counts as upcoming until it has finished, not until it has
+    // started — one that is happening right now belongs at the top of the
+    // page, not in the history.
+    const ahead = Date.parse(booking.end_time) >= nowMs;
+
+    if (booking.status === "cancelled") {
+      if (ahead) view.cancelled.push(entry);
+    } else if (ahead) {
+      view.upcoming.push(entry);
+    } else if (view.past.length < pastLimit) {
+      view.past.push(entry);
+    }
+  }
+
+  // The query sorts newest-first, which is right for past and cancelled and
+  // backwards for upcoming: the next meeting belongs at the top.
+  view.upcoming.reverse();
+  view.cancelled.reverse();
+
+  return view;
 }

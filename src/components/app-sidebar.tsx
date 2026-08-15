@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Bot,
   Briefcase,
+  CalendarDays,
   FileText,
   Gauge,
   Inbox,
@@ -33,6 +34,9 @@ const NAV = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
+  // After Pipeline because that is the order the work happens in: a booking
+  // puts someone in the Booked column, and this is where you go to see it.
+  { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/business", label: "My Business", icon: Briefcase },
   { href: "/automations", label: "Automations", icon: Bot },
