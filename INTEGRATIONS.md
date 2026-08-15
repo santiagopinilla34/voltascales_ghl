@@ -1,0 +1,281 @@
+# Backend integrations still to wire
+
+Written 2026-08-15, after the front-end pass that added the Phone System page,
+the Domains page, vCard import, the top bar and the calendar views.
+
+Each section says what already exists in the repo, what you have to go and get
+before any code can work, what to write, and what will bite you. Work down the
+list; the order is roughly cheapest-and-most-useful first.
+
+**Size** is rough coding effort once you have the credentials: S is an
+afternoon, M is a day or two, L is longer.
+
+---
+
+## Already real — don't redo these
+
+- **vCard import** (`/contacts` → Import). Parses in the browser, inserts
+  through `importContacts`. No external service involved.
+- **Calendar month/week/day views** (`/calendar`). Reads real bookings.
+  Cancelling from the grid uses the existing `cancelBookingAsOperator`.
+- **What's new** (top bar). Entries live in `src/lib/whats-new.ts`; add one in
+  the same commit as the feature it describes. Only the "seen" marker is
+  per-device, in localStorage.
+
+---
+
+## 1. Twilio — buy and manage numbers · Size M
+
+Backs the Phone System page.
+
+**Built:** `src/app/(app)/phone/page.tsx`, `src/lib/phone/numbers.ts`,
+`src/components/phone/buy-number-dialog.tsx`,
+`src/components/phone/owned-numbers.tsx`.
+
+**You need:** nothing new. `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` are
+already set, and the `twilio` package is already a dependency.
+
+**Write:**
+
+| Replace | With |
+| --- | --- |
+| the owned-list fallback in `phone/page.tsx` | `GET /IncomingPhoneNumbers.json` |
+| `searchPreviewNumbers` | `GET /AvailablePhoneNumbers/{country}/{Local\|TollFree\|Mobile}.json` with `AreaCode`, `Contains`, `VoiceEnabled`, `SmsEnabled`, `MmsEnabled` |
+| the confirm button in `BuyNumberDialog` | `POST /IncomingPhoneNumbers.json` |
+| "Configure" / "Re-point webhooks" | `POST /IncomingPhoneNumbers/{sid}.json` |
+| "Release number" | `DELETE /IncomingPhoneNumbers/{sid}.json` |
+
+The types in `src/lib/phone/numbers.ts` are already Twilio's response shapes,
+so the components should not need to change.
+
+**Watch out:**
+
+- Set `VoiceUrl` and `SmsUrl` **in the same request that buys the number**, not
+  in a follow-up call. A purchased number with no webhooks silently drops every
+  call and text, and the failure looks like a Twilio outage rather than a bug.
+  Point them at `/api/webhooks/twilio/voice` and `/api/webhooks/twilio/sms`.
+- Buying charges the account the moment the request succeeds. Guard the action
+  against a double submit — a retried POST buys a second number.
+- Releasing is irreversible and the number goes back to the pool. The two-press
+  confirm is already in the UI; keep it.
+
+---
+
+## 2. Twilio Voice — make the dialer place calls · Size L
+
+Backs the green phone bubble.
+
+**Built:** `src/components/phone/dialer-bubble.tsx` — keypad, caller-ID picker,
+pane switcher.
+
+**You need:**
+
+- A **TwiML App** in the Twilio console → gives you an `AP…` SID
+- An **API Key + Secret** (`SK…` and its secret) — separate from the auth token
+- `@twilio/voice-sdk` added to the project
+
+New env: `TWILIO_TWIML_APP_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`.
+
+**Write:**
+
+1. `GET /api/twilio/voice-token` — mints an `AccessToken` with a `VoiceGrant`
+   pointing at the TwiML app. Short TTL, authenticated.
+2. `POST /api/webhooks/twilio/voice/outbound` — the TwiML app's voice URL,
+   returns `<Dial callerId="{your number}">{To}</Dial>`.
+3. In `DialerBubble`, create a `Device` from the SDK and call
+   `device.connect({ params: { To: target } })`.
+
+**Watch out:**
+
+- **Do not reuse `/api/webhooks/twilio/voice`.** That is the inbound route and
+  it forwards to your real phone; wiring the TwiML app to it means every
+  outbound call immediately dials you.
+- The browser asks for microphone permission the first time. Handle the denial
+  — a dialer that silently does nothing is worse than one that explains.
+- Recents, Voicemail and Queue are empty panes on purpose. Recents can come
+  from the existing `calls` table almost free; voicemail needs recordings
+  enabled on the number; queue needs TaskRouter or a hand-rolled queue and is
+  genuinely a later problem.
+
+---
+
+## 3. A2P 10DLC registration · Size S (mostly waiting)
+
+Not code. US carriers filter application-to-person texts from unregistered
+numbers, so this gates real SMS volume.
+
+- Register a **brand** and a **campaign** in the Twilio console.
+- Toll-free numbers use a separate **toll-free verification** instead.
+- Needs business documents (legal name, EIN or equivalent, address, a sample
+  message and opt-in description).
+- Approval takes days to weeks. Start it before you need it.
+
+The Phone System page links straight to the right console page.
+
+---
+
+## 4. Domain registrar — Porkbun · Size M
+
+Backs the Domains tab.
+
+**Why Porkbun first:** a real self-serve REST API, no partnership to negotiate,
+flat renewals and free WHOIS privacy. You can have a key today. The reasoning
+for all three candidates is in the module comment at the top of
+`src/lib/domains/domains.ts`.
+
+**Built:** `src/app/(app)/domains/page.tsx`,
+`src/components/domains/domain-search.tsx`,
+`src/components/domains/owned-domains.tsx`.
+
+**You need:** a Porkbun account, then API Key + Secret Key from its control
+panel. New env: `PORKBUN_API_KEY`, `PORKBUN_SECRET_KEY`.
+
+**Write:**
+
+| Replace | With |
+| --- | --- |
+| `searchPreviewDomains` | `POST /api/json/v3/domain/checkDomain/{domain}` |
+| the hardcoded `TLD_PRICING` table | `GET /api/json/v3/pricing/get` |
+| `PREVIEW_OWNED_DOMAINS` | `POST /api/json/v3/domain/listAll` |
+| "Confirm and register" | Porkbun's domain create endpoint |
+| "Manage DNS" | `/api/json/v3/dns/retrieve` and `/create` |
+
+You will also want a `domains` table — registrar, name, expiry, auto-renew —
+so the page does not have to hit the registrar on every render.
+
+**Watch out:**
+
+- Porkbun requires **API access to be switched on per domain** in their control
+  panel before the DNS endpoints work on it. Nothing in the error message says
+  so; you just get a permission failure on a domain you own.
+- Prices must come from the pricing endpoint. The table in the repo is
+  illustrative and will drift.
+- Registration bills **your** Porkbun account. Charging a client for it is a
+  separate problem and needs Stripe in front of it.
+
+---
+
+## 5. Squarespace Domains reseller · Blocked on them
+
+The reseller API does everything wanted here — 360+ TLDs, real-time
+registration inside your own checkout — but it is partner-gated: you apply,
+they vet you for security and technical capability, and you sign an agreement.
+
+Apply at <https://reseller.squarespace.com/>. When it lands, add a second
+implementation behind the existing `Registrar` type. Nothing in the UI names a
+provider except the badge on each domain, so the swap is contained.
+
+Do not block the domains feature on this.
+
+---
+
+## 6. Resend — sending domains · Size S
+
+Backs the Domains → Email domains tab.
+
+**Built:** `src/components/domains/email-domains.tsx`, and the four records
+Resend actually issues (SPF, bounce MX, DKIM, DMARC).
+
+**You need:** nothing new. `RESEND_API_KEY` is already set and
+`src/lib/notify/email.ts` already sends through it.
+
+**Write:**
+
+1. `POST /domains` with the name — the response carries the **real DKIM key**.
+2. `GET /domains/{id}` for the per-record verification status.
+3. `POST /domains/{id}/verify` behind the "Check DNS" button.
+4. Store the returned domain id somewhere — settings row is fine.
+
+Then set `NOTIFY_FROM_EMAIL` to an address on the verified domain.
+
+**Watch out:**
+
+- The DKIM value on screen now is a **labelled placeholder**. Publishing it
+  will not verify. The real key only exists once the domain is created through
+  the API.
+- The sending region is fixed at creation.
+- Until a domain verifies, the app sends from Resend's shared sender, which
+  only delivers to the address the Resend account was registered with. That is
+  why booking emails may look like they are vanishing in testing.
+
+---
+
+## 7. Notifications · Size M
+
+Backs the bell.
+
+**Built:** `src/components/topbar/notifications-bubble.tsx`, and
+`src/lib/alerts.ts` — which tabulates the real source for each alert kind.
+
+**Do the cheap one first:** `buildWarnings` in
+`src/components/usage/usage-warnings.tsx` already produces exactly the alert
+shape from the Twilio balance and the Anthropic estimate. Lift it into
+`src/lib/usage/warnings.ts` and call it from the top bar. That makes two alert
+kinds real with no schema change at all.
+
+Then, in order of usefulness:
+
+| Kind | Source |
+| --- | --- |
+| `reply` | `messages` where `direction = 'inbound'` and unread |
+| `booking` | `bookings` created since you last looked |
+| `missed_call` | `calls` that were not answered |
+| `automation` | `automation_runs` where the run failed |
+
+You need a read marker: either a `notifications` table, or a
+`notifications_seen_at` column on the settings row if per-alert read state
+turns out not to matter.
+
+**Watch out:**
+
+- The top bar renders on **every** authenticated page, so anything queried
+  there runs on every navigation. Either cache it, or fetch on popover open
+  from the client.
+- Realtime already exists in this app (`src/components/realtime-refresh.tsx`).
+  A new inbound message can push the count up without a poll.
+
+---
+
+## 8. Google and Apple sign-in · Size S (Google) / M (Apple)
+
+**Built:** `src/app/login/oauth-buttons.tsx`.
+
+**Google:**
+
+1. Google Cloud → OAuth client (web).
+2. Authorised redirect URI: `https://<project>.supabase.co/auth/v1/callback`.
+3. Supabase dashboard → Authentication → Providers → Google, paste client id
+   and secret.
+
+**Apple:** needs a **paid** Apple Developer account, an App ID, a Services ID,
+and a signing key. The client secret is a JWT you generate, and **it expires
+every six months** — put a reminder somewhere or sign-in dies quietly.
+
+**Write:**
+
+1. `supabase.auth.signInWithOAuth({ provider, options: { redirectTo } })` in
+   the button handlers.
+2. `src/app/auth/callback/route.ts` calling `exchangeCodeForSession`.
+3. Allow `/auth/callback` through `src/proxy.ts`, or the callback redirects to
+   `/login` and the session is never established.
+
+**Watch out:**
+
+- This app is single-user by design. Signing in with Google creates a **new**
+  Supabase user unless the Google email matches the existing account's email.
+  Decide whether to allow-list a single address, or you will end up with a
+  second, empty account and think the database is broken.
+
+---
+
+## 9. Later, not now
+
+- **Google Calendar two-way sync.** The calendar reads its own bookings; an
+  external sync is a genuinely separate feature.
+- **Stripe**, if numbers and domains are ever resold rather than bought on your
+  own accounts.
+- **Draggable dialer window.** The pin and minimise controls are drawn and
+  inert. Worth doing once calls are real and you need the app underneath during
+  one.
+- **Contact Picker API** is Android Chrome only. iOS has no equivalent; the
+  `.vcf` path is the fallback there and works.
