@@ -275,10 +275,74 @@ as a template variable. There's no idempotency key for forms, so a provider that
 retries logs the message twice; the engine's cooldown still prevents a second
 auto-reply.
 
+## Booking
+
+One meeting type, the Discovery Call: 60 minutes with a 15 minute buffer, so
+slots start 75 minutes apart. Self-serve at `/book`, auto-confirmed, no login.
+
+Availability is computed, never stored. A slot exists when the weekly pattern
+in `availability_rules` allows it, `blocked_dates` doesn't remove the day, no
+confirmed booking overlaps it (buffer included), and it is at least
+`settings.booking_min_notice_minutes` away. All of that lives in
+`lib/booking/slots.ts`, which is pure and dependency-free so the page and the
+server that validates the submission run the same code.
+
+Times are Eastern (`America/Toronto`, same offsets as Montreal) throughout.
+There is no timezone picker. `lib/booking/time.ts` does the DST-aware
+wall-clock arithmetic against `Intl`.
+
+### Managing it
+
+Settings holds the weekly hours (multiple ranges per day, for a lunch break),
+blocked dates, minimum notice, and the shareable `/book` link. The migration
+seeds Monday–Friday 9–5 so the page isn't empty on first load.
+
+### What happens on a booking
+
+1. The submitted instant is re-checked against freshly generated slots. Only a
+   slot the generator produces right now is accepted.
+2. The row is inserted. A `23P01` from the `bookings_no_overlap` exclusion
+   constraint means someone else took it in the same instant.
+3. The contact is found or created by phone (blank fields backfilled, existing
+   names never overwritten), and moved to **Booked** on the pipeline.
+4. Off the response path: confirmation SMS and email to the client, and a
+   notification email to the Settings address.
+
+Steps 3 and 4 log and carry on when they fail. The meeting is real by then.
+
+### Cancellation
+
+Every booking carries a `cancel_token`. The confirmation links to
+`/book/cancel/<token>`, which shows the booking and asks — the cancellation
+itself is a Server Action behind a button, never a GET, so link scanners can't
+cancel meetings. Cancelling flips the status, which frees the slot for both
+the generator and the exclusion constraint. Nothing is deleted.
+
+### Reminders
+
+`vercel.json` runs `/api/cron/booking-reminders` every 15 minutes. Each pass
+sends what is due and stamps `reminder_24h_sent_at` / `reminder_1h_sent_at`,
+so an overlapping or retried run costs at most one text per reminder. A
+booking made inside its own reminder window is skipped — the confirmation
+already said the same thing.
+
+> **Plan limits.** Vercel Hobby allows one cron run per day, which the `~1h
+> before` reminder cannot work with. On Hobby, change the schedule to
+> `"0 9 * * *"` and expect the 24h reminder only. Every-15-minutes needs Pro.
+
+> **Email deliverability.** On the default `onboarding@resend.dev` sender,
+> Resend only delivers to the address the account was registered with — so
+> client-facing confirmations will not arrive until you verify a domain and set
+> `NOTIFY_FROM_EMAIL`. The SMS reaches clients either way, which is why it
+> carries the cancel link itself.
+
 ## Routes
 
 | Route                                   | Auth               | Does                                                     |
 | --------------------------------------- | ------------------ | -------------------------------------------------------- |
+| `GET /book`                              | None (public)      | Booking calendar; free slots only                        |
+| `GET /book/cancel/[token]`               | Cancel token       | Shows one booking and offers to cancel it                |
+| `GET /api/cron/booking-reminders`        | `CRON_SECRET`      | Sends 24h and 1h reminder texts; 503 while unset         |
 | `POST /api/webhooks/form`                | `FORM_WEBHOOK_SECRET` | Contact form intake; fires `form_submit`               |
 | `POST /api/webhooks/twilio/sms`          | Twilio signature   | Logs inbound SMS (deduped on `MessageSid`); fires `keyword`|
 | `POST /api/webhooks/twilio/voice`        | Twilio signature   | Returns `<Dial>` TwiML forwarding the call                |
@@ -312,6 +376,13 @@ src/
   lib/
     env.ts                   Typed env access, fails loudly when unset
     contacts.ts              find-or-create by phone, E.164 normalisation
+    booking/
+      time.ts                DST-aware wall-clock arithmetic (client-safe)
+      slots.ts               Pure slot generation (client-safe)
+      queries.ts             Calendar reads
+      create.ts              Take a booking: validate, insert, link, pipeline
+      cancel.ts              Token lookup and cancellation
+      reminders.ts           The two reminder passes
     automations/
       engine.ts              Match rules, run actions, log to automation_runs
       config.ts              Parse/validate conditions and actions jsonb
@@ -334,8 +405,13 @@ supabase/
 ## Auth and access model
 
 - One account. No sign-up route; disable sign-ups in the dashboard (step 3).
-- RLS is on for all five tables. The `authenticated` role has full access;
+- RLS is on for every table. The `authenticated` role has full access;
   `anon` has no policies and is denied.
 - Webhooks (`/api/webhooks/*`, step 2 onward) are excluded from the `proxy.ts`
   matcher because Twilio can't log in — they authenticate by verifying the
-  request signature and use the service-role client.
+  request signature and use the service-role client. `/api/cron/*` is excluded
+  for the same reason and authenticates with `CRON_SECRET`.
+- `/book` is public but is **not** excluded from the matcher; it is allowed
+  through by `PUBLIC_PATHS`. It never reaches the database as `anon` — it
+  renders on the server with the service-role client, like the webhooks. The
+  page returns free slots and nothing about who holds the busy ones.

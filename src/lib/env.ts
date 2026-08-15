@@ -112,6 +112,20 @@ export function notifyFromAddress(): string {
 }
 
 /**
+ * Shared secret for `/api/cron/booking-reminders`.
+ *
+ * Vercel sends `Authorization: Bearer $CRON_SECRET` on its scheduled requests
+ * whenever this variable is set on the project, so setting it is the whole
+ * configuration. The route refuses to serve at all when it is unset, the same
+ * way the form webhook does: without it, anyone who guesses the path can make
+ * the app text every client with an upcoming meeting.
+ */
+export function cronSecret(): string | null {
+  const value = process.env.CRON_SECRET?.trim();
+  return value ? value : null;
+}
+
+/**
  * Public origin Twilio reaches this app on — the ngrok URL locally, the
  * deployment URL in production. Not in PRD section 7; added in step 2.
  *
