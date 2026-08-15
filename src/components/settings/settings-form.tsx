@@ -67,6 +67,9 @@ export function SettingsForm({
   const [minNotice, setMinNotice] = useState(
     String(settings.booking_min_notice_minutes),
   );
+  const [notifyNumber, setNotifyNumber] = useState(
+    settings.booking_notify_number ?? "",
+  );
 
   const dirty =
     prompt !== settings.ai_system_prompt ||
@@ -74,7 +77,8 @@ export function SettingsForm({
     model !== settings.ai_model ||
     email !== (settings.notification_email ?? "") ||
     forwardTo !== (settings.forward_to_number ?? "") ||
-    minNotice !== String(settings.booking_min_notice_minutes);
+    minNotice !== String(settings.booking_min_notice_minutes) ||
+    notifyNumber !== (settings.booking_notify_number ?? "");
 
   function save(event: React.FormEvent) {
     event.preventDefault();
@@ -88,6 +92,7 @@ export function SettingsForm({
         notification_email: email,
         forward_to_number: forwardTo,
         booking_min_notice_minutes: Number(minNotice),
+        booking_notify_number: notifyNumber,
       });
 
       if (!result.ok) {
@@ -98,6 +103,7 @@ export function SettingsForm({
       // Reflect the normalised number back, so the field shows what was
       // actually stored rather than what was typed.
       setForwardTo(result.value.forwardToNumber ?? "");
+      setNotifyNumber(result.value.bookingNotifyNumber ?? "");
       toast.success("Settings saved");
       router.refresh();
     });
@@ -256,6 +262,31 @@ export function SettingsForm({
               : `A slot stops being bookable ${describeMinutes(Number(minNotice))} before it starts.`}
           </Note>
         </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="booking-notify">Text me at</Label>
+          <Input
+            id="booking-notify"
+            type="tel"
+            value={notifyNumber}
+            onChange={(event) => setNotifyNumber(event.target.value)}
+            placeholder="(514) 555-0134"
+            disabled={pending}
+          />
+          <Note>
+            {notifyNumber.trim() ? (
+              <>
+                Texted the moment someone books or cancels, on top of the email
+                above. One extra SMS per booking on your Twilio bill.
+              </>
+            ) : (
+              <>
+                Empty, so booking alerts are email-only. A booking can land an
+                hour before the meeting — a text gets there in time.
+              </>
+            )}
+          </Note>
+        </div>
       </section>
 
       <Separator />
@@ -328,6 +359,7 @@ export function SettingsForm({
               setEmail(settings.notification_email ?? "");
               setForwardTo(settings.forward_to_number ?? "");
               setMinNotice(String(settings.booking_min_notice_minutes));
+              setNotifyNumber(settings.booking_notify_number ?? "");
               setError(null);
             }}
           >

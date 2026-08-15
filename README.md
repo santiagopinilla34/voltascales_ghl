@@ -305,8 +305,10 @@ seeds Monday–Friday 9–5 so the page isn't empty on first load.
    constraint means someone else took it in the same instant.
 3. The contact is found or created by phone (blank fields backfilled, existing
    names never overwritten), and moved to **Booked** on the pipeline.
-4. Off the response path: confirmation SMS and email to the client, and a
-   notification email to the Settings address.
+4. Off the response path: confirmation SMS and email to the client, and an
+   alert to you — email to the Settings notification address, and a text to
+   Settings → "Text me at" if you've set one. Either can be left empty to
+   switch that channel off. The same alerts fire on a cancellation.
 
 Steps 3 and 4 log and carry on when they fail. The meeting is real by then.
 

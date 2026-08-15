@@ -206,6 +206,7 @@ export type Database = {
           twilio_low_balance_cents: number;
           anthropic_monthly_budget_cents: number | null;
           booking_min_notice_minutes: number;
+          booking_notify_number: string | null;
           updated_at: string;
         };
         Insert: {
@@ -223,6 +224,7 @@ export type Database = {
           twilio_low_balance_cents?: number;
           anthropic_monthly_budget_cents?: number | null;
           booking_min_notice_minutes?: number;
+          booking_notify_number?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -240,6 +242,7 @@ export type Database = {
           twilio_low_balance_cents?: number;
           anthropic_monthly_budget_cents?: number | null;
           booking_min_notice_minutes?: number;
+          booking_notify_number?: string | null;
           updated_at?: string;
         };
         Relationships: [];

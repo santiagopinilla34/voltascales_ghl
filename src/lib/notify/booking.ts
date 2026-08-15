@@ -86,12 +86,44 @@ async function emailClient(booking: Booking, subject: string, text: string, labe
 }
 
 /**
- * Tells the operator a booking came in.
+ * Texts the operator that a booking came in.
  *
- * Reuses the `notify_me` pattern: the address comes from Settings, an unset one
- * means the alert is off rather than broken, and nothing here can fail the
- * booking. Includes the pipeline and inbox context that the client-facing
- * messages deliberately don't carry.
+ * Separate from the email because it answers a different question. Email is the
+ * record — notes, pipeline state, a link to the thread. This is the alert: a
+ * booking can land an hour before the meeting, and a message read the next
+ * morning would arrive after it.
+ *
+ * Kept to roughly one SMS segment. Every booking already sends a client
+ * confirmation, so this is the second message on your Twilio bill per booking,
+ * and a chatty version would quietly make it the third.
+ */
+async function textOperator(
+  to: string,
+  booking: Booking,
+  { cancelled }: { cancelled: boolean },
+) {
+  const body = cancelled
+    ? `Cancelled: ${booking.client_name} — ${formatBookingTime(booking)}. ${formatPhone(booking.client_phone)}`
+    : `New booking: ${booking.client_name} — ${formatBookingTime(booking)}. ${formatPhone(booking.client_phone)}`;
+
+  try {
+    await sendSms(to, body);
+    console.log(`[booking] operator alert for booking ${booking.id} texted to ${to}`);
+  } catch (error) {
+    console.error(
+      `[booking] could not text the operator alert for booking ${booking.id} to ${to}`,
+      error,
+    );
+  }
+}
+
+/**
+ * Tells the operator a booking came in, by whichever channels are configured.
+ *
+ * Reuses the `notify_me` pattern: both destinations come from Settings, an
+ * unset one means that channel is off rather than broken, and nothing here can
+ * fail the booking. The email includes the pipeline and inbox context that the
+ * client-facing messages deliberately don't carry.
  */
 async function notifyOperator(
   supabase: SupabaseClient<Database>,
@@ -101,11 +133,22 @@ async function notifyOperator(
 ) {
   const settings = await getSettings(supabase);
   const to = settings?.notification_email?.trim();
+  const smsTo = settings?.booking_notify_number?.trim();
+
+  // Fired first and not awaited alongside the email's assembly: it is the
+  // time-sensitive half, and it should not queue behind building a body it
+  // shares nothing with.
+  const texting = smsTo
+    ? textOperator(smsTo, booking, { cancelled })
+    : Promise.resolve();
 
   if (!to) {
-    console.log(
-      `[booking] no operator alert for booking ${booking.id}: no notification email set in Settings`,
-    );
+    if (!smsTo) {
+      console.log(
+        `[booking] no operator alert for booking ${booking.id}: neither a notification email nor a booking alert number is set in Settings`,
+      );
+    }
+    await texting;
     return;
   }
 
@@ -147,13 +190,18 @@ async function notifyOperator(
     text: lines.join("\n"),
   });
 
-  if (!result.ok) {
+  if (result.ok) {
+    console.log(`[booking] operator alert for booking ${booking.id} emailed to ${to}`);
+  } else {
     console.error(
       `[booking] could not email the operator alert for booking ${booking.id}: ${result.error}`,
     );
-    return;
   }
-  console.log(`[booking] operator alert for booking ${booking.id} emailed to ${to}`);
+
+  // Awaited on every path, including the failed-email one. Returning early
+  // here would drop the text: `after()` stops running once the promise it was
+  // handed resolves, and this one is not attached to that chain.
+  await texting;
 }
 
 /**

@@ -23,11 +23,14 @@ export type SettingsInput = {
   notification_email: string;
   forward_to_number: string;
   booking_min_notice_minutes: number;
+  booking_notify_number: string;
 };
 
 export async function saveSettings(
   input: SettingsInput,
-): Promise<ActionResult<{ forwardToNumber: string | null }>> {
+): Promise<
+  ActionResult<{ forwardToNumber: string | null; bookingNotifyNumber: string | null }>
+> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -64,6 +67,21 @@ export async function saveSettings(
     }
   }
 
+  // Same normalisation as the forward-to number, and for the same reason: it
+  // is dialled by Twilio, which wants E.164, not however it was typed.
+  const rawNotifyNumber = input.booking_notify_number.trim();
+  let bookingNotifyNumber: string | null = null;
+  if (rawNotifyNumber) {
+    bookingNotifyNumber = normalizePhone(rawNotifyNumber);
+    if (!bookingNotifyNumber) {
+      return {
+        ok: false,
+        error:
+          "Booking alerts: enter a 10-digit North American number, or an international one with its + country code.",
+      };
+    }
+  }
+
   // Mirrors settings_booking_min_notice_check. A negative notice would mean
   // slots open in the past, which the generator would silently offer.
   const minNotice = Math.round(input.booking_min_notice_minutes);
@@ -78,6 +96,7 @@ export async function saveSettings(
     .from("settings")
     .update({
       booking_min_notice_minutes: minNotice,
+      booking_notify_number: bookingNotifyNumber,
       ai_system_prompt: input.ai_system_prompt,
       ai_mode: input.ai_mode as AiMode,
       ai_model: input.ai_model as AiModel,
@@ -95,7 +114,7 @@ export async function saveSettings(
   // Minimum notice decides which slots /book offers, so a saved change has to
   // reach the public page too.
   revalidatePath("/book");
-  return { ok: true, value: { forwardToNumber } };
+  return { ok: true, value: { forwardToNumber, bookingNotifyNumber } };
 }
 
 // ---------------------------------------------------------------------------
