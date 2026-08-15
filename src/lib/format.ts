@@ -9,7 +9,13 @@
  * mismatch. A single-user app has one operator in one place, so pinning the
  * zone is both correct and simpler than passing offsets around.
  */
-const TIME_ZONE = "America/Toronto";
+/**
+ * Exported because the booking calendar needs the same zone: a slot generated
+ * in one zone and rendered in another is a meeting nobody shows up to. See
+ * `src/lib/booking/time.ts`, which does arithmetic in it rather than just
+ * formatting.
+ */
+export const TIME_ZONE = "America/Toronto";
 const LOCALE = "en-CA";
 
 const timeOnly = new Intl.DateTimeFormat(LOCALE, {

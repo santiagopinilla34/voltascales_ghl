@@ -32,6 +32,8 @@ export type AiModel =
   | "claude-haiku-4-5-20251001";
 /** Mirrors `ai_drafts_source_check`. */
 export type AiDraftSource = "shadow" | "preview";
+/** Mirrors `bookings_status_check`. */
+export type BookingStatus = "confirmed" | "cancelled";
 /** Mirrors `pipeline_entries_stage_check`. Adding one needs a migration. */
 export type PipelineStage =
   | "interested"
@@ -203,6 +205,7 @@ export type Database = {
           business_website: string | null;
           twilio_low_balance_cents: number;
           anthropic_monthly_budget_cents: number | null;
+          booking_min_notice_minutes: number;
           updated_at: string;
         };
         Insert: {
@@ -219,6 +222,7 @@ export type Database = {
           business_website?: string | null;
           twilio_low_balance_cents?: number;
           anthropic_monthly_budget_cents?: number | null;
+          booking_min_notice_minutes?: number;
           updated_at?: string;
         };
         Update: {
@@ -235,6 +239,7 @@ export type Database = {
           business_website?: string | null;
           twilio_low_balance_cents?: number;
           anthropic_monthly_budget_cents?: number | null;
+          booking_min_notice_minutes?: number;
           updated_at?: string;
         };
         Relationships: [];
@@ -319,6 +324,114 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "pipeline_entries_contact_id_fkey";
+            columns: ["contact_id"];
+            referencedRelation: "contacts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      availability_rules: {
+        Row: {
+          id: string;
+          day_of_week: number;
+          /** Wall-clock `HH:MM:SS` in the app time zone, as Postgres `time`. */
+          start_time: string;
+          end_time: string;
+          active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          day_of_week: number;
+          start_time: string;
+          end_time: string;
+          active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          day_of_week?: number;
+          start_time?: string;
+          end_time?: string;
+          active?: boolean;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      blocked_dates: {
+        Row: {
+          id: string;
+          /** Calendar date `YYYY-MM-DD`, as Postgres `date`. */
+          date: string;
+          reason: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          date: string;
+          reason?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          date?: string;
+          reason?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      bookings: {
+        Row: {
+          id: string;
+          contact_id: string | null;
+          start_time: string;
+          end_time: string;
+          status: BookingStatus;
+          client_name: string;
+          client_email: string;
+          client_phone: string;
+          notes: string | null;
+          cancel_token: string;
+          reminder_24h_sent_at: string | null;
+          reminder_1h_sent_at: string | null;
+          cancelled_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          contact_id?: string | null;
+          start_time: string;
+          end_time: string;
+          status?: BookingStatus;
+          client_name: string;
+          client_email: string;
+          client_phone: string;
+          notes?: string | null;
+          cancel_token?: string;
+          reminder_24h_sent_at?: string | null;
+          reminder_1h_sent_at?: string | null;
+          cancelled_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          contact_id?: string | null;
+          start_time?: string;
+          end_time?: string;
+          status?: BookingStatus;
+          client_name?: string;
+          client_email?: string;
+          client_phone?: string;
+          notes?: string | null;
+          cancel_token?: string;
+          reminder_24h_sent_at?: string | null;
+          reminder_1h_sent_at?: string | null;
+          cancelled_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bookings_contact_id_fkey";
             columns: ["contact_id"];
             referencedRelation: "contacts";
             referencedColumns: ["id"];
@@ -483,3 +596,6 @@ export type AiDraft = Tables<"ai_drafts">;
 export type PipelineEntry = Tables<"pipeline_entries">;
 export type Package = Tables<"packages">;
 export type Invoice = Tables<"invoices">;
+export type AvailabilityRule = Tables<"availability_rules">;
+export type BlockedDate = Tables<"blocked_dates">;
+export type Booking = Tables<"bookings">;
