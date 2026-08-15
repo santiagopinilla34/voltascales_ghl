@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AppSidebar } from "@/components/app-sidebar";
+import { Logo } from "@/components/logo";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -48,9 +49,7 @@ export default async function AppLayout({
               which is the sidebar's only affordance on mobile. */}
           <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4 md:hidden">
             <SidebarTrigger />
-            <span className="text-sm font-semibold tracking-tight">
-              VoltaScales
-            </span>
+            <Logo className="h-6" />
           </div>
           {children}
         </SidebarInset>

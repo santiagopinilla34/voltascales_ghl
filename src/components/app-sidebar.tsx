@@ -12,9 +12,9 @@ import {
   KanbanSquare,
   Settings,
   Users,
-  Zap,
 } from "lucide-react";
 
+import { Logo, LogoMark } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,13 +57,15 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b">
-        <div className="flex items-center gap-2 px-1 py-1.5">
-          <div className="bg-primary text-primary-foreground flex size-7 shrink-0 items-center justify-center rounded-md">
-            <Zap className="size-4" />
-          </div>
-          <span className="truncate text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            VoltaScales
-          </span>
+        {/* The wordmark is five times as wide as it is tall, so it cannot
+            survive the collapse to an icon rail; the bolt mark stands in for it
+            there, at the same size as the nav icons underneath. */}
+        {/* px-1 lines the wordmark up with the nav labels below, but the icon
+            rail has only 32px to give and preflight's `max-width: 100%` would
+            squash the mark to fit whatever is left of it. */}
+        <div className="flex items-center px-1 py-1.5 group-data-[collapsible=icon]:px-0">
+          <Logo className="h-7 group-data-[collapsible=icon]:hidden" />
+          <LogoMark className="hidden size-7 group-data-[collapsible=icon]:block" />
         </div>
       </SidebarHeader>
 
