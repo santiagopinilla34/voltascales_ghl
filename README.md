@@ -69,7 +69,14 @@ until you sign in.
 | `npm run lint`     | ESLint                                      |
 | `npm run typecheck`| `tsc --noEmit`                              |
 | `npm run db:push`  | Apply migrations to the linked project      |
-| `npm run db:types` | Regenerate `src/types/database.ts`          |
+| `npm run db:types` | Regenerate `src/types/database.generated.ts` |
+
+`db:types` overwrites its output file completely. That is why it writes to
+`database.generated.ts` and not to `database.ts`, which is hand-written and
+holds the literal unions for every `text` + CHECK column — things the generator
+cannot see, and which it would otherwise silently flatten to `string`. After
+regenerating, check whether a new or changed CHECK constraint needs its union
+updated in `database.ts`.
 
 ## Twilio setup
 
@@ -399,7 +406,10 @@ src/
       client.ts              REST client and sendSms
       webhook.ts             Signature verification, URL reconstruction, TwiML
   types/
-    database.ts              Schema types
+    database.generated.ts    Written by `npm run db:types`. Never edit.
+    database.ts              Hand-written layer over it: literal unions for the
+                             CHECK-constraint columns, plus the named row
+                             aliases. Import from here, not the generated file.
 supabase/
   migrations/                Versioned SQL
 ```

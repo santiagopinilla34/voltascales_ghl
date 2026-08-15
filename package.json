@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "db:push": "supabase db push",
-    "db:types": "supabase gen types typescript --linked > src/types/database.ts"
+    "db:types": "supabase gen types typescript --linked > src/types/database.generated.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
