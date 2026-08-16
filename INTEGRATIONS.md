@@ -226,6 +226,13 @@ Then, in order of usefulness:
 `messages.direction` is `"in"` / `"out"`, not `"inbound"` / `"outbound"` — see
 `MessageDirection` in `src/types/database.ts`.
 
+**Read state is done.** `notification_dismissals` stores which alert ids have
+been dealt with; alerts stay derived and are filtered on read. When you add a
+new alert kind, the only decision is whether it is an **event** (unique id,
+never recurs → permanent dismissal) or a **condition** (same id whenever it
+holds → 24-hour snooze, so it re-nags instead of going quiet forever). Say
+which in `isCondition`, `src/lib/alerts.ts`.
+
 You need a read marker: either a `notifications` table, or a
 `notifications_seen_at` column on the settings row if per-alert read state
 turns out not to matter.
