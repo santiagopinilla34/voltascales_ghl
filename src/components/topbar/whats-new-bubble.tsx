@@ -160,20 +160,20 @@ export function WhatsNewBubble() {
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="relative rounded-full"
+          size="icon-lg"
+          className="relative size-10 rounded-full"
           aria-label={
             unread.length > 0 ? "What's new, with updates" : "What's new"
           }
         >
-          <Megaphone />
+          <Megaphone className="size-5" />
           {unread.length > 0 && (
             <span className="bg-primary absolute top-1 right-1 size-2 rounded-full ring-2 ring-background" />
           )}
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-80 p-0">
+      <PopoverContent align="end" className="w-96 p-0">
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <h2 className="flex-1 text-sm font-medium">What&apos;s new</h2>
           {unread.length > 0 && (

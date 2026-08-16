@@ -73,13 +73,18 @@ export async function AppTopbar() {
   const alerts = await collectAlerts();
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+    // Taller than a page header on purpose. These are the app's own controls
+    // rather than the page's, and at h-12 with 32px buttons they read as a
+    // toolbar squeezed into a margin instead of a bar in their own right.
+    <div className="flex h-16 shrink-0 items-center gap-3 border-b px-4 sm:px-6">
       {/* The sidebar's only affordance on mobile; on desktop the rail handles
           it and this would be a second control for the same thing. */}
       <SidebarTrigger className="md:hidden" />
       <Logo className="h-6 md:hidden" />
 
-      <div className="ml-auto flex items-center gap-0.5">
+      {/* gap-2 rather than gap-0.5: three round buttons touching each other
+          read as one segmented control, and these do three unrelated things. */}
+      <div className="ml-auto flex items-center gap-2">
         <DialerBubble numbers={configuredNumbers()} />
         <WhatsNewBubble />
         <NotificationsBubble alerts={alerts} />

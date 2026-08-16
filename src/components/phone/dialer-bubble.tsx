@@ -131,15 +131,15 @@ export function DialerBubble({ numbers }: { numbers: string[] }) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          size="icon"
-          className="rounded-full bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+          size="icon-lg"
+          className="size-10 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
           aria-label="Dialer"
         >
-          <Phone />
+          <Phone className="size-5" />
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-72 p-0">
+      <PopoverContent align="end" className="w-80 p-0">
         {/* Window chrome. Inert for now — see the component comment. */}
         <div className="text-muted-foreground flex items-center gap-1 border-b px-2 py-1.5">
           <span className="flex-1 text-[10px] tracking-widest select-none">

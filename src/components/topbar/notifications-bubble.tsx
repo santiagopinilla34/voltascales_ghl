@@ -156,13 +156,13 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="relative rounded-full"
+          size="icon-lg"
+          className="relative size-10 rounded-full"
           aria-label={
             unread > 0 ? `Notifications, ${unread} unread` : "Notifications"
           }
         >
-          <Bell />
+          <Bell className="size-5" />
           {unread > 0 && (
             <span className="bg-destructive text-destructive-foreground absolute -top-0.5 -right-0.5 flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-4 font-semibold tabular-nums">
               {unread > 9 ? "9+" : unread}
@@ -171,7 +171,7 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-80 p-0">
+      <PopoverContent align="end" className="w-96 p-0">
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <h2 className="flex-1 text-sm font-medium">Notifications</h2>
           {unread > 0 && (
