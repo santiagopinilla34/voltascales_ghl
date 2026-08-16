@@ -1,7 +1,11 @@
 import twilio from "twilio";
 
 import { normalizePhone } from "@/lib/phone/normalize";
-import { twimlResponse, verifyTwilioRequest } from "@/lib/twilio/webhook";
+import {
+  twimlResponse,
+  verifyTwilioRequest,
+  webhookUrl,
+} from "@/lib/twilio/webhook";
 
 export const runtime = "nodejs";
 
@@ -66,6 +70,10 @@ export async function POST(request: Request) {
     // which is usually what you want when calling a client back.
     timeout: 30,
     answerOnBridge: true,
+    // Where the outcome is logged, so the call shows up in Recents. Built
+    // from the request the same way the inbound leg builds its own, so it
+    // works behind a tunnel as well as on the deployment.
+    action: webhookUrl(request, "/api/webhooks/twilio/voice/outbound/status"),
   });
   dial.number(to);
 

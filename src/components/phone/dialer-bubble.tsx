@@ -1,17 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import {
   ChevronDown,
   Clock,
   Contact,
   Delete,
   Grid3x3,
-  ListEnd,
+  Loader2,
   Mic,
   MicOff,
   Phone,
+  PhoneIncoming,
+  PhoneMissed,
   PhoneOff,
+  PhoneOutgoing,
   Pin,
   Minimize2,
   TriangleAlert,
@@ -31,7 +34,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { formatPhone } from "@/lib/format";
+import { Input } from "@/components/ui/input";
+import { formatListTimestamp, formatPhone } from "@/lib/format";
+import { loadDialerPanes } from "@/app/(app)/phone/actions";
+import type {
+  DialerContact,
+  RecentCall,
+} from "@/lib/phone/dialer-data";
 import { normalizePhone } from "@/lib/phone/normalize";
 import { formatDuration, useDialer } from "@/components/phone/use-dialer";
 
@@ -71,23 +80,34 @@ const KEYS: { digit: string; letters: string }[] = [
   { digit: "#", letters: "" },
 ];
 
-type Pane = "recents" | "contacts" | "keypad" | "voicemail" | "queue";
+/**
+ * Panes. No queue: a call queue holds callers while routing between multiple
+ * agents, and this is one person with one number — an inbound call forwards to
+ * your phone or is missed. There is nothing to queue, so the tab is gone
+ * rather than permanently empty.
+ */
+type Pane = "recents" | "contacts" | "keypad" | "voicemail";
 
 const PANES: { value: Pane; label: string; icon: typeof Phone }[] = [
   { value: "recents", label: "Recents", icon: Clock },
   { value: "contacts", label: "Contacts", icon: Contact },
   { value: "keypad", label: "Keypad", icon: Grid3x3 },
   { value: "voicemail", label: "Voicemail", icon: Voicemail },
-  { value: "queue", label: "Queue", icon: ListEnd },
 ];
 
-/** What each non-keypad pane will hold once there is a backend behind it. */
+/** Empty-state copy per pane. Recents and Contacts are live; voicemail is not. */
 const PANE_EMPTY: Record<Exclude<Pane, "keypad">, string> = {
-  recents: "Calls you have made and taken will be listed here, newest first.",
-  contacts: "Your contacts, searchable, one tap to call.",
-  voicemail: "Voicemails left on your numbers, with a transcript.",
-  queue: "Calls waiting to be answered when more than one comes in at once.",
+  recents: "No calls yet. Ones you make and take will appear here, newest first.",
+  contacts: "No contacts yet. They appear as soon as someone texts or calls.",
+  voicemail:
+    "Not set up. Callers who miss you get the auto-text instead — adding voicemail would change what happens when a call goes unanswered.",
 };
+
+/** "2:07", or "—" when Twilio never reported a duration. */
+function callLength(seconds: number | null): string {
+  if (seconds === null) return "—";
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
 
 function Keypad({
   onPress,
@@ -131,6 +151,62 @@ export function DialerBubble({
   const dialer = useDialer();
   const target = normalizePhone(dialed);
   const busy = dialer.status !== "idle" && dialer.status !== "error";
+
+  /**
+   * Recents and Contacts, loaded the first time either pane is opened.
+   *
+   * Null means "not fetched yet". Kept for the life of the popover rather
+   * than refetched per pane switch — flicking between the two tabs is the
+   * normal way to use this, and a round trip each way would make it stutter.
+   */
+  const [panes, setPanes] = useState<{
+    recents: RecentCall[];
+    contacts: DialerContact[];
+  } | null>(null);
+  const [panesError, setPanesError] = useState<string | null>(null);
+  const [loadingPanes, startLoading] = useTransition();
+  const [search, setSearch] = useState("");
+
+  function openPane(next: Pane) {
+    setPane(next);
+
+    if (next === "keypad" || next === "voicemail" || panes || loadingPanes) {
+      return;
+    }
+
+    startLoading(async () => {
+      const result = await loadDialerPanes();
+      if (result.ok) {
+        setPanes(result.value);
+        setPanesError(null);
+      } else {
+        setPanesError(result.error);
+      }
+    });
+  }
+
+  /** Puts a number on the keypad and calls it in one gesture. */
+  function callNumber(phone: string) {
+    setDialed(phone);
+    setPane("keypad");
+
+    if (!configured) {
+      toast.info("Browser calling isn't set up yet.");
+      return;
+    }
+
+    void dialer.dial(phone, from);
+  }
+
+  const filteredContacts = (panes?.contacts ?? []).filter((entry) => {
+    const query = search.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      entry.label.toLowerCase().includes(query) ||
+      entry.phone.includes(query.replace(/\D/g, "")) ||
+      (entry.businessName ?? "").toLowerCase().includes(query)
+    );
+  });
 
   function press(digit: string) {
     // Capped at E.164's 15 digits plus the punctuation a keypad can produce.
@@ -327,22 +403,135 @@ export function DialerBubble({
               </div>
             </div>
           </>
-        ) : (
+        ) : pane === "voicemail" ? (
           <div className="flex min-h-56 flex-col items-center justify-center gap-1 px-6 text-center">
-            <p className="text-sm font-medium">
-              {PANES.find((entry) => entry.value === pane)?.label}
+            <p className="text-sm font-medium">Voicemail</p>
+            <p className="text-muted-foreground text-xs">
+              {PANE_EMPTY.voicemail}
             </p>
-            <p className="text-muted-foreground text-xs">{PANE_EMPTY[pane]}</p>
-            <p className="text-muted-foreground mt-1 text-[11px]">
-              Not connected yet.
-            </p>
+          </div>
+        ) : loadingPanes && !panes ? (
+          <div className="flex min-h-56 items-center justify-center">
+            <Loader2 className="text-muted-foreground size-5 animate-spin" />
+          </div>
+        ) : panesError ? (
+          <div className="flex min-h-56 flex-col items-center justify-center gap-1 px-6 text-center">
+            <TriangleAlert className="text-muted-foreground size-5" />
+            <p className="text-muted-foreground text-xs">{panesError}</p>
+          </div>
+        ) : pane === "recents" ? (
+          <div className="min-h-56">
+            {(panes?.recents ?? []).length === 0 ? (
+              <p className="text-muted-foreground flex min-h-56 items-center justify-center px-6 text-center text-xs">
+                {PANE_EMPTY.recents}
+              </p>
+            ) : (
+              <ul className="max-h-72 overflow-y-auto py-1">
+                {panes!.recents.map((entry) => (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      onClick={() => callNumber(entry.phone)}
+                      className="hover:bg-muted/60 flex w-full items-center gap-3 px-4 py-2 text-left transition-colors"
+                    >
+                      {/* Direction and outcome in one glyph: an outgoing call
+                          that was not answered and an incoming one that was
+                          missed are different events. */}
+                      <span
+                        className={
+                          entry.status === "missed"
+                            ? "text-destructive shrink-0"
+                            : "text-muted-foreground shrink-0"
+                        }
+                      >
+                        {entry.direction === "outbound" ? (
+                          <PhoneOutgoing className="size-3.5" />
+                        ) : entry.status === "missed" ? (
+                          <PhoneMissed className="size-3.5" />
+                        ) : (
+                          <PhoneIncoming className="size-3.5" />
+                        )}
+                      </span>
+
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">
+                          {entry.label}
+                        </span>
+                        <span className="text-muted-foreground block truncate text-[11px]">
+                          {formatListTimestamp(entry.at)} ·{" "}
+                          {entry.status === "missed"
+                            ? "No answer"
+                            : callLength(entry.duration)}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : (
+          <div className="flex min-h-56 flex-col">
+            <div className="px-4 pb-2">
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search contacts"
+                className="h-8"
+              />
+            </div>
+
+            {filteredContacts.length === 0 ? (
+              <p className="text-muted-foreground flex flex-1 items-center justify-center px-6 text-center text-xs">
+                {search.trim()
+                  ? `Nobody matches "${search.trim()}".`
+                  : PANE_EMPTY.contacts}
+              </p>
+            ) : (
+              <ul className="max-h-64 overflow-y-auto py-1">
+                {filteredContacts.map((entry) => (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      onClick={() => callNumber(entry.phone)}
+                      className="hover:bg-muted/60 flex w-full items-center gap-3 px-4 py-2 text-left transition-colors"
+                    >
+                      <Phone className="text-muted-foreground size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">
+                          {entry.label}
+                        </span>
+                        {/* `contactLabel` falls back to the formatted number
+                            when there is no name, so repeating it underneath
+                            would print the same string twice. */}
+                        {(() => {
+                          const number = formatPhone(entry.phone);
+                          const secondary = [
+                            entry.label === number ? null : number,
+                            entry.businessName,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ");
+
+                          return secondary ? (
+                            <span className="text-muted-foreground block truncate text-[11px] tabular-nums">
+                              {secondary}
+                            </span>
+                          ) : null;
+                        })()}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
         <div
           role="tablist"
           aria-label="Dialer panes"
-          className="grid grid-cols-5 border-t"
+          className="grid grid-cols-4 border-t"
         >
           {PANES.map((entry) => (
             <button
@@ -350,7 +539,7 @@ export function DialerBubble({
               type="button"
               role="tab"
               aria-selected={pane === entry.value}
-              onClick={() => setPane(entry.value)}
+              onClick={() => openPane(entry.value)}
               className={[
                 "flex flex-col items-center gap-1 py-2 text-[9px] transition-colors",
                 pane === entry.value

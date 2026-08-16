@@ -5,6 +5,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { A2pProfile } from "@/lib/phone/a2p";
 import {
+  listDialerContacts,
+  listRecentCalls,
+  type DialerContact,
+  type RecentCall,
+} from "@/lib/phone/dialer-data";
+import {
   COUNTRIES,
   NUMBER_TYPES,
   type AvailableNumber,
@@ -76,6 +82,34 @@ export async function findAvailableNumbers(
   }
 
   return { ok: true, value: result.value };
+}
+
+/**
+ * The dialer's Recents and Contacts panes, fetched when a pane is opened.
+ *
+ * One action for both rather than two: opening the dialer usually means using
+ * it, both lists are small, and one round trip beats two on a popover that is
+ * expected to feel instant.
+ */
+export async function loadDialerPanes(): Promise<
+  ActionResult<{ recents: RecentCall[]; contacts: DialerContact[] }>
+> {
+  const supabase = await requireUser();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  try {
+    const [recents, contacts] = await Promise.all([
+      listRecentCalls(supabase),
+      listDialerContacts(supabase),
+    ]);
+
+    return { ok: true, value: { recents, contacts } };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not load the dialer.",
+    };
+  }
 }
 
 /** Lets the page re-read the owned list after something changes it. */
