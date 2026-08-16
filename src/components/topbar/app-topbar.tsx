@@ -5,6 +5,7 @@ import { WhatsNewBubble } from "@/components/topbar/whats-new-bubble";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { sortAlerts, type Alert } from "@/lib/alerts";
 import { getReplyAlerts } from "@/lib/conversations";
+import { applyDismissals } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
 import { getUsageAlerts } from "@/lib/usage/warnings";
 
@@ -57,7 +58,15 @@ async function collectAlerts(): Promise<Alert[]> {
     }
   }
 
-  return sortAlerts(alerts);
+  // Marks the ones already dealt with. Same treatment as the sources: a failed
+  // read here should cost you the dismissals, not the bell — showing an alert
+  // twice is a far smaller problem than the bar throwing.
+  try {
+    return sortAlerts(await applyDismissals(supabase, alerts));
+  } catch (error) {
+    console.error("[topbar] dismissals unavailable", error);
+    return sortAlerts(alerts);
+  }
 }
 
 export async function AppTopbar() {

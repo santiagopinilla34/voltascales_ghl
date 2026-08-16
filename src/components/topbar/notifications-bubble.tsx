@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   Bell,
   CalendarPlus,
@@ -11,6 +11,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
+import { dismissAlerts } from "@/app/(app)/actions";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -96,37 +97,58 @@ function AlertRow({
 
 export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
   /**
-   * Which alerts have been dismissed, by id — not a copy of the alerts
-   * themselves.
+   * Optimistically dismissed ids, layered on top of the server's own.
    *
-   * The list arrives from the server and changes whenever the page revalidates,
-   * so holding a snapshot of it in state would pin the bell to whatever was
-   * true on first render: a text that came in after that would never raise the
-   * count. Keeping only the ids and deriving the list each render means fresh
-   * data always wins and the dismissals survive on top of it.
+   * Dismissals are persisted now (`notification_dismissals`), and the alerts
+   * arriving here already have `read` set from that table. This state exists
+   * only so a click greys the row instantly instead of waiting for the write
+   * and the refresh to come back.
    *
-   * Session-only, deliberately. There is no read marker in the database, so a
-   * dismissal is gone on reload — see `getReplyAlerts` for what changing that
-   * would cost. A waiting reply comes back until you actually answer it, which
-   * is arguably the right behaviour for the one alert that asks you to act.
+   * Ids rather than a copy of the list, for the same reason as before: the
+   * list changes whenever the page revalidates, and holding a snapshot would
+   * pin the bell to whatever was true on first render — a text arriving later
+   * would never raise the count.
    */
-  const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
+  const [pendingReadIds, setPendingReadIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   const [open, setOpen] = useState(false);
+  const [, startTransition] = useTransition();
 
   const items = useMemo(
     () =>
       sortAlerts(
         alerts.map((alert) =>
-          readIds.has(alert.id) ? { ...alert, read: true } : alert,
+          pendingReadIds.has(alert.id) ? { ...alert, read: true } : alert,
         ),
       ),
-    [alerts, readIds],
+    [alerts, pendingReadIds],
   );
 
   const unread = items.filter((alert) => !alert.read).length;
 
-  function markRead(alert: Alert) {
-    setReadIds((current) => new Set(current).add(alert.id));
+  /**
+   * Greys the rows immediately, then records the dismissal.
+   *
+   * No `router.refresh()` on the way out: the optimistic state already shows
+   * the right thing, and refreshing would re-render every page in the app to
+   * change the colour of one row. The server's own view catches up on the next
+   * navigation, which is when it starts to matter.
+   */
+  function dismiss(entries: Alert[]) {
+    if (entries.length === 0) return;
+
+    setPendingReadIds((current) => {
+      const next = new Set(current);
+      for (const entry of entries) next.add(entry.id);
+      return next;
+    });
+
+    startTransition(async () => {
+      await dismissAlerts(
+        entries.map((entry) => ({ id: entry.id, kind: entry.kind })),
+      );
+    });
   }
 
   return (
@@ -157,7 +179,7 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
               type="button"
               className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
               onClick={() =>
-                setReadIds(new Set(items.map((entry) => entry.id)))
+                dismiss(items.filter((entry) => !entry.read))
               }
             >
               Mark all read
@@ -179,7 +201,7 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
                 key={alert.id}
                 alert={alert}
                 onOpen={(entry) => {
-                  markRead(entry);
+                  dismiss([entry]);
                   setOpen(false);
                 }}
               />

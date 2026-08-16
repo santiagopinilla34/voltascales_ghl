@@ -44,6 +44,30 @@ export type Alert = {
   read: boolean;
 };
 
+/**
+ * Whether a kind describes a state of the world rather than something that
+ * happened.
+ *
+ * This decides how long a dismissal lasts, and it is the one distinction that
+ * matters in the whole notification system.
+ *
+ * A condition's id is the same every time it holds — `usage-twilio-low` is
+ * that string whether the balance dipped today or six months ago. Dismiss it
+ * permanently and the warning is gone forever, including for a completely
+ * separate episode later, and an unnoticed empty Twilio balance stops every
+ * text and call the app makes. So conditions are snoozed and come back.
+ *
+ * An event's id is unique to the thing that happened — `reply-<messageId>`
+ * names one message and can never recur. Dismissing it permanently is right,
+ * and the next message raises a new alert on its own.
+ */
+export function isCondition(kind: AlertKind): boolean {
+  return kind === "usage";
+}
+
+/** How long a snoozed condition stays quiet before it nags again. */
+export const SNOOZE_HOURS = 24;
+
 /** Newest first, unread ahead of read — the order the panel wants. */
 export function sortAlerts(alerts: Alert[]): Alert[] {
   return [...alerts].sort((a, b) => {

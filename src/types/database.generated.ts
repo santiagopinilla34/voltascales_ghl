@@ -452,6 +452,24 @@ export type Database = {
           },
         ]
       }
+      notification_dismissals: {
+        Row: {
+          alert_id: string
+          dismissed_at: string
+          expires_at: string | null
+        }
+        Insert: {
+          alert_id: string
+          dismissed_at?: string
+          expires_at?: string | null
+        }
+        Update: {
+          alert_id?: string
+          dismissed_at?: string
+          expires_at?: string | null
+        }
+        Relationships: []
+      }
       packages: {
         Row: {
           created_at: string
