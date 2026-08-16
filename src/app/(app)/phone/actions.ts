@@ -11,7 +11,13 @@ import {
   type NumberSearch,
   type NumberType,
 } from "@/lib/phone/numbers";
-import { searchAvailableNumbers } from "@/lib/twilio/numbers";
+import {
+  buyNumber,
+  releaseNumber,
+  searchAvailableNumbers,
+  updateNumber,
+  webhookUrls,
+} from "@/lib/twilio/numbers";
 
 export type ActionResult<T = null> =
   | { ok: true; value: T }
@@ -75,6 +81,122 @@ export async function findAvailableNumbers(
 /** Lets the page re-read the owned list after something changes it. */
 export async function refreshNumbers(): Promise<void> {
   revalidatePath("/phone");
+}
+
+/**
+ * The number the app itself sends from.
+ *
+ * Releasing or unwiring this one breaks every outbound text, the missed-call
+ * auto-reply and the booking confirmations, and nothing in the UI would say
+ * why. It is guarded rather than merely discouraged.
+ */
+function mainLine(): string | null {
+  return process.env.TWILIO_PHONE_NUMBER?.trim() || null;
+}
+
+/**
+ * Buys a number. This spends money.
+ *
+ * Re-validates the number against a fresh Twilio search rather than trusting
+ * the one posted back. A server action is a public endpoint, and this one
+ * charges the account — without the check, any string reaching it becomes a
+ * purchase attempt for whatever number it names.
+ */
+export async function purchaseNumber(input: {
+  phoneNumber: string;
+  search: NumberSearch;
+}): Promise<ActionResult<{ phoneNumber: string }>> {
+  if (!(await requireUser())) {
+    return { ok: false, error: "Not authenticated" };
+  }
+
+  if (!/^\+[1-9]\d{7,14}$/.test(input.phoneNumber)) {
+    return { ok: false, error: "That is not a valid phone number." };
+  }
+
+  const offered = await findAvailableNumbers(input.search);
+  if (!offered.ok) return offered;
+
+  if (!offered.value.some((entry) => entry.phoneNumber === input.phoneNumber)) {
+    return {
+      ok: false,
+      error:
+        "That number is no longer available — someone else may have taken it. Search again.",
+    };
+  }
+
+  const result = await buyNumber(input.phoneNumber);
+  if (!result.ok) return { ok: false, error: result.error };
+
+  revalidatePath("/phone");
+  return { ok: true, value: { phoneNumber: result.value.phoneNumber } };
+}
+
+/** Edits a number's friendly name, and optionally re-points its webhooks. */
+export async function configureNumber(input: {
+  sid: string;
+  friendlyName: string;
+  repointWebhooks: boolean;
+}): Promise<ActionResult> {
+  if (!(await requireUser())) {
+    return { ok: false, error: "Not authenticated" };
+  }
+  if (!/^PN[0-9a-f]{32}$/i.test(input.sid)) {
+    return { ok: false, error: "That is not a valid number id." };
+  }
+
+  const urls = input.repointWebhooks ? webhookUrls() : null;
+
+  if (input.repointWebhooks && !urls) {
+    return {
+      ok: false,
+      error:
+        "APP_BASE_URL is not set, so there is nowhere to point the webhooks at.",
+    };
+  }
+
+  const result = await updateNumber(input.sid, {
+    friendlyName: input.friendlyName.trim().slice(0, 64),
+    ...(urls ?? {}),
+  });
+
+  if (!result.ok) return { ok: false, error: result.error };
+
+  revalidatePath("/phone");
+  return { ok: true, value: null };
+}
+
+/**
+ * Releases a number back to Twilio. Irreversible.
+ *
+ * Refuses the main line outright. Confirming twice in the UI protects against
+ * a slip, not against not realising which number the app sends from — and the
+ * consequence there is the whole CRM going quiet.
+ */
+export async function releaseOwnedNumber(input: {
+  sid: string;
+  phoneNumber: string;
+}): Promise<ActionResult> {
+  if (!(await requireUser())) {
+    return { ok: false, error: "Not authenticated" };
+  }
+  if (!/^PN[0-9a-f]{32}$/i.test(input.sid)) {
+    return { ok: false, error: "That is not a valid number id." };
+  }
+
+  if (input.phoneNumber === mainLine()) {
+    return {
+      ok: false,
+      error:
+        "This is the number the app sends from (TWILIO_PHONE_NUMBER). Releasing it would stop every text, the missed-call auto-reply and all booking confirmations. Point TWILIO_PHONE_NUMBER at another number first.",
+    };
+  }
+
+  const result = await releaseNumber(input.sid);
+  if (!result.ok) return { ok: false, error: result.error };
+
+  revalidatePath("/phone");
+  return { ok: true, value: null };
 }
 
 /**

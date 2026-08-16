@@ -37,7 +37,7 @@ export function NumbersPanel({
 
   return (
     <>
-      <section className="flex min-w-0 flex-col gap-3">
+      <section className="flex min-w-0 flex-col gap-4">
         <h2 className="text-sm font-semibold tracking-tight">Your numbers</h2>
         <OwnedNumbers
           numbers={numbers}
@@ -48,24 +48,35 @@ export function NumbersPanel({
         />
       </section>
 
-      <section className="flex min-w-0 flex-col gap-3">
-        <div>
+      <section className="flex min-w-0 flex-col gap-4">
+        <div className="flex flex-col gap-1">
           <h2 className="text-sm font-semibold tracking-tight">
             Messaging compliance
           </h2>
-          <p className="text-muted-foreground text-xs">
+          <p className="text-muted-foreground max-w-2xl text-xs">
             US carriers reject application-to-person texts from unregistered
             numbers. This is done once per business, not per number.
           </p>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3 rounded-lg border p-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <ShieldCheck className="text-muted-foreground size-4 shrink-0" />
-            <h3 className="min-w-0 flex-1 text-sm font-medium">
-              A2P 10DLC business profile
-            </h3>
-            <span className="text-muted-foreground shrink-0 rounded-full border px-2 py-0.5 text-[10px]">
+        <div className="flex min-w-0 flex-col gap-5 rounded-lg border p-6">
+          <div className="flex min-w-0 flex-wrap items-start gap-3">
+            <span className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-lg">
+              <ShieldCheck className="size-4" />
+            </span>
+
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <h3 className="text-sm font-medium">
+                A2P 10DLC business profile
+              </h3>
+              <p className="text-muted-foreground max-w-xl text-xs">
+                {started
+                  ? "Your answers are saved. They will pre-fill Twilio's registration form when submitting is wired up."
+                  : "Fill this in now and it will be ready when registration is switched on. Nothing is sent to Twilio yet."}
+              </p>
+            </div>
+
+            <span className="text-muted-foreground shrink-0 rounded-full border px-2.5 py-1 text-[10px] whitespace-nowrap">
               {submittedAt
                 ? "Submitted"
                 : started
@@ -76,13 +87,7 @@ export function NumbersPanel({
             </span>
           </div>
 
-          <p className="text-muted-foreground text-xs">
-            {started
-              ? "Your answers are saved. They will pre-fill Twilio's registration form when submitting is wired up."
-              : "Fill this in now and it will be ready when registration is switched on. Nothing is sent to Twilio yet."}
-          </p>
-
-          <div>
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="outline"

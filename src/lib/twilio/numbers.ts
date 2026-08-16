@@ -210,6 +210,128 @@ function isTollFree(phoneNumber: string): boolean {
   return /^\+1(800|833|844|855|866|877|888)/.test(phoneNumber);
 }
 
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a number's webhooks must point for this app to receive anything.
+ *
+ * Read off the number that already works rather than invented: both POST,
+ * neither fallback set, and no status callback on the number itself — the
+ * voice status callback is attached per call by the TwiML the voice route
+ * returns.
+ */
+export function webhookUrls(): { voiceUrl: string; smsUrl: string } | null {
+  const base = process.env.APP_BASE_URL?.trim().replace(/\/$/, "");
+  if (!base) return null;
+
+  return {
+    voiceUrl: `${base}/api/webhooks/twilio/voice`,
+    smsUrl: `${base}/api/webhooks/twilio/sms`,
+  };
+}
+
+/**
+ * Buys a number and wires it in the same request.
+ *
+ * The webhooks are not a follow-up call, deliberately. A number that exists
+ * with no `VoiceUrl` accepts calls and drops them silently, so if a second
+ * request failed you would own a number that looks bought and behaves broken —
+ * and that failure presents as a Twilio outage rather than as a bug here.
+ *
+ * Refuses outright when `APP_BASE_URL` is unset, for the same reason: there is
+ * nowhere to point it, and buying anyway spends money on something that cannot
+ * work.
+ */
+export async function buyNumber(
+  phoneNumber: string,
+  friendlyName?: string,
+): Promise<NumbersResult<{ sid: string; phoneNumber: string }>> {
+  const urls = webhookUrls();
+  if (!urls) {
+    return {
+      ok: false,
+      error:
+        "APP_BASE_URL is not set, so there is nowhere to point this number's webhooks. A number without them drops every call and text, so nothing was bought.",
+    };
+  }
+
+  try {
+    const client = createTwilioClient();
+    const created = await withTimeout(
+      client.incomingPhoneNumbers.create({
+        phoneNumber,
+        voiceUrl: urls.voiceUrl,
+        voiceMethod: "POST",
+        smsUrl: urls.smsUrl,
+        smsMethod: "POST",
+        ...(friendlyName ? { friendlyName } : {}),
+      }),
+      "Twilio number purchase",
+    );
+
+    return {
+      ok: true,
+      value: { sid: created.sid, phoneNumber: created.phoneNumber },
+    };
+  } catch (error) {
+    console.error("[twilio/numbers] purchase failed", error);
+    return { ok: false, error: describe(error) };
+  }
+}
+
+/** Edits the friendly name and webhook URLs of a number already owned. */
+export async function updateNumber(
+  sid: string,
+  changes: { friendlyName?: string; voiceUrl?: string; smsUrl?: string },
+): Promise<NumbersResult<null>> {
+  try {
+    const client = createTwilioClient();
+    await withTimeout(
+      client.incomingPhoneNumbers(sid).update({
+        ...(changes.friendlyName !== undefined
+          ? { friendlyName: changes.friendlyName }
+          : {}),
+        ...(changes.voiceUrl !== undefined
+          ? { voiceUrl: changes.voiceUrl, voiceMethod: "POST" as const }
+          : {}),
+        ...(changes.smsUrl !== undefined
+          ? { smsUrl: changes.smsUrl, smsMethod: "POST" as const }
+          : {}),
+      }),
+      "Twilio number update",
+    );
+
+    return { ok: true, value: null };
+  } catch (error) {
+    console.error("[twilio/numbers] update failed", error);
+    return { ok: false, error: describe(error) };
+  }
+}
+
+/**
+ * Gives a number back to Twilio.
+ *
+ * Irreversible in the way that matters: it returns to the pool and someone
+ * else can take it within minutes. Billing stops, and so does every call and
+ * text anyone sends to it.
+ */
+export async function releaseNumber(sid: string): Promise<NumbersResult<null>> {
+  try {
+    const client = createTwilioClient();
+    await withTimeout(
+      client.incomingPhoneNumbers(sid).remove(),
+      "Twilio number release",
+    );
+
+    return { ok: true, value: null };
+  } catch (error) {
+    console.error("[twilio/numbers] release failed", error);
+    return { ok: false, error: describe(error) };
+  }
+}
+
 /**
  * The fields all three available-number resources share.
  *

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import {
   CheckCircle2,
   CircleDashed,
   HelpCircle,
+  Loader2,
   MessageSquare,
   MoreHorizontal,
   Image as ImageIcon,
@@ -16,6 +18,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { releaseOwnedNumber } from "@/app/(app)/phone/actions";
+import { ConfigureNumberDialog } from "@/components/phone/configure-number-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -145,24 +149,34 @@ function A2pCell({
 /**
  * Column widths, shared by the header and every row so they stay aligned.
  *
- * The number column has a hard minimum rather than a pure fraction: a phone
- * number is the one thing on the row that must never be abbreviated, and at
- * `1.6fr` the role badge beside it squeezed "(438) 817-5422" down to
- * "(438) 817-…", which is unusable. The flexible columns give way instead.
+ * Every column is sized to its longest real content rather than to a
+ * fraction, because fractions are what caused the crowding: at `1.4fr` the
+ * number column could not hold "(438) 817-5422" *and* a role badge, so the
+ * badge sat on top of the number, and the A2P column could not hold "Not
+ * registered" beside a Register button.
+ *
+ * So the two columns with fixed-width content — price and webhooks — are
+ * `auto`, A2P gets the room its button needs, and only the number column
+ * flexes. Breakpoint is `lg` rather than `md`: six columns genuinely do not
+ * fit a tablet, and stacking is better than overlapping.
  */
 const COLUMNS =
-  "md:grid-cols-[minmax(13rem,1.4fr)_auto_minmax(0,0.6fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_auto]";
+  "lg:grid-cols-[minmax(15rem,1fr)_auto_auto_minmax(11rem,auto)_auto_auto]";
 
 function NumberRow({
   entry,
   onRelease,
+  onConfigure,
   onStartA2p,
   confirming,
+  releasing,
 }: {
   entry: OwnedNumber;
   onRelease: (entry: OwnedNumber) => void;
+  onConfigure: (entry: OwnedNumber) => void;
   onStartA2p: (entry: OwnedNumber) => void;
   confirming: boolean;
+  releasing: boolean;
 }) {
   // Twilio defaults `friendlyName` to the number itself, which would render
   // the same string twice. Only shown when someone has actually named it.
@@ -173,41 +187,46 @@ function NumberRow({
 
   return (
     <li
-      className={`grid grid-cols-1 items-center gap-x-4 gap-y-2 px-3 py-3 ${COLUMNS}`}
+      className={`grid grid-cols-1 items-center gap-x-8 gap-y-3 px-4 py-4 ${COLUMNS}`}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-full">
-          <Phone className="size-3.5" />
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
+          <Phone className="size-4" />
         </span>
-        <div className="min-w-0">
+        {/* The badge sits under the number, not beside it. Side by side they
+            compete for the same row and the number loses — which is how it
+            ended up overlapped. */}
+        <div className="flex min-w-0 flex-col gap-1">
           <p className="text-sm font-medium whitespace-nowrap tabular-nums">
             {formatPhone(entry.phoneNumber)}
           </p>
-          {named && (
-            <p className="text-muted-foreground truncate text-xs">
-              {entry.friendlyName}
-            </p>
-          )}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {entry.role && (
+              <Badge variant="secondary" className="text-[10px]">
+                {entry.role}
+              </Badge>
+            )}
+            {named && (
+              <span className="text-muted-foreground truncate text-xs">
+                {entry.friendlyName}
+              </span>
+            )}
+          </div>
         </div>
-        {entry.role && (
-          <Badge variant="secondary" className="shrink-0 text-[10px]">
-            {entry.role}
-          </Badge>
-        )}
       </div>
 
-      <div className="md:justify-self-center">
+      <div className="lg:justify-self-center">
         <CapabilityIcons capabilities={entry.capabilities} />
       </div>
 
-      <span className="text-muted-foreground text-xs tabular-nums">
+      <span className="text-muted-foreground text-xs whitespace-nowrap tabular-nums">
         {formatCents(entry.monthlyCents)}/mo
       </span>
 
       <A2pCell state={entry.a2p} onStart={() => onStartA2p(entry)} />
 
       <span
-        className={`inline-flex items-center gap-1 text-xs ${
+        className={`inline-flex items-center gap-1 whitespace-nowrap text-xs ${
           entry.webhooksConfigured
             ? "text-muted-foreground"
             : "text-amber-700 dark:text-amber-400"
@@ -226,23 +245,16 @@ function NumberRow({
         )}
       </span>
 
-      <div className="md:justify-self-end">
+      <div className="lg:justify-self-end">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm">
-              <MoreHorizontal />
+            <Button variant="ghost" size="icon-sm" disabled={releasing}>
+              {releasing ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
               <span className="sr-only">Actions for {entry.phoneNumber}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onSelect={() =>
-                toast.info("Number settings aren't connected yet.", {
-                  description:
-                    "This will edit the friendly name and the voice and SMS webhook URLs.",
-                })
-              }
-            >
+            <DropdownMenuItem onSelect={() => onConfigure(entry)}>
               <Settings2 />
               Configure
             </DropdownMenuItem>
@@ -274,8 +286,19 @@ export function OwnedNumbers({
   numbers: OwnedNumber[];
   onStartA2p: (entry: OwnedNumber) => void;
 }) {
+  const router = useRouter();
   const [confirmingSid, setConfirmingSid] = useState<string | null>(null);
+  const [configuring, setConfiguring] = useState<OwnedNumber | null>(null);
+  const [releasing, setReleasing] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
+  /**
+   * Two presses, matching how cancelling a booking works elsewhere here.
+   *
+   * The number goes back to Twilio's pool and can be taken by someone else
+   * within minutes, so there is no undo to fall back on. The server refuses
+   * the main line outright regardless of how many times it is pressed.
+   */
   function release(entry: OwnedNumber) {
     const key = entry.sid || entry.phoneNumber;
 
@@ -283,14 +306,29 @@ export function OwnedNumbers({
       setConfirmingSid(key);
       toast.warning(`Release ${formatPhone(entry.phoneNumber)}?`, {
         description:
-          "Releasing gives the number back to Twilio and it cannot be recovered. Open the menu and press release again to confirm.",
+          "This gives the number back to Twilio and cannot be undone. Open the menu and press release again to confirm.",
       });
       return;
     }
 
     setConfirmingSid(null);
-    toast.info("Releasing isn't connected to Twilio yet.", {
-      description: `${formatPhone(entry.phoneNumber)} would be released from the account.`,
+    setReleasing(key);
+
+    startTransition(async () => {
+      const result = await releaseOwnedNumber({
+        sid: entry.sid,
+        phoneNumber: entry.phoneNumber,
+      });
+
+      setReleasing(null);
+
+      if (!result.ok) {
+        toast.error(result.error, { duration: 10_000 });
+        return;
+      }
+
+      toast.success(`${formatPhone(entry.phoneNumber)} released.`);
+      router.refresh();
     });
   }
 
@@ -327,7 +365,7 @@ export function OwnedNumbers({
       <div className="min-w-0 overflow-hidden rounded-lg border">
         {/* Header only exists once the row is actually columnar. */}
         <div
-          className={`text-muted-foreground bg-muted/40 hidden gap-x-4 border-b px-3 py-2 text-[10px] font-medium tracking-wide uppercase md:grid ${COLUMNS}`}
+          className={`text-muted-foreground bg-muted/40 hidden gap-x-8 border-b px-4 py-2.5 text-[10px] font-medium tracking-wide uppercase lg:grid ${COLUMNS}`}
         >
           <span>Number</span>
           <span className="justify-self-center">Capabilities</span>
@@ -343,12 +381,22 @@ export function OwnedNumbers({
               key={entry.sid || entry.phoneNumber}
               entry={entry}
               onRelease={release}
+              onConfigure={setConfiguring}
               onStartA2p={onStartA2p}
               confirming={confirmingSid === (entry.sid || entry.phoneNumber)}
+              releasing={releasing === (entry.sid || entry.phoneNumber)}
             />
           ))}
         </ul>
       </div>
+
+      {/* Keyed so reopening on a different number starts from that number's
+          values rather than the previous one's. */}
+      <ConfigureNumberDialog
+        key={configuring?.sid ?? "none"}
+        entry={configuring}
+        onClose={() => setConfiguring(null)}
+      />
     </div>
   );
 }

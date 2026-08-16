@@ -71,8 +71,11 @@ export default async function PhonePage() {
         <BuyNumberDialog />
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 pb-4">
+      {/* Wider than the other pages. Six columns of number metadata do not fit
+          in the 3xl the text-heavy pages use — at that width the role badge
+          overlapped the number and the A2P cell had no room for its button. */}
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-8 pb-6">
           {usingPreview && (
             <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />

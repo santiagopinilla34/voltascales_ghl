@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
   Loader2,
@@ -15,7 +16,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { findAvailableNumbers } from "@/app/(app)/phone/actions";
+import {
+  findAvailableNumbers,
+  purchaseNumber,
+} from "@/app/(app)/phone/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -56,9 +60,10 @@ import {
  * footer that states what is selected and what it costs before anything is
  * charged.
  *
- * The search is live against Twilio. Buying is not wired yet and the button
- * says so — that is the one action here that spends money, and it is
- * irreversible in the sense that a released number does not come back.
+ * Search and purchase are both live against Twilio. Buying spends real money
+ * and cannot be undone — a released number goes back to the pool — so it takes
+ * two presses, and the second one states the number and the price on the
+ * button itself rather than in text beside it.
  */
 
 function CapabilityIcons({ capabilities }: { capabilities: Capabilities }) {
@@ -104,7 +109,7 @@ function ResultRow({
   return (
     <li>
       <label
-        className={`grid cursor-pointer items-center gap-x-3 gap-y-1 px-3 py-2.5 transition-colors ${RESULT_COLUMNS} ${
+        className={`grid cursor-pointer items-center gap-x-6 gap-y-1 px-4 py-3.5 transition-colors ${RESULT_COLUMNS} ${
           selected ? "bg-primary/5" : "hover:bg-muted/50"
         }`}
       >
@@ -156,6 +161,9 @@ export function BuyNumberDialog() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AvailableNumber | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [buying, setBuying] = useState(false);
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   function patch(next: Partial<NumberSearch>) {
@@ -188,6 +196,49 @@ export function BuyNumberDialog() {
     setSelected(null);
     setError(null);
     setShowFilters(false);
+    setConfirming(false);
+  }
+
+  /**
+   * First press arms, second press charges.
+   *
+   * The server re-checks that the number is still on offer before buying, so
+   * the race between searching and confirming ends in a clear error rather
+   * than a purchase of something else.
+   */
+  function buy() {
+    if (!selected) return;
+
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+
+    setConfirming(false);
+    setBuying(true);
+    setError(null);
+
+    startTransition(async () => {
+      const result = await purchaseNumber({
+        phoneNumber: selected.phoneNumber,
+        search,
+      });
+
+      setBuying(false);
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setOpen(false);
+      reset();
+      toast.success(`${formatPhone(result.value.phoneNumber)} is yours.`, {
+        description:
+          "Its voice and SMS webhooks are already pointed at this app, so calls and texts will reach your inbox.",
+      });
+      router.refresh();
+    });
   }
 
   const total = selected ? selected.monthlyCents + selected.setupCents : 0;
@@ -207,7 +258,7 @@ export function BuyNumberDialog() {
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="flex max-h-[88dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent className="flex max-h-[88dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="flex-row items-start gap-3 border-b p-4">
           <span className="bg-muted text-muted-foreground mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg">
             <Store className="size-4" />
@@ -376,7 +427,7 @@ export function BuyNumberDialog() {
             {results !== null && !error && (
               <>
                 <div
-                  className={`text-muted-foreground bg-muted/40 hidden gap-x-3 border-b px-3 py-2 text-[10px] font-medium tracking-wide uppercase sm:grid ${RESULT_COLUMNS}`}
+                  className={`text-muted-foreground bg-muted/40 hidden gap-x-6 border-b px-4 py-2.5 text-[10px] font-medium tracking-wide uppercase sm:grid ${RESULT_COLUMNS}`}
                 >
                   <span />
                   <span>Numbers</span>
@@ -402,7 +453,12 @@ export function BuyNumberDialog() {
                         key={entry.phoneNumber}
                         entry={entry}
                         selected={selected?.phoneNumber === entry.phoneNumber}
-                        onSelect={() => setSelected(entry)}
+                        onSelect={() => {
+                          setSelected(entry);
+                          // Changing the row disarms the confirm: the armed
+                          // button named a different number.
+                          setConfirming(false);
+                        }}
                       />
                     ))}
                   </ul>
@@ -446,19 +502,35 @@ export function BuyNumberDialog() {
             </span>
           )}
 
+          {confirming && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setConfirming(false)}
+              disabled={buying}
+            >
+              Cancel
+            </Button>
+          )}
+
+          {/* Two presses, because the first one is the only thing between a
+              mis-click and a charge. The second states the number and the
+              price so what is being agreed to is on the button itself. */}
           <Button
             type="button"
             className="ml-auto"
-            disabled={!selected}
-            onClick={() =>
-              selected &&
-              toast.info("Buying isn't connected to Twilio yet.", {
-                description: `${formatPhone(selected.phoneNumber)} would be purchased and its voice and SMS webhooks pointed at this app in the same request.`,
-              })
-            }
+            variant={confirming ? "default" : "default"}
+            disabled={!selected || buying}
+            onClick={buy}
           >
-            <ShoppingCart className="size-4" />
-            Proceed to buy
+            {buying ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ShoppingCart className="size-4" />
+            )}
+            {confirming && selected
+              ? `Confirm — buy for ${formatCents(total)}/mo`
+              : "Proceed to buy"}
           </Button>
         </div>
       </DialogContent>
