@@ -215,12 +215,16 @@ kinds real with no schema change at all.
 
 Then, in order of usefulness:
 
-| Kind | Source |
-| --- | --- |
-| `reply` | `messages` where `direction = 'inbound'` and unread |
-| `booking` | `bookings` created since you last looked |
-| `missed_call` | `calls` that were not answered |
-| `automation` | `automation_runs` where the run failed |
+| Kind | Source | Status |
+| --- | --- | --- |
+| `usage` | `getUsageAlerts` in `src/lib/usage/warnings.ts` | **live** |
+| `reply` | `getReplyAlerts` in `src/lib/conversations.ts` | **live** |
+| `booking` | `bookings` created since you last looked | to do |
+| `missed_call` | `calls` that were not answered | to do |
+| `automation` | `automation_runs` where the run failed | to do |
+
+`messages.direction` is `"in"` / `"out"`, not `"inbound"` / `"outbound"` — see
+`MessageDirection` in `src/types/database.ts`.
 
 You need a read marker: either a `notifications` table, or a
 `notifications_seen_at` column on the settings row if per-alert read state

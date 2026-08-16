@@ -1,21 +1,23 @@
 /**
  * Shapes for the notification bubble.
  *
- * Front end only for now. Every alert here has a real source already in the
- * app, and the list below says which — so wiring this up is a matter of
- * writing the queries, not designing anything:
+ * Two of the five kinds are live and read real data. The other three are
+ * defined but never produced yet — nothing fabricates them, because a
+ * notification list that mixes real rows with invented ones is worse than a
+ * short list. You cannot tell which is which, and the first thing you do is
+ * act on a booking that never happened.
  *
- * | kind            | where it comes from                                      |
- * |-----------------|----------------------------------------------------------|
- * | `reply`         | `messages` where `direction = 'inbound'`, unread          |
- * | `missed_call`   | `calls` where the call was not answered                   |
- * | `booking`       | `bookings` created since the operator last looked         |
- * | `usage`         | `buildWarnings` in `src/components/usage/usage-warnings`  |
- * | `automation`    | `automation_runs` where the run failed                    |
+ * | kind          | status | source                                          |
+ * |---------------|--------|-------------------------------------------------|
+ * | `usage`       | live   | `getUsageAlerts` in `src/lib/usage/warnings.ts`  |
+ * | `reply`       | live   | `getReplyAlerts` in `src/lib/conversations.ts`   |
+ * | `missed_call` | to do  | `calls` where the call was not answered          |
+ * | `booking`     | to do  | `bookings` created since the operator last looked|
+ * | `automation`  | to do  | `automation_runs` where the run failed           |
  *
- * The usage row is the one worth doing first and is nearly free: that function
- * already produces exactly this shape from the Twilio balance and the Anthropic
- * estimate, and it only needs lifting out of the Usage page.
+ * No alert has persistent read state: `read` is set by the panel for the
+ * session and is not stored anywhere. See the comment on `getReplyAlerts` for
+ * what giving it real read state would cost.
  *
  * Client-safe.
  */
@@ -41,73 +43,6 @@ export type Alert = {
   at: string;
   read: boolean;
 };
-
-// ---------------------------------------------------------------------------
-// Preview data. Invented, and labelled as preview in the panel.
-// ---------------------------------------------------------------------------
-
-export const PREVIEW_ALERTS: Alert[] = [
-  {
-    id: "alert-1",
-    kind: "reply",
-    level: "info",
-    title: "Alex Tremblay replied",
-    detail: "\"Yeah that works — is Thursday morning still open?\"",
-    href: "/inbox",
-    at: "2026-08-15T14:41:00.000Z",
-    read: false,
-  },
-  {
-    id: "alert-2",
-    kind: "usage",
-    level: "warn",
-    title: "Twilio balance is low",
-    detail: "$8.40 left, below your $10.00 floor. Texts stop when it empties.",
-    href: "/usage",
-    at: "2026-08-15T13:05:00.000Z",
-    read: false,
-  },
-  {
-    id: "alert-3",
-    kind: "booking",
-    level: "info",
-    title: "New booking — Sam Okonkwo",
-    detail: "Discovery Call, Monday 18 August at 10:00 AM.",
-    href: "/calendar",
-    at: "2026-08-15T11:20:00.000Z",
-    read: false,
-  },
-  {
-    id: "alert-4",
-    kind: "usage",
-    level: "warn",
-    title: "Anthropic estimate near budget",
-    detail: "About 84% of your $50.00 monthly budget, estimated from token usage.",
-    href: "/usage",
-    at: "2026-08-14T22:10:00.000Z",
-    read: true,
-  },
-  {
-    id: "alert-5",
-    kind: "missed_call",
-    level: "info",
-    title: "Missed call from (438) 555-0391",
-    detail: "The auto-text went out. No reply yet.",
-    href: "/inbox",
-    at: "2026-08-14T19:02:00.000Z",
-    read: true,
-  },
-  {
-    id: "alert-6",
-    kind: "automation",
-    level: "critical",
-    title: "Automation failed",
-    detail: "\"Missed call → text back\" errored on its last run.",
-    href: "/automations",
-    at: "2026-08-14T16:48:00.000Z",
-    read: true,
-  },
-];
 
 /** Newest first, unread ahead of read — the order the panel wants. */
 export function sortAlerts(alerts: Alert[]): Alert[] {

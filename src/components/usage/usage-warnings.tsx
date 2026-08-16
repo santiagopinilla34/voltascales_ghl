@@ -1,115 +1,19 @@
 import Link from "next/link";
 import { ExternalLink, TriangleAlert } from "lucide-react";
 
-import { formatUsdCents } from "@/lib/usage/pricing";
 import type { AnthropicEstimate } from "@/lib/usage/anthropic";
 import type { TwilioUsageResult } from "@/lib/usage/twilio";
+import { buildWarnings } from "@/lib/usage/warnings";
 import { cn } from "@/lib/utils";
 
-/** Where each provider's top-up page lives. */
-const BILLING = {
-  twilio: "https://console.twilio.com/us1/billing/manage-billing/billing-overview",
-  anthropic: "https://console.anthropic.com/settings/billing",
-} as const;
-
-/** Fraction of budget at which the Anthropic warning appears. */
-const BUDGET_WARN_AT = 0.8;
-
-type Warning = {
-  id: string;
-  level: "warn" | "critical";
-  title: string;
-  detail: string;
-  href: string;
-  cta: string;
-};
-
 /**
- * Builds the banner list.
+ * The banners at the top of the Usage page.
  *
- * The two providers get different triggers because they expose different
- * things. Twilio reports a balance but never what a full one was, so "80% used"
- * has no denominator and a floor is the honest trigger. Anthropic exposes
- * nothing at all to this key, so the only percentage available is against a
- * budget the operator set — and with no budget there is simply no warning
- * rather than one invented from a made-up ceiling.
+ * The rule that decides what counts as a warning lives in
+ * `src/lib/usage/warnings.ts`, not here — the notification bubble raises the
+ * same ones, and two copies of "the balance is low" would eventually disagree.
+ * This file is only how they look on this page.
  */
-function buildWarnings(
-  twilio: TwilioUsageResult,
-  anthropic: AnthropicEstimate,
-  lowBalanceCents: number,
-  budgetCents: number | null,
-): Warning[] {
-  const warnings: Warning[] = [];
-
-  if (!twilio.ok) {
-    warnings.push({
-      id: "twilio-unreachable",
-      level: "warn",
-      title: "Twilio balance unavailable",
-      detail: `Could not read the account balance: ${twilio.error}`,
-      href: BILLING.twilio,
-      cta: "Open Twilio billing",
-    });
-  } else if (twilio.balanceCents <= 0) {
-    warnings.push({
-      id: "twilio-empty",
-      level: "critical",
-      title: "Twilio balance is empty",
-      detail:
-        "Calls and texts will fail until the account is topped up. This stops " +
-        "the missed-call auto-text and every other outbound message.",
-      href: BILLING.twilio,
-      cta: "Top up Twilio",
-    });
-  } else if (twilio.balanceCents < lowBalanceCents) {
-    warnings.push({
-      id: "twilio-low",
-      level: "warn",
-      title: "Twilio balance is low",
-      detail:
-        `${formatUsdCents(twilio.balanceCents)} left, below your ` +
-        `${formatUsdCents(lowBalanceCents)} floor.` +
-        (twilio.monthToDateCents !== null
-          ? ` You have spent ${formatUsdCents(twilio.monthToDateCents)} this month.`
-          : ""),
-      href: BILLING.twilio,
-      cta: "Top up Twilio",
-    });
-  }
-
-  if (budgetCents !== null) {
-    const used = anthropic.monthToDateCents / budgetCents;
-
-    if (used >= 1) {
-      warnings.push({
-        id: "anthropic-over",
-        level: "critical",
-        title: "Anthropic estimate is over budget",
-        detail:
-          `About ${formatUsdCents(anthropic.monthToDateCents)} estimated this ` +
-          `month against a ${formatUsdCents(budgetCents)} budget. This is an ` +
-          `estimate from logged token usage, not a bill.`,
-        href: BILLING.anthropic,
-        cta: "Open Anthropic billing",
-      });
-    } else if (used >= BUDGET_WARN_AT) {
-      warnings.push({
-        id: "anthropic-near",
-        level: "warn",
-        title: "Anthropic estimate near budget",
-        detail:
-          `About ${Math.round(used * 100)}% of your ` +
-          `${formatUsdCents(budgetCents)} monthly budget, estimated from logged ` +
-          `token usage.`,
-        href: BILLING.anthropic,
-        cta: "Open Anthropic billing",
-      });
-    }
-  }
-
-  return warnings;
-}
 
 export function UsageWarnings({
   twilio,

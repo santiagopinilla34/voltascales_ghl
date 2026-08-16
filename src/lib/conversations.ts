@@ -2,6 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { Alert } from "@/lib/alerts";
+import { contactLabel } from "@/lib/format";
 import type { Contact, Database, Message } from "@/types/database";
 
 export type ConversationContact = Pick<
@@ -63,6 +65,76 @@ export async function listConversations(
       };
     })
     .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+}
+
+/**
+ * Contacts whose last word was theirs — they texted and nobody has answered.
+ *
+ * This is deliberately not "unread". There is no read marker on `messages`, and
+ * rather than invent one, this asks the question the operator actually cares
+ * about: who is waiting on a reply. It is the better signal anyway — an alert
+ * that clears when you *look* at a thread is one you can dismiss without doing
+ * anything, and this one only clears when someone actually answers.
+ *
+ * It self-resolves through the AI too: an AI reply is an outbound message, so
+ * a thread the bot handled stops being flagged without special-casing.
+ *
+ * The consequence to know about: because the state is derived rather than
+ * stored, "mark as read" in the bubble cannot persist. Dismiss an alert and it
+ * returns on the next load until the thread is actually answered. Giving it
+ * real read state means a migration — either `messages.read_at` or a
+ * `notifications` table — and is deliberately out of scope here.
+ *
+ * Same one-round-trip shape as `listConversations`, and the same scale caveat:
+ * fine for hundreds of contacts, wants a view with a lateral join if this ever
+ * needs to page.
+ */
+export async function getReplyAlerts(
+  supabase: SupabaseClient<Database>,
+): Promise<Alert[]> {
+  const { data, error } = await supabase
+    .from("contacts")
+    .select(`id, name, phone, messages ( id, body, direction, created_at )`)
+    .order("created_at", { referencedTable: "messages", ascending: false })
+    .limit(1, { referencedTable: "messages" });
+
+  if (error) {
+    throw new Error(`Failed to load waiting replies: ${error.message}`);
+  }
+
+  const alerts: Alert[] = [];
+
+  for (const { messages, ...contact } of data ?? []) {
+    const last = messages.at(0);
+    // "in", not "inbound" — see MessageDirection in src/types/database.ts.
+    if (!last || last.direction !== "in") continue;
+
+    alerts.push({
+      id: `reply-${last.id}`,
+      kind: "reply",
+      level: "info",
+      title: `${contactLabel(contact)} replied`,
+      // An inbound message with no body is an MMS whose only content was an
+      // attachment. Saying so beats an empty row.
+      detail: last.body?.trim()
+        ? truncate(last.body.trim(), 140)
+        : "Sent an attachment with no text.",
+      href: `/inbox/${contact.id}`,
+      at: last.created_at,
+      read: false,
+    });
+  }
+
+  return alerts;
+}
+
+/** Cuts at a word boundary where there is one nearby, so it reads as a quote. */
+function truncate(value: string, limit: number): string {
+  if (value.length <= limit) return value;
+
+  const cut = value.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
 /** One contact, or null when the id doesn't exist. */

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bell,
   CalendarPlus,
@@ -11,7 +11,6 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -96,22 +95,38 @@ function AlertRow({
 }
 
 export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
-  // Read state is local because there is nowhere to persist it yet. It still
-  // behaves correctly within a session, which is what makes the panel
-  // reviewable.
-  const [items, setItems] = useState(() => sortAlerts(alerts));
+  /**
+   * Which alerts have been dismissed, by id — not a copy of the alerts
+   * themselves.
+   *
+   * The list arrives from the server and changes whenever the page revalidates,
+   * so holding a snapshot of it in state would pin the bell to whatever was
+   * true on first render: a text that came in after that would never raise the
+   * count. Keeping only the ids and deriving the list each render means fresh
+   * data always wins and the dismissals survive on top of it.
+   *
+   * Session-only, deliberately. There is no read marker in the database, so a
+   * dismissal is gone on reload — see `getReplyAlerts` for what changing that
+   * would cost. A waiting reply comes back until you actually answer it, which
+   * is arguably the right behaviour for the one alert that asks you to act.
+   */
+  const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState(false);
+
+  const items = useMemo(
+    () =>
+      sortAlerts(
+        alerts.map((alert) =>
+          readIds.has(alert.id) ? { ...alert, read: true } : alert,
+        ),
+      ),
+    [alerts, readIds],
+  );
 
   const unread = items.filter((alert) => !alert.read).length;
 
   function markRead(alert: Alert) {
-    setItems((current) =>
-      sortAlerts(
-        current.map((entry) =>
-          entry.id === alert.id ? { ...entry, read: true } : entry,
-        ),
-      ),
-    );
+    setReadIds((current) => new Set(current).add(alert.id));
   }
 
   return (
@@ -137,17 +152,12 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
       <PopoverContent align="end" className="w-80 p-0">
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <h2 className="flex-1 text-sm font-medium">Notifications</h2>
-          <Badge variant="outline" className="text-[10px]">
-            Preview
-          </Badge>
           {unread > 0 && (
             <button
               type="button"
               className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
               onClick={() =>
-                setItems((current) =>
-                  current.map((entry) => ({ ...entry, read: true })),
-                )
+                setReadIds(new Set(items.map((entry) => entry.id)))
               }
             >
               Mark all read
@@ -156,9 +166,12 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
         </div>
 
         {items.length === 0 ? (
-          <p className="text-muted-foreground px-3 py-8 text-center text-sm">
-            Nothing needs you right now.
-          </p>
+          <div className="flex flex-col items-center gap-1 px-3 py-8 text-center">
+            <p className="text-sm font-medium">Nothing needs you</p>
+            <p className="text-muted-foreground text-xs">
+              Every text has been answered and your balances are fine.
+            </p>
+          </div>
         ) : (
           <ul className="flex max-h-96 flex-col overflow-y-auto p-1">
             {items.map((alert) => (
@@ -174,9 +187,11 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
           </ul>
         )}
 
+        {/* Says what is *not* watched yet, so a quiet bell is not mistaken for
+            "nothing has happened". Delete a clause as each one is wired. */}
         <p className="text-muted-foreground border-t px-3 py-2 text-[11px]">
-          Not connected yet. These will come from your inbox, your calls, your
-          bookings and your Twilio and Anthropic balances.
+          Watching your inbox and your Twilio and Anthropic balances. Missed
+          calls, new bookings and failed automations aren&apos;t wired up yet.
         </p>
       </PopoverContent>
     </Popover>
