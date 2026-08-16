@@ -23,6 +23,28 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-08-16-dialer-live",
+    date: "2026-08-16",
+    title: "The dialer places real calls",
+    body: "Tap the green phone in the top bar, punch in a number and it rings — through your own Twilio line, from the browser. Mute and hang up while you talk, with the call timer running.",
+    tag: "New",
+  },
+  {
+    id: "2026-08-16-phone-system-live",
+    date: "2026-08-16",
+    title: "Phone System is connected to Twilio",
+    body: "Your numbers are read live, with what each can send, whether its webhooks point here, and whether it is registered for A2P. Buying, renaming and releasing a number all work from the page now.",
+    href: "/phone",
+    tag: "New",
+  },
+  {
+    id: "2026-08-16-alerts-live",
+    date: "2026-08-16",
+    title: "The bell watches your inbox and your balances",
+    body: "It raises anyone waiting on a reply, and warns before Twilio or Anthropic credit runs out. Dismissals stick now — though a low balance comes back the next day rather than going quiet for good.",
+    tag: "Improved",
+  },
+  {
     id: "2026-08-15-calendar-views",
     date: "2026-08-15",
     title: "Month, week and day views on the calendar",

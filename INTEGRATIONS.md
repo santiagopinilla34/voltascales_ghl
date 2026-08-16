@@ -24,7 +24,25 @@ afternoon, M is a day or two, L is longer.
 
 ---
 
-## 1. Twilio — buy and manage numbers · Size M
+> **Status, 16 Aug 2026.** Sections 1, 2 and 7 are done and live. Section 6
+> (Resend) and section 8 (OAuth) are still open, and A2P (section 3) has a
+> draft form in the app but submits nothing. The detail below is kept as the
+> record of what was wired and what bit us.
+
+## 1. Twilio — buy and manage numbers · ~~Size M~~ **DONE**
+
+Search, buy, configure and release all write to Twilio, and the owned list is
+read live. Two things worth remembering:
+
+- **Capabilities come back in two casings.** `{ MMS, SMS, voice }` on
+  available numbers, `{ fax, mms, sms, voice }` on owned ones. Reading only
+  lower-case made every purchasable number look voice-only.
+- **Buying sets the webhooks in the same request.** A number with no
+  `VoiceUrl` accepts calls and drops them silently.
+
+The original plan follows.
+
+### Original notes
 
 Backs the Phone System page.
 
@@ -61,7 +79,24 @@ so the components should not need to change.
 
 ---
 
-## 2. Twilio Voice — make the dialer place calls · Size L
+## 2. Twilio Voice — the dialer · ~~Size L~~ **DONE**
+
+The dialer places real calls. `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`
+and `TWILIO_TWIML_APP_SID` are set locally; **they also need to be set in
+Vercel** before the deployed app's dialer works, though a call placed from
+localhost only needs them locally.
+
+The one that would have cost a day: the TwiML app must point at
+`/api/webhooks/twilio/voice/**outbound**`, never at `/api/webhooks/twilio/
+voice`. The latter is the inbound handler and forwards to your real phone, so
+pointing the app there makes every outgoing call ring you instead.
+
+Recents, Voicemail and Queue are still empty panes. Recents is nearly free
+from the existing `calls` table; the other two are genuinely later.
+
+The original notes follow.
+
+### Original notes
 
 Backs the green phone bubble.
 
