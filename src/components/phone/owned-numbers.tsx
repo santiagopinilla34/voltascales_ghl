@@ -149,19 +149,27 @@ function A2pCell({
 /**
  * Column widths, shared by the header and every row so they stay aligned.
  *
- * Every column is sized to its longest real content rather than to a
- * fraction, because fractions are what caused the crowding: at `1.4fr` the
- * number column could not hold "(438) 817-5422" *and* a role badge, so the
- * badge sat on top of the number, and the A2P column could not hold "Not
- * registered" beside a Register button.
+ * Two rules, both learned by getting them wrong:
  *
- * So the two columns with fixed-width content — price and webhooks — are
- * `auto`, A2P gets the room its button needs, and only the number column
- * flexes. Breakpoint is `lg` rather than `md`: six columns genuinely do not
- * fit a tablet, and stacking is better than overlapping.
+ * Every column is a fraction with a floor, and none is `auto`. An `auto`
+ * column takes the width of its widest cell — which for short values is the
+ * *header label*, so "CAPABILITIES" sized a column holding three small icons
+ * and the values drifted away from the heading above them.
+ *
+ * Slack is spread across all seven columns rather than dumped into one. When
+ * the number column alone was `1fr` it swallowed every spare pixel, which is
+ * what left a gulf after the number and pushed price and webhooks against the
+ * right edge.
+ *
+ * Nothing in a row may override alignment — no `justify-self` — or it stops
+ * matching the header cell above it. The actions column is a fixed width so
+ * it lands hard against the right edge without needing to.
+ *
+ * Breaks at `lg`: seven columns do not fit a tablet, and stacking beats
+ * overlapping.
  */
 const COLUMNS =
-  "lg:grid-cols-[minmax(15rem,1fr)_auto_auto_minmax(11rem,auto)_auto_auto]";
+  "lg:grid-cols-[minmax(11rem,1.5fr)_minmax(7rem,1.1fr)_minmax(4.5rem,0.7fr)_minmax(5rem,0.7fr)_minmax(11rem,1.5fr)_minmax(8rem,1.1fr)_2rem]";
 
 function NumberRow({
   entry,
@@ -187,37 +195,34 @@ function NumberRow({
 
   return (
     <li
-      className={`grid grid-cols-1 items-center gap-x-8 gap-y-3 px-4 py-4 ${COLUMNS}`}
+      className={`grid grid-cols-1 items-center gap-x-6 gap-y-3 px-5 py-4 ${COLUMNS}`}
     >
       <div className="flex min-w-0 items-center gap-3">
         <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
           <Phone className="size-4" />
         </span>
-        {/* The badge sits under the number, not beside it. Side by side they
-            compete for the same row and the number loses — which is how it
-            ended up overlapped. */}
-        <div className="flex min-w-0 flex-col gap-1">
-          <p className="text-sm font-medium whitespace-nowrap tabular-nums">
-            {formatPhone(entry.phoneNumber)}
-          </p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {entry.role && (
-              <Badge variant="secondary" className="text-[10px]">
-                {entry.role}
-              </Badge>
-            )}
-            {named && (
-              <span className="text-muted-foreground truncate text-xs">
-                {entry.friendlyName}
-              </span>
-            )}
-          </div>
-        </div>
+        <p className="text-sm font-medium whitespace-nowrap tabular-nums">
+          {formatPhone(entry.phoneNumber)}
+        </p>
       </div>
 
-      <div className="lg:justify-self-center">
-        <CapabilityIcons capabilities={entry.capabilities} />
+      {/* The role and the name Twilio holds share a column of their own, on
+          the same line as everything else. Stacked under the number they read
+          as a second row of a one-row record. */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        {entry.role && (
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            {entry.role}
+          </Badge>
+        )}
+        {named && (
+          <span className="text-muted-foreground truncate text-xs">
+            {entry.friendlyName}
+          </span>
+        )}
       </div>
+
+      <CapabilityIcons capabilities={entry.capabilities} />
 
       <span className="text-muted-foreground text-xs whitespace-nowrap tabular-nums">
         {formatCents(entry.monthlyCents)}/mo
@@ -245,7 +250,7 @@ function NumberRow({
         )}
       </span>
 
-      <div className="lg:justify-self-end">
+      <div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" disabled={releasing}>
@@ -365,10 +370,11 @@ export function OwnedNumbers({
       <div className="min-w-0 overflow-hidden rounded-lg border">
         {/* Header only exists once the row is actually columnar. */}
         <div
-          className={`text-muted-foreground bg-muted/40 hidden gap-x-8 border-b px-4 py-2.5 text-[10px] font-medium tracking-wide uppercase lg:grid ${COLUMNS}`}
+          className={`text-muted-foreground bg-muted/40 hidden gap-x-6 border-b px-5 py-3 text-[10px] font-medium tracking-wide uppercase lg:grid ${COLUMNS}`}
         >
           <span>Number</span>
-          <span className="justify-self-center">Capabilities</span>
+          <span>Label</span>
+          <span>Sends</span>
           <span>Price</span>
           <span>A2P 10DLC</span>
           <span>Webhooks</span>
