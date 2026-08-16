@@ -149,3 +149,8 @@ next-env.d.ts
 
 # Vercel
 .vercel
+
+# Added by `vercel link`. The dotenv rules at the top of this file already
+# cover .env files, including the `!.env.example` exception the CLI would
+# otherwise undo by appending a blanket `.env*` after it.
+.vercel
