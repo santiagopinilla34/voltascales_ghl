@@ -7,6 +7,7 @@ import { sortAlerts, type Alert } from "@/lib/alerts";
 import { getReplyAlerts } from "@/lib/conversations";
 import { applyDismissals } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
+import { voiceConfigured } from "@/lib/twilio/voice";
 import { getUsageAlerts } from "@/lib/usage/warnings";
 
 /**
@@ -85,7 +86,10 @@ export async function AppTopbar() {
       {/* gap-2 rather than gap-0.5: three round buttons touching each other
           read as one segmented control, and these do three unrelated things. */}
       <div className="ml-auto flex items-center gap-2">
-        <DialerBubble numbers={configuredNumbers()} />
+        <DialerBubble
+          numbers={configuredNumbers()}
+          configured={voiceConfigured()}
+        />
         <WhatsNewBubble />
         <NotificationsBubble alerts={alerts} />
       </div>
