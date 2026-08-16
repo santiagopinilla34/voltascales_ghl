@@ -8,18 +8,24 @@ import { Badge } from "@/components/ui/badge";
 import { getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 import { PREVIEW_OWNED, type OwnedNumber } from "@/lib/phone/numbers";
+import { listOwnedNumbers } from "@/lib/twilio/numbers";
 
 export const metadata: Metadata = { title: "Phone System · VoltaScales" };
 
 /**
- * Phone System (front end).
+ * Phone System.
  *
- * The list of owned numbers is built from what the app is actually configured
- * with rather than from Twilio, because nothing here calls Twilio yet. That
- * keeps the one number the app really uses honest on screen; the invented
- * preview numbers only appear when there is no configuration at all, so a set
- * up account never sees a number it does not own.
+ * The owned list is live from Twilio. Roles — which number is the main line,
+ * which one booking alerts go to — are not something Twilio knows, so they are
+ * matched on afterwards from the app's own configuration.
+ *
+ * Preview data survives only as the fallback for an account Twilio cannot be
+ * reached for, and says so on screen.
  */
+
+// The number list is the point of the page and it changes when you buy one;
+// a cached list would show a number you just released.
+export const dynamic = "force-dynamic";
 
 /** Reads the env var without the throwing accessor — unset is a valid state here. */
 function configuredNumber(): string | null {
@@ -29,46 +35,25 @@ function configuredNumber(): string | null {
 
 export default async function PhonePage() {
   const supabase = await createClient();
-  const settings = await getSettings(supabase);
+  const [settings, owned] = await Promise.all([
+    getSettings(supabase),
+    listOwnedNumbers(),
+  ]);
 
   const main = configuredNumber();
   const bookingNotify = settings?.booking_notify_number?.trim() || null;
 
-  const live: OwnedNumber[] = [];
-
-  if (main) {
-    live.push({
-      sid: "",
-      phoneNumber: main,
-      friendlyName: "Configured as TWILIO_PHONE_NUMBER",
-      // Unknowable without the API. Everything this app does with the number
-      // needs both, and it works, so both are true.
-      capabilities: { voice: true, sms: true, mms: false },
-      monthlyCents: 115,
-      role: "Main line",
-      purchasedAt: null,
-      webhooksConfigured: true,
-    });
+  /** What this app uses a number for, which is not something Twilio records. */
+  function roleOf(phoneNumber: string): string | null {
+    if (phoneNumber === main) return "Main line";
+    if (phoneNumber === bookingNotify) return "Booking alerts";
+    return null;
   }
 
-  // The booking notification number is a real phone the operator owns, but it
-  // is not rented from Twilio — it is where alerts are sent. Listed so the page
-  // accounts for every number the app knows about.
-  if (bookingNotify && bookingNotify !== main) {
-    live.push({
-      sid: "",
-      phoneNumber: bookingNotify,
-      friendlyName: "Where booking alerts are texted",
-      capabilities: { voice: true, sms: true, mms: false },
-      monthlyCents: 0,
-      role: "Booking alerts",
-      purchasedAt: null,
-      webhooksConfigured: false,
-    });
-  }
-
-  const usingPreview = live.length === 0;
-  const numbers = usingPreview ? PREVIEW_OWNED : live;
+  const usingPreview = !owned.ok;
+  const numbers: OwnedNumber[] = owned.ok
+    ? owned.value.map((entry) => ({ ...entry, role: roleOf(entry.phoneNumber) }))
+    : PREVIEW_OWNED;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -86,14 +71,15 @@ export default async function PhonePage() {
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
         <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 pb-4">
-          <p className="text-muted-foreground flex items-start gap-2 rounded-md border border-dashed px-3 py-2.5 text-xs">
-            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              This page is the front end only. Buying, releasing and configuring
-              numbers are not connected to Twilio yet — the buttons say so when
-              you press them.
-            </span>
-          </p>
+          {usingPreview && (
+            <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                Could not reach Twilio, so the numbers below are examples rather
+                than yours: {owned.ok ? "" : owned.error}
+              </span>
+            </p>
+          )}
 
           <section className="flex min-w-0 flex-col gap-3">
             <div className="flex items-baseline gap-2">
@@ -106,13 +92,6 @@ export default async function PhonePage() {
                 </Badge>
               )}
             </div>
-            {usingPreview && (
-              <p className="text-muted-foreground text-xs">
-                No number is configured, so these are examples.
-                Set <code>TWILIO_PHONE_NUMBER</code> and your real one appears
-                here.
-              </p>
-            )}
             <OwnedNumbers numbers={numbers} />
           </section>
 

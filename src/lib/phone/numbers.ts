@@ -73,7 +73,32 @@ export type AvailableNumber = {
   monthlyCents: number;
   /** One-off setup fee. Zero for most US numbers, non-zero for some countries. */
   setupCents: number;
+  /**
+   * Twilio's `address_requirements`: "none", "any", "local" or "foreign".
+   *
+   * Whether buying this number needs a validated address on the account, and
+   * of what kind. Not cosmetic — anything other than "none" is a hard failure
+   * at purchase time until an Address resource exists, so it is shown in the
+   * results rather than discovered when the buy is rejected.
+   */
+  addressRequirement: string;
 };
+
+/** Human label for `addressRequirement`. */
+export function addressRequirementLabel(value: string): string {
+  switch (value) {
+    case "none":
+      return "None";
+    case "any":
+      return "Any address";
+    case "local":
+      return "Local address";
+    case "foreign":
+      return "Foreign address";
+    default:
+      return value;
+  }
+}
 
 export type NumberSearch = {
   country: string;
@@ -189,6 +214,10 @@ function num(
     monthlyCents: MONTHLY_CENTS[type],
     // Non-US numbers usually carry a one-off fee; US and CA do not.
     setupCents: isoCountry === "US" || isoCountry === "CA" ? 0 : 300,
+    // Mirrors the real distribution: NANP numbers rarely need an address,
+    // most European and Australian ones do.
+    addressRequirement:
+      isoCountry === "US" || isoCountry === "CA" ? "none" : "local",
   };
 }
 
