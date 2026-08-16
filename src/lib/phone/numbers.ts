@@ -1,16 +1,19 @@
 /**
  * Shapes for the Phone System page.
  *
- * Front end only for now: nothing in this file talks to Twilio. The types are
- * deliberately the shape Twilio's REST API already returns, so wiring the
- * backend is a matter of replacing the two `PREVIEW_*` constants with a fetch
- * and leaving every component untouched:
+ * Client-safe by design, and that is load-bearing: the components here are
+ * rendered in the browser, while every Twilio call lives in
+ * `src/lib/twilio/numbers.ts`, which is `server-only`. Keeping the types on
+ * this side of the line is why swapping the preview data for the live API
+ * changed no component at all — they were Twilio's response shapes from the
+ * start:
  *
  *   AvailableNumber  ← GET /v2010/Accounts/{sid}/AvailablePhoneNumbers/{country}/{type}.json
  *   OwnedNumber      ← GET /v2010/Accounts/{sid}/IncomingPhoneNumbers.json
  *
- * Client-safe — no `server-only` — because the search form filters the preview
- * list in the browser.
+ * The `PREVIEW_*` constants below are no longer the source of anything. They
+ * survive only as the fallback rendered when Twilio cannot be reached, and the
+ * page says so on screen when it uses them.
  */
 
 /** What a number can carry. Mirrors Twilio's `capabilities` object. */
@@ -36,11 +39,17 @@ export const NUMBER_TYPES: { value: NumberType; label: string }[] = [
  * regulatory bundle before a number can actually be bought, and offering 100
  * countries the account cannot buy from is worse than offering four it can.
  */
-export const COUNTRIES: { code: string; label: string; flag: string }[] = [
-  { code: "US", label: "United States", flag: "🇺🇸" },
-  { code: "CA", label: "Canada", flag: "🇨🇦" },
-  { code: "GB", label: "United Kingdom", flag: "🇬🇧" },
-  { code: "AU", label: "Australia", flag: "🇦🇺" },
+/**
+ * No flag emoji. Windows has no glyphs for regional-indicator pairs, so
+ * `🇺🇸` renders as the bare letters "us" next to the label — confirmed on
+ * this machine. The country code carries the same information and renders
+ * everywhere.
+ */
+export const COUNTRIES: { code: string; label: string }[] = [
+  { code: "US", label: "United States" },
+  { code: "CA", label: "Canada" },
+  { code: "GB", label: "United Kingdom" },
+  { code: "AU", label: "Australia" },
 ];
 
 /** A number the account already owns. */
@@ -58,6 +67,29 @@ export type OwnedNumber = {
   purchasedAt: string | null;
   /** Whether the app's webhooks are pointed at it. */
   webhooksConfigured: boolean;
+  /**
+   * A2P 10DLC state for this number.
+   *
+   * Twilio registers A2P against a Messaging Service, not against a number, so
+   * this is really "is this number in a service whose US A2P campaign is
+   * approved". Numbers outside any service are `none` — which is the honest
+   * answer, and the common one before any registration exists.
+   *
+   * `unknown` means the lookup itself failed. Kept distinct from `none`: one
+   * says the number is unregistered, the other says we could not find out, and
+   * showing the first when you mean the second is how someone concludes their
+   * texts will be delivered when they will not.
+   */
+  a2p: A2pState;
+};
+
+export type A2pState = "registered" | "pending" | "none" | "unknown";
+
+export const A2P_LABELS: Record<A2pState, string> = {
+  registered: "A2P registered",
+  pending: "A2P pending",
+  none: "No A2P",
+  unknown: "A2P unknown",
 };
 
 /** A number offered for sale. */
@@ -154,6 +186,7 @@ export const PREVIEW_OWNED: OwnedNumber[] = [
     role: "Main line",
     purchasedAt: "2026-06-02",
     webhooksConfigured: true,
+    a2p: "registered",
   },
   {
     sid: "PN00000000000000000000000000000002",
@@ -164,6 +197,7 @@ export const PREVIEW_OWNED: OwnedNumber[] = [
     role: null,
     purchasedAt: "2026-07-19",
     webhooksConfigured: false,
+    a2p: "none",
   },
 ];
 

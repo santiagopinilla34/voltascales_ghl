@@ -39,6 +39,72 @@ export type Database = {
   }
   public: {
     Tables: {
+      a2p_profile: {
+        Row: {
+          address_city: string | null
+          address_country_code: string | null
+          address_postal_code: string | null
+          address_street: string | null
+          address_street_secondary: string | null
+          address_subdivision: string | null
+          business_legal_name: string | null
+          business_registration_authority: string | null
+          business_registration_number: string | null
+          business_type: string | null
+          business_website_url: string | null
+          contact_email: string | null
+          contact_first_name: string | null
+          contact_last_name: string | null
+          contact_phone: string | null
+          id: boolean
+          inquiry_id: string | null
+          submitted_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          address_city?: string | null
+          address_country_code?: string | null
+          address_postal_code?: string | null
+          address_street?: string | null
+          address_street_secondary?: string | null
+          address_subdivision?: string | null
+          business_legal_name?: string | null
+          business_registration_authority?: string | null
+          business_registration_number?: string | null
+          business_type?: string | null
+          business_website_url?: string | null
+          contact_email?: string | null
+          contact_first_name?: string | null
+          contact_last_name?: string | null
+          contact_phone?: string | null
+          id?: boolean
+          inquiry_id?: string | null
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address_city?: string | null
+          address_country_code?: string | null
+          address_postal_code?: string | null
+          address_street?: string | null
+          address_street_secondary?: string | null
+          address_subdivision?: string | null
+          business_legal_name?: string | null
+          business_registration_authority?: string | null
+          business_registration_number?: string | null
+          business_type?: string | null
+          business_website_url?: string | null
+          contact_email?: string | null
+          contact_first_name?: string | null
+          contact_last_name?: string | null
+          contact_phone?: string | null
+          id?: boolean
+          inquiry_id?: string | null
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_drafts: {
         Row: {
           body: string

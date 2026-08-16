@@ -3,6 +3,7 @@ import "server-only";
 import { createTwilioClient } from "@/lib/twilio/client";
 import {
   MONTHLY_CENTS,
+  type A2pState,
   type AvailableNumber,
   type Capabilities,
   type NumberSearch,
@@ -58,16 +59,28 @@ function describe(error: unknown): string {
   return String(error);
 }
 
-/** Twilio reports capabilities as an object of optional booleans. */
-function toCapabilities(value: {
-  voice?: boolean | null;
-  sms?: boolean | null;
-  mms?: boolean | null;
-}): Capabilities {
+/**
+ * Twilio reports capabilities as an object of booleans — in two different
+ * casings, depending on which resource you asked.
+ *
+ *   IncomingPhoneNumber   → { fax, mms, sms, voice }
+ *   AvailablePhoneNumber  → { MMS, SMS, voice }
+ *
+ * Both confirmed against the live API. Reading only the lower-case keys makes
+ * every number on the buy screen look voice-only, which is worse than a
+ * cosmetic bug: it is how someone buys a number believing it cannot text.
+ *
+ * The SDK's types do not distinguish the two, so nothing catches this at
+ * compile time. Hence one reader that accepts either.
+ */
+function toCapabilities(value: Record<string, unknown> | null | undefined): Capabilities {
+  const read = (...keys: string[]) =>
+    keys.some((key) => Boolean(value?.[key]));
+
   return {
-    voice: Boolean(value?.voice),
-    sms: Boolean(value?.sms),
-    mms: Boolean(value?.mms),
+    voice: read("voice", "Voice"),
+    sms: read("sms", "SMS"),
+    mms: read("mms", "MMS"),
   };
 }
 
@@ -85,10 +98,13 @@ function toCapabilities(value: {
 export async function listOwnedNumbers(): Promise<NumbersResult<OwnedNumber[]>> {
   try {
     const client = createTwilioClient();
-    const rows = await withTimeout(
-      client.incomingPhoneNumbers.list({ limit: 100 }),
-      "Twilio number list",
-    );
+    const [rows, a2p] = await Promise.all([
+      withTimeout(
+        client.incomingPhoneNumbers.list({ limit: 100 }),
+        "Twilio number list",
+      ),
+      a2pByNumber(),
+    ]);
 
     const base = process.env.APP_BASE_URL?.trim().replace(/\/$/, "") ?? "";
 
@@ -116,12 +132,76 @@ export async function listOwnedNumbers(): Promise<NumbersResult<OwnedNumber[]>> 
             ? new Date(row.dateCreated).toISOString().slice(0, 10)
             : null,
           webhooksConfigured: pointsHere,
+          // Null map means the lookup itself failed, which is "unknown" for
+          // every number rather than "none" for every number.
+          a2p: a2p === null ? "unknown" : (a2p.get(row.phoneNumber) ?? "none"),
         };
       }),
     };
   } catch (error) {
     console.error("[twilio/numbers] list failed", error);
     return { ok: false, error: describe(error) };
+  }
+}
+
+/**
+ * A2P state per phone number.
+ *
+ * Twilio does not record A2P against a number. It records a US A2P campaign
+ * against a *Messaging Service*, and numbers are members of that service — so
+ * the question "is this number registered" is really "is it in a service whose
+ * campaign is approved". That indirection is why this needs its own walk
+ * rather than a field on the number.
+ *
+ * Returns a map of phone number to state. A number absent from the map is in
+ * no service at all, which is `none`.
+ *
+ * Throwing is deliberately impossible here: the caller treats a failure as
+ * `unknown` for every number, which is different from `none`. Reporting "not
+ * registered" when the truth is "could not check" is how someone concludes
+ * their texts will be delivered when they will not.
+ */
+async function a2pByNumber(): Promise<Map<string, A2pState> | null> {
+  try {
+    const client = createTwilioClient();
+    const services = await withTimeout(
+      client.messaging.v1.services.list({ limit: 20 }),
+      "Twilio messaging services",
+    );
+
+    const map = new Map<string, A2pState>();
+
+    // Sequential rather than parallel across services: an account has one or
+    // two, and fanning out three calls each into Twilio's rate limiter to save
+    // a few milliseconds on a page render is a bad trade.
+    for (const service of services) {
+      const scoped = client.messaging.v1.services(service.sid);
+
+      const [numbers, campaigns] = await Promise.all([
+        withTimeout(scoped.phoneNumbers.list({ limit: 100 }), "service numbers"),
+        withTimeout(scoped.usAppToPerson.list({ limit: 5 }), "service campaigns"),
+      ]);
+
+      const status = campaigns.at(0)?.campaignStatus?.toUpperCase();
+      const state: A2pState =
+        status === "VERIFIED" || status === "APPROVED"
+          ? "registered"
+          : status
+            ? "pending"
+            : "none";
+
+      for (const number of numbers) {
+        // A number can sit in more than one service. Registered wins — being
+        // in any approved campaign is what carriers actually care about.
+        if (map.get(number.phoneNumber) === "registered") continue;
+        map.set(number.phoneNumber, state);
+      }
+    }
+
+    return map;
+  } catch (error) {
+    console.error("[twilio/numbers] A2P lookup failed", error);
+    return null;
   }
 }
 

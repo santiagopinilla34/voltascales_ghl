@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ExternalLink, ShieldCheck, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 
 import { BuyNumberDialog } from "@/components/phone/buy-number-dialog";
-import { OwnedNumbers } from "@/components/phone/owned-numbers";
+import { NumbersPanel } from "@/components/phone/numbers-panel";
 import { Badge } from "@/components/ui/badge";
 import { getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 import { PREVIEW_OWNED, type OwnedNumber } from "@/lib/phone/numbers";
+import { getA2pProfile } from "@/lib/phone/profile";
 import { listOwnedNumbers } from "@/lib/twilio/numbers";
 
 export const metadata: Metadata = { title: "Phone System · VoltaScales" };
@@ -35,9 +36,10 @@ function configuredNumber(): string | null {
 
 export default async function PhonePage() {
   const supabase = await createClient();
-  const [settings, owned] = await Promise.all([
+  const [settings, owned, a2p] = await Promise.all([
     getSettings(supabase),
     listOwnedNumbers(),
+    getA2pProfile(supabase),
   ]);
 
   const main = configuredNumber();
@@ -81,60 +83,18 @@ export default async function PhonePage() {
             </p>
           )}
 
-          <section className="flex min-w-0 flex-col gap-3">
-            <div className="flex items-baseline gap-2">
-              <h2 className="text-sm font-semibold tracking-tight">
-                Your numbers
-              </h2>
-              {usingPreview && (
-                <Badge variant="outline" className="text-[10px]">
-                  Preview data
-                </Badge>
-              )}
-            </div>
-            <OwnedNumbers numbers={numbers} />
-          </section>
+          {usingPreview && (
+            <Badge variant="outline" className="w-fit text-[10px]">
+              Preview data
+            </Badge>
+          )}
 
-          <section className="flex min-w-0 flex-col gap-3">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">
-                Messaging compliance
-              </h2>
-              <p className="text-muted-foreground text-xs">
-                US carriers reject application-to-person texts from unregistered
-                numbers. This has to be done once per business, not per number.
-              </p>
-            </div>
-
-            <div className="flex min-w-0 flex-col gap-3 rounded-lg border p-4">
-              <div className="flex min-w-0 items-center gap-2">
-                <ShieldCheck className="text-muted-foreground size-4 shrink-0" />
-                <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
-                  A2P 10DLC registration
-                </h3>
-                <Badge variant="outline" className="shrink-0 text-[10px]">
-                  Not connected
-                </Badge>
-              </div>
-
-              <p className="text-muted-foreground text-xs">
-                Registering a brand and a campaign raises the throughput limit
-                and stops carrier filtering. Toll-free numbers use a separate
-                verification instead. Until this page can submit it, both are
-                done in the Twilio console.
-              </p>
-
-              <Link
-                href="https://console.twilio.com/us1/develop/sms/regulatory-compliance/a2p-10dlc"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs underline underline-offset-2"
-              >
-                Open A2P registration in Twilio
-                <ExternalLink className="size-3" />
-              </Link>
-            </div>
-          </section>
+          <NumbersPanel
+            numbers={numbers}
+            profile={a2p.profile}
+            started={a2p.exists}
+            submittedAt={a2p.submittedAt}
+          />
 
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-semibold tracking-tight">

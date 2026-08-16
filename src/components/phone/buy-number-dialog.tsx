@@ -1,16 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Loader2, Plus, Search, TriangleAlert } from "lucide-react";
+import { useState, useTransition } from "react";
+import {
+  Loader2,
+  MessageSquare,
+  Image as ImageIcon,
+  Phone,
+  Plus,
+  RefreshCw,
+  ShoppingCart,
+  SlidersHorizontal,
+  Store,
+  TriangleAlert,
+} from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
+import { findAvailableNumbers } from "@/app/(app)/phone/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -30,87 +40,111 @@ import {
   COUNTRIES,
   EMPTY_SEARCH,
   NUMBER_TYPES,
-  capabilityLabels,
+  addressRequirementLabel,
   formatCents,
-  searchPreviewNumbers,
   type AvailableNumber,
+  type Capabilities,
   type NumberSearch,
   type NumberType,
 } from "@/lib/phone/numbers";
 
 /**
- * Search-and-buy, the way GoHighLevel does it: filters on the left of the
- * result, one button per row, and a confirmation step that states the price
- * before anything is charged.
+ * Buy a number.
  *
- * Front end only. `searchPreviewNumbers` filters an invented pool and the buy
- * button does nothing but say so — see `src/lib/phone/numbers.ts` for the two
- * Twilio endpoints this becomes.
+ * Laid out as the reference design does it: country across the top with the
+ * filters tucked behind a toggle, then a table you pick a row from, then a
+ * footer that states what is selected and what it costs before anything is
+ * charged.
+ *
+ * The search is live against Twilio. Buying is not wired yet and the button
+ * says so — that is the one action here that spends money, and it is
+ * irreversible in the sense that a released number does not come back.
  */
 
-function CapabilityToggle({
-  id,
-  label,
-  checked,
-  onCheckedChange,
-}: {
-  id: string;
-  label: string;
-  checked: boolean;
-  onCheckedChange: (next: boolean) => void;
-}) {
+function CapabilityIcons({ capabilities }: { capabilities: Capabilities }) {
+  const items = [
+    { on: capabilities.voice, icon: Phone, label: "Voice" },
+    { on: capabilities.sms, icon: MessageSquare, label: "SMS" },
+    { on: capabilities.mms, icon: ImageIcon, label: "MMS" },
+  ];
+
   return (
-    <div className="flex items-center gap-2">
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
-      <Label htmlFor={id} className="text-xs font-normal">
-        {label}
-      </Label>
-    </div>
+    <span className="flex items-center gap-1.5">
+      {items.map(({ on, icon: Icon, label }) => (
+        <span
+          key={label}
+          className={on ? "text-foreground" : "text-muted-foreground/25"}
+          title={`${label} ${on ? "supported" : "not supported"}`}
+        >
+          <Icon className="size-3.5" />
+          <span className="sr-only">
+            {label} {on ? "supported" : "not supported"}
+          </span>
+        </span>
+      ))}
+    </span>
   );
 }
 
+/** Grid template shared by the results header and every result row. */
+const RESULT_COLUMNS =
+  "grid-cols-[auto_minmax(0,1.5fr)_auto] sm:grid-cols-[auto_minmax(0,1.6fr)_auto_minmax(0,0.6fr)_minmax(0,0.9fr)_auto]";
+
 function ResultRow({
   entry,
-  onBuy,
-  buying,
+  selected,
+  onSelect,
 }: {
   entry: AvailableNumber;
-  onBuy: (entry: AvailableNumber) => void;
-  buying: boolean;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   const place = [entry.locality, entry.region].filter(Boolean).join(", ");
 
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border px-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium tabular-nums">
-          {formatPhone(entry.phoneNumber)}
-        </p>
-        <p className="text-muted-foreground truncate text-xs">
-          {place || "Toll-free"} · {formatCents(entry.monthlyCents)}/mo
-          {entry.setupCents > 0 && ` · ${formatCents(entry.setupCents)} setup`}
-        </p>
-      </div>
-
-      <div className="flex shrink-0 gap-1">
-        {capabilityLabels(entry.capabilities).map((label) => (
-          <Badge key={label} variant="outline" className="text-[10px]">
-            {label}
-          </Badge>
-        ))}
-      </div>
-
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={buying}
-        onClick={() => onBuy(entry)}
-        className="shrink-0"
+    <li>
+      <label
+        className={`grid cursor-pointer items-center gap-x-3 gap-y-1 px-3 py-2.5 transition-colors ${RESULT_COLUMNS} ${
+          selected ? "bg-primary/5" : "hover:bg-muted/50"
+        }`}
       >
-        {buying && <Loader2 className="size-3.5 animate-spin" />}
-        Buy
-      </Button>
+        <input
+          type="radio"
+          name="available-number"
+          checked={selected}
+          onChange={onSelect}
+          className="accent-primary size-3.5"
+        />
+
+        <div className="min-w-0">
+          <p className="truncate text-sm tabular-nums">
+            {formatPhone(entry.phoneNumber)}
+          </p>
+          <p className="text-muted-foreground truncate text-xs">
+            {place || entry.isoCountry}
+          </p>
+        </div>
+
+        <CapabilityIcons capabilities={entry.capabilities} />
+
+        <span className="text-muted-foreground hidden text-xs sm:block">
+          {NUMBER_TYPES.find((type) => type.value === entry.type)?.label}
+        </span>
+
+        <span
+          className={`hidden text-xs sm:block ${
+            entry.addressRequirement === "none"
+              ? "text-muted-foreground"
+              : "text-amber-700 dark:text-amber-400"
+          }`}
+        >
+          {addressRequirementLabel(entry.addressRequirement)}
+        </span>
+
+        <span className="text-sm tabular-nums">
+          {formatCents(entry.monthlyCents)}
+        </span>
+      </label>
     </li>
   );
 }
@@ -119,115 +153,44 @@ export function BuyNumberDialog() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState<NumberSearch>(EMPTY_SEARCH);
   const [results, setResults] = useState<AvailableNumber[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  // The row awaiting confirmation. Null means the list is showing.
-  const [confirming, setConfirming] = useState<AvailableNumber | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<AvailableNumber | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [pending, startTransition] = useTransition();
 
   function patch(next: Partial<NumberSearch>) {
     setSearch((current) => ({ ...current, ...next }));
-    // Old results under new filters read as a bug; clear them.
+    // Results under filters that no longer produced them read as a bug.
     setResults(null);
+    setSelected(null);
   }
 
-  function runSearch(event: React.FormEvent) {
-    event.preventDefault();
-    setSearching(true);
-    setConfirming(null);
+  function run() {
+    setError(null);
+    setSelected(null);
 
-    // The delay is the point, not a stub: the real call is a round trip to
-    // Twilio and the list needs to look right while it is in flight.
-    setTimeout(() => {
-      setResults(searchPreviewNumbers(search));
-      setSearching(false);
-    }, 400);
+    startTransition(async () => {
+      const result = await findAvailableNumbers(search);
+
+      if (!result.ok) {
+        setError(result.error);
+        setResults(null);
+        return;
+      }
+
+      setResults(result.value);
+    });
   }
 
   function reset() {
     setSearch(EMPTY_SEARCH);
     setResults(null);
-    setConfirming(null);
+    setSelected(null);
+    setError(null);
+    setShowFilters(false);
   }
 
-  if (confirming) {
-    const total = confirming.monthlyCents + confirming.setupCents;
-
-    return (
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          <Button size="sm">
-            <Plus className="size-4" />
-            Buy a number
-          </Button>
-        </DialogTrigger>
-
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Buy {formatPhone(confirming.phoneNumber)}?</DialogTitle>
-            <DialogDescription>
-              This will be charged to the Twilio account this app is connected
-              to, and the number will start forwarding to your inbox straight
-              away.
-            </DialogDescription>
-          </DialogHeader>
-
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-            <dt className="text-muted-foreground">Number</dt>
-            <dd className="text-right tabular-nums">
-              {formatPhone(confirming.phoneNumber)}
-            </dd>
-
-            <dt className="text-muted-foreground">Monthly</dt>
-            <dd className="text-right tabular-nums">
-              {formatCents(confirming.monthlyCents)}
-            </dd>
-
-            {confirming.setupCents > 0 && (
-              <>
-                <dt className="text-muted-foreground">One-off setup</dt>
-                <dd className="text-right tabular-nums">
-                  {formatCents(confirming.setupCents)}
-                </dd>
-              </>
-            )}
-
-            <dt className="font-medium">Due today</dt>
-            <dd className="text-right font-medium tabular-nums">
-              {formatCents(total)}
-            </dd>
-          </dl>
-
-          <p className="text-muted-foreground flex items-start gap-2 rounded-md border border-dashed px-3 py-2 text-xs">
-            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              Nothing is bought yet — buying is not wired to Twilio. This screen
-              is the front end for it.
-            </span>
-          </p>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setConfirming(null)}
-            >
-              Back
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                toast.info("Buying isn't connected to Twilio yet.", {
-                  description: `${formatPhone(confirming.phoneNumber)} would be purchased and its webhooks pointed at this app.`,
-                });
-                setConfirming(null);
-              }}
-            >
-              Confirm purchase
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  }
+  const total = selected ? selected.monthlyCents + selected.setupCents : 0;
 
   return (
     <Dialog
@@ -240,170 +203,264 @@ export function BuyNumberDialog() {
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus className="size-4" />
-          Buy a number
+          Add number
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Buy a phone number</DialogTitle>
-          <DialogDescription>
-            Numbers are rented monthly. Anything you buy here is added to the
-            Twilio account this app already uses.
-          </DialogDescription>
+      <DialogContent className="flex max-h-[88dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="flex-row items-start gap-3 border-b p-4">
+          <span className="bg-muted text-muted-foreground mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg">
+            <Store className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <DialogTitle>Buy your number</DialogTitle>
+            <DialogDescription>
+              Numbers are rented monthly and added to the Twilio account this
+              app already uses.
+            </DialogDescription>
+          </div>
         </DialogHeader>
 
-        <form onSubmit={runSearch} className="flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-1.5">
-              <Label htmlFor="country" className="text-xs">
-                Country
-              </Label>
-              <Select
-                value={search.country}
-                onValueChange={(value) => patch({ country: value })}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="rounded-lg border">
+            <div className="flex flex-col gap-3 border-b p-3">
+              <p className="text-sm font-medium">
+                Select country and choose a number
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={search.country}
+                  onValueChange={(value) => patch({ country: value })}
+                >
+                  <SelectTrigger className="min-w-44 flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COUNTRIES.map((country) => (
+                      <SelectItem key={country.code} value={country.code}>
+                        {country.label} · {country.code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-expanded={showFilters}
+                  onClick={() => setShowFilters((current) => !current)}
+                >
+                  <SlidersHorizontal className="size-3.5" />
+                  Filter
+                </Button>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={run}
+                  disabled={pending}
+                >
+                  {pending ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3.5" />
+                  )}
+                  {results === null ? "Search" : "Refresh results"}
+                </Button>
+              </div>
+
+              {showFilters && (
+                <div className="grid gap-3 border-t pt-3 sm:grid-cols-3">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="buy-type" className="text-xs">
+                      Type
+                    </Label>
+                    <Select
+                      value={search.type}
+                      onValueChange={(value) =>
+                        patch({ type: value as NumberType })
+                      }
+                    >
+                      <SelectTrigger id="buy-type" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {NUMBER_TYPES.map((type) => (
+                          <SelectItem key={type.value} value={type.value}>
+                            {type.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="buy-area" className="text-xs">
+                      Area code
+                    </Label>
+                    <Input
+                      id="buy-area"
+                      inputMode="numeric"
+                      maxLength={3}
+                      placeholder="438"
+                      value={search.areaCode}
+                      onChange={(event) =>
+                        patch({
+                          areaCode: event.target.value.replace(/\D/g, ""),
+                        })
+                      }
+                      disabled={search.type === "tollFree"}
+                    />
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="buy-contains" className="text-xs">
+                      Contains
+                    </Label>
+                    <Input
+                      id="buy-contains"
+                      placeholder="Any digits"
+                      value={search.contains}
+                      onChange={(event) =>
+                        patch({ contains: event.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 sm:col-span-3">
+                    <span className="text-muted-foreground text-xs">
+                      Must support
+                    </span>
+                    {(
+                      [
+                        ["voice", "Voice"],
+                        ["sms", "SMS"],
+                        ["mms", "MMS"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <Switch
+                          id={`buy-cap-${key}`}
+                          checked={search.requires[key]}
+                          onCheckedChange={(next) =>
+                            patch({
+                              requires: { ...search.requires, [key]: next },
+                            })
+                          }
+                        />
+                        <Label
+                          htmlFor={`buy-cap-${key}`}
+                          className="text-xs font-normal"
+                        >
+                          {label}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Results */}
+            {error && (
+              <p
+                role="alert"
+                className="text-destructive bg-destructive/10 m-3 rounded-md px-3 py-2 text-sm"
               >
-                <SelectTrigger id="country" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {COUNTRIES.map((country) => (
-                    <SelectItem key={country.code} value={country.code}>
-                      {country.flag} {country.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor="type" className="text-xs">
-                Type
-              </Label>
-              <Select
-                value={search.type}
-                onValueChange={(value) => patch({ type: value as NumberType })}
-              >
-                <SelectTrigger id="type" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {NUMBER_TYPES.map((type) => (
-                    <SelectItem key={type.value} value={type.value}>
-                      {type.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor="area-code" className="text-xs">
-                Area code
-              </Label>
-              <Input
-                id="area-code"
-                inputMode="numeric"
-                placeholder="514"
-                maxLength={4}
-                value={search.areaCode}
-                onChange={(event) =>
-                  patch({ areaCode: event.target.value.replace(/\D/g, "") })
-                }
-                // A toll-free number has no area code to filter on.
-                disabled={search.type === "tollFree"}
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label htmlFor="contains" className="text-xs">
-                Contains
-              </Label>
-              <Input
-                id="contains"
-                placeholder="Any digits"
-                value={search.contains}
-                onChange={(event) => patch({ contains: event.target.value })}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 rounded-md border px-3 py-2">
-            <span className="text-muted-foreground text-xs">Must support</span>
-            <CapabilityToggle
-              id="cap-voice"
-              label="Voice"
-              checked={search.requires.voice}
-              onCheckedChange={(voice) =>
-                patch({ requires: { ...search.requires, voice } })
-              }
-            />
-            <CapabilityToggle
-              id="cap-sms"
-              label="SMS"
-              checked={search.requires.sms}
-              onCheckedChange={(sms) =>
-                patch({ requires: { ...search.requires, sms } })
-              }
-            />
-            <CapabilityToggle
-              id="cap-mms"
-              label="MMS"
-              checked={search.requires.mms}
-              onCheckedChange={(mms) =>
-                patch({ requires: { ...search.requires, mms } })
-              }
-            />
-          </div>
-
-          <Button type="submit" variant="outline" disabled={searching}>
-            {searching ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Search className="size-4" />
+                {error}
+              </p>
             )}
-            Search numbers
+
+            {results !== null && !error && (
+              <>
+                <div
+                  className={`text-muted-foreground bg-muted/40 hidden gap-x-3 border-b px-3 py-2 text-[10px] font-medium tracking-wide uppercase sm:grid ${RESULT_COLUMNS}`}
+                >
+                  <span />
+                  <span>Numbers</span>
+                  <span>Capabilities</span>
+                  <span>Type</span>
+                  <span>Address requirement</span>
+                  <span>Monthly</span>
+                </div>
+
+                {results.length === 0 ? (
+                  <div className="flex flex-col items-center gap-1 px-4 py-10 text-center">
+                    <p className="text-sm font-medium">Nothing available</p>
+                    <p className="text-muted-foreground max-w-sm text-xs">
+                      {search.areaCode
+                        ? `Twilio has no ${search.areaCode} numbers left. Busy area codes run dry — 514 is exhausted, for instance, which is why Montreal numbers are issued as 438. Try a neighbouring code or clear it.`
+                        : "Try a different country, or turn off a capability."}
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="divide-y">
+                    {results.map((entry) => (
+                      <ResultRow
+                        key={entry.phoneNumber}
+                        entry={entry}
+                        selected={selected?.phoneNumber === entry.phoneNumber}
+                        onSelect={() => setSelected(entry)}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+
+            {results === null && !error && (
+              <p className="text-muted-foreground px-4 py-10 text-center text-xs">
+                Choose a country and search. Local numbers are{" "}
+                {formatCents(115)}/month, toll-free {formatCents(215)}.
+              </p>
+            )}
+          </div>
+
+          {selected && selected.addressRequirement !== "none" && (
+            <p className="mt-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                This number needs a validated{" "}
+                {addressRequirementLabel(
+                  selected.addressRequirement,
+                ).toLowerCase()}{" "}
+                on the Twilio account. The purchase is rejected until one
+                exists.
+              </span>
+            </p>
+          )}
+        </div>
+
+        {/* Footer states the cost before anything is charged. */}
+        <div className="bg-muted/50 flex flex-wrap items-center gap-3 border-t p-4">
+          <span className="text-muted-foreground text-xs">
+            {selected ? "1 number selected" : "0 numbers selected"}
+          </span>
+
+          {selected && (
+            <span className="text-sm font-medium tabular-nums">
+              Total: {formatCents(total)}
+              <span className="text-muted-foreground font-normal">/mo</span>
+            </span>
+          )}
+
+          <Button
+            type="button"
+            className="ml-auto"
+            disabled={!selected}
+            onClick={() =>
+              selected &&
+              toast.info("Buying isn't connected to Twilio yet.", {
+                description: `${formatPhone(selected.phoneNumber)} would be purchased and its voice and SMS webhooks pointed at this app in the same request.`,
+              })
+            }
+          >
+            <ShoppingCart className="size-4" />
+            Proceed to buy
           </Button>
-        </form>
-
-        {results !== null && (
-          <div className="flex min-h-0 flex-col gap-2">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="text-xs font-medium">
-                {results.length} available
-              </p>
-              <Badge variant="outline" className="text-[10px]">
-                Preview data
-              </Badge>
-            </div>
-
-            {results.length === 0 ? (
-              <p className="text-muted-foreground rounded-md border border-dashed px-3 py-6 text-center text-sm">
-                Nothing matched. Try a wider area code, or turn off a
-                capability.
-              </p>
-            ) : (
-              <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-                {results.map((entry) => (
-                  <ResultRow
-                    key={entry.phoneNumber}
-                    entry={entry}
-                    onBuy={setConfirming}
-                    buying={false}
-                  />
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {results === null && !searching && (
-          <p className="text-muted-foreground flex items-center gap-2 rounded-md border border-dashed px-3 py-6 text-center text-xs">
-            <Check className="size-3.5 shrink-0" />
-            Set your filters and search. Local numbers cost{" "}
-            {formatCents(115)}/month, toll-free {formatCents(215)}/month.
-          </p>
-        )}
+        </div>
       </DialogContent>
     </Dialog>
   );
