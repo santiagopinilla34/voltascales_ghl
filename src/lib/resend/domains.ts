@@ -2,6 +2,8 @@ import "server-only";
 
 import { resendApiKey } from "@/lib/env";
 
+import type { ResendDomain, ResendRegion } from "./types";
+
 /**
  * Resend's domain API, as much of it as the Email Services page needs.
  *
@@ -50,67 +52,28 @@ const TIMEOUT_MS = 15_000;
 // ---------------------------------------------------------------------------
 // The API's shapes
 // ---------------------------------------------------------------------------
+//
+// Declared in `./types`, which is client-safe, and re-exported here so server
+// code has one import for the whole API.
+
+export type {
+  ResendDnsRecord,
+  ResendDomain,
+  ResendDomainStatus,
+  ResendRegion,
+} from "./types";
 
 /**
- * Mirrors Resend's documented domain statuses.
+ * The region every domain this app creates is registered in.
  *
- * All seven, including the two easy to forget: `temporary_failure` is what a
- * previously-verified domain becomes when a record stops resolving, and it
- * recovers on its own if the record comes back within 72 hours. Treating it as
- * a hard failure would have the page shout about an outage that is often a DNS
- * provider having a bad ten minutes.
+ * Not configurable, and that is a decision rather than an omission. A region is
+ * chosen once and cannot be changed afterwards — moving a domain to another one
+ * means deleting it at Resend, re-adding it, and republishing a fresh set of
+ * DNS records including a new DKIM key. Putting that behind a dropdown on a
+ * form invites a choice whose cost is invisible at the moment of making it,
+ * for a business whose recipients are all in North America.
  */
-export type ResendDomainStatus =
-  | "not_started"
-  | "pending"
-  | "verified"
-  | "partially_verified"
-  | "partially_failed"
-  | "failed"
-  | "temporary_failure";
-
-/** The four regions Resend will send from. Chosen once, at creation. */
-export type ResendRegion = "us-east-1" | "eu-west-1" | "sa-east-1" | "ap-northeast-1";
-
-export const RESEND_REGIONS: { value: ResendRegion; label: string }[] = [
-  { value: "us-east-1", label: "US East (N. Virginia)" },
-  { value: "eu-west-1", label: "Europe (Ireland)" },
-  { value: "sa-east-1", label: "South America (São Paulo)" },
-  { value: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
-];
-
-/**
- * One DNS record to publish.
- *
- * `status` is typed loosely rather than as `ResendDomainStatus`: per-record
- * statuses are a narrower set in practice, but they are not separately
- * documented, and a value we have not seen before should render as itself
- * rather than crash a `switch`.
- */
-export type ResendDnsRecord = {
-  /** "SPF" | "DKIM" | "Tracking" — what the record is for, not its DNS type. */
-  record: string;
-  name: string;
-  type: string;
-  value: string;
-  ttl: string;
-  status: string;
-  /** MX only. */
-  priority?: number;
-};
-
-export type ResendDomain = {
-  id: string;
-  name: string;
-  status: ResendDomainStatus;
-  created_at: string;
-  region: string;
-  records: ResendDnsRecord[];
-  open_tracking?: boolean;
-  click_tracking?: boolean;
-  tracking_subdomain?: string | null;
-  capabilities?: { sending?: string; receiving?: string };
-};
+export const SENDING_REGION: ResendRegion = "us-east-1";
 
 // ---------------------------------------------------------------------------
 // Results
@@ -292,13 +255,12 @@ async function request<T>(
  */
 export async function createDomain(input: {
   name: string;
-  region?: ResendRegion;
 }): Promise<ResendResult<ResendDomain>> {
   return request<ResendDomain>("/domains", {
     method: "POST",
     body: {
       name: input.name,
-      region: input.region ?? "us-east-1",
+      region: SENDING_REGION,
       // Explicit rather than defaulted: this app sends and does not receive,
       // and a domain configured to receive would publish inbound MX records
       // that would be confusing to be handed and pointless to publish.

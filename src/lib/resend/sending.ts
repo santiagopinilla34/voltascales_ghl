@@ -43,6 +43,36 @@ export function sendingDomainOf(settings: Settings | null): SendingDomain | null
   };
 }
 
+/** Resend's shared sender, which only delivers to the account owner. */
+export const SHARED_SENDER = "VoltaScales <onboarding@resend.dev>";
+
+/**
+ * Where outbound email is actually sent from, and how that was decided.
+ *
+ * Three sources in precedence order, and the third is the bug this page was
+ * built to fix: a verified domain chosen here, else the NOTIFY_FROM_EMAIL
+ * environment variable, else Resend's shared sender — which is accepted by the
+ * API and delivered only to the address the Resend account was registered
+ * with. Client mail sent from it does not bounce visibly. It simply never
+ * arrives.
+ *
+ * Returns the source alongside the address because the page needs to say which
+ * of the three is in force, and "onboarding@resend.dev" means nothing to
+ * someone who has not read this comment.
+ */
+export function resolveFromAddress(settings: Settings | null): {
+  from: string;
+  source: "domain" | "environment" | "shared";
+} {
+  const domain = sendingDomainOf(settings);
+  if (domain) return { from: domain.from, source: "domain" };
+
+  const configured = process.env.NOTIFY_FROM_EMAIL?.trim();
+  if (configured) return { from: configured, source: "environment" };
+
+  return { from: SHARED_SENDER, source: "shared" };
+}
+
 /**
  * Makes a domain the one outbound email sends from.
  *

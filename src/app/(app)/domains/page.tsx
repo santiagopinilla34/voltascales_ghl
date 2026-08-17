@@ -1,21 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ExternalLink, Scale, TriangleAlert } from "lucide-react";
+import { ExternalLink, Mail, Scale, TriangleAlert } from "lucide-react";
 
-import { DomainsTabs } from "@/components/domains/domains-tabs";
-import {
-  PREVIEW_EMAIL_DOMAINS,
-  PREVIEW_OWNED_DOMAINS,
-} from "@/lib/domains/domains";
+import { DomainSearch } from "@/components/domains/domain-search";
+import { OwnedDomains } from "@/components/domains/owned-domains";
+import { PREVIEW_OWNED_DOMAINS } from "@/lib/domains/domains";
 
 export const metadata: Metadata = { title: "Domains · VoltaScales" };
 
 /**
  * Domains (front end).
  *
- * Buy and own domains in the app, and set one up as a sending domain for
- * email. No registrar is connected — see the module comment in
- * `src/lib/domains/domains.ts` for which one to build against and why.
+ * Buying and owning domains. No registrar is connected — see the module
+ * comment in `src/lib/domains/domains.ts` for which one to build against and
+ * why.
+ *
+ * Sending domains used to live here as a second tab, mocked. That is a real
+ * page now, at /email, wired to Resend — so this one links across rather than
+ * keeping a preview of a feature that exists.
  */
 export default function DomainsPage() {
   return (
@@ -41,10 +43,39 @@ export default function DomainsPage() {
             </span>
           </p>
 
-          <DomainsTabs
-            domains={PREVIEW_OWNED_DOMAINS}
-            emailDomains={PREVIEW_EMAIL_DOMAINS}
-          />
+          <section className="flex min-w-0 flex-col gap-3">
+            <h2 className="text-sm font-semibold tracking-tight">
+              Your domains
+            </h2>
+            <OwnedDomains domains={PREVIEW_OWNED_DOMAINS} />
+          </section>
+
+          <section className="flex min-w-0 flex-col gap-3">
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">
+                Find a domain
+              </h2>
+              <p className="text-muted-foreground text-xs">
+                Registered in your name, not the app&apos;s. You can move it out
+                at any time.
+              </p>
+            </div>
+            <DomainSearch />
+          </section>
+
+          <Link
+            href="/email"
+            className="hover:bg-accent/50 flex min-w-0 items-center gap-2 rounded-md border px-3 py-2.5 text-xs transition-colors"
+          >
+            <Mail className="text-muted-foreground size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="font-medium">Sending email from a domain</span>{" "}
+              <span className="text-muted-foreground">
+                is set up on Email Services, which is connected to Resend for
+                real.
+              </span>
+            </span>
+          </Link>
 
           {/* Deliberately not dismissible. It is a reminder about something
               that has to be settled before the first paying client, and a

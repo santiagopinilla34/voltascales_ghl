@@ -9,7 +9,6 @@ import {
   getDomain,
   verifyAndRead,
   type ResendDomain,
-  type ResendRegion,
 } from "@/lib/resend/domains";
 import {
   buildFromAddress,
@@ -57,7 +56,6 @@ async function requireUser() {
  */
 export async function addSendingDomain(input: {
   name: string;
-  region: string;
 }): Promise<ActionResult<ResendDomain>> {
   const supabase = await requireUser();
   if (!supabase) return { ok: false, error: "Not authenticated" };
@@ -66,10 +64,7 @@ export async function addSendingDomain(input: {
   const invalid = domainNameError(name);
   if (invalid) return { ok: false, error: invalid };
 
-  const result = await createDomain({
-    name,
-    region: input.region as ResendRegion,
-  });
+  const result = await createDomain({ name });
 
   if (!result.ok) return { ok: false, error: result.error };
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  AtSign,
   Bot,
   Briefcase,
   CalendarDays,
@@ -45,6 +46,10 @@ const NAV = [
   // Infrastructure the CRM runs on, grouped after the day-to-day pages: you
   // buy a number or a domain once and then forget about it.
   { href: "/phone", label: "Phone System", icon: PhoneCall },
+  // Next to Domains rather than next to Inbox: this is where a sending domain
+  // is provisioned, which is a thing you do once alongside buying the domain
+  // it sits on — not somewhere you go to read mail.
+  { href: "/email", label: "Email Services", icon: AtSign },
   { href: "/domains", label: "Domains", icon: Globe },
   { href: "/usage", label: "Usage", icon: Gauge },
   { href: "/settings", label: "Settings", icon: Settings },

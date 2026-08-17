@@ -25,6 +25,12 @@
  * as a second `Registrar` once the partnership lands. Nothing in the UI names a
  * provider except the badge on each owned domain.
  *
+ * Sending domains are not here. They were, as preview types with a placeholder
+ * DKIM key, until Email Services was wired to Resend — see `src/lib/resend/`.
+ * Buying a domain and making email work on it are separate errands with
+ * separate providers, and the preview versions of the second one outlived
+ * their usefulness the moment the real ones existed.
+ *
  * Client-safe — the search filters the preview list in the browser.
  */
 
@@ -64,39 +70,6 @@ export type DomainOffer = {
   renewalCents: number;
   /** Registry premium names cost multiples of the list price. */
   premium: boolean;
-};
-
-/** Sending-domain verification state, matching what Resend reports. */
-export type EmailDomainStatus = "not_started" | "pending" | "verified" | "failed";
-
-export type DnsRecord = {
-  type: "TXT" | "MX" | "CNAME";
-  /** Host, relative to the domain. "@" means the domain itself. */
-  name: string;
-  value: string;
-  /** MX only. */
-  priority?: number;
-  /** Whether this record has been seen in DNS. */
-  verified: boolean;
-  /** One line on why the record exists, shown under it. */
-  purpose: string;
-};
-
-export type EmailDomain = {
-  name: string;
-  status: EmailDomainStatus;
-  /** The region the sending infrastructure lives in. */
-  region: string;
-  records: DnsRecord[];
-  /** ISO timestamp of the last verification attempt, or null. */
-  lastCheckedAt: string | null;
-};
-
-export const EMAIL_STATUS_LABELS: Record<EmailDomainStatus, string> = {
-  not_started: "Not started",
-  pending: "Pending",
-  verified: "Verified",
-  failed: "Failed",
 };
 
 // ---------------------------------------------------------------------------
@@ -218,62 +191,6 @@ function hash(value: string): number {
   }
   return Math.abs(result);
 }
-
-/**
- * The records a sending domain needs, as Resend issues them.
- *
- * This app already sends through Resend (`src/lib/notify/email.ts`), so
- * "set up an email domain" means exactly this: add the domain there, publish
- * these four records, and set NOTIFY_FROM_EMAIL to an address on it. The DKIM
- * key is per-domain and comes back from Resend's API — the placeholder below is
- * the right shape and the wrong key.
- */
-export function previewEmailRecords(domain: string): DnsRecord[] {
-  return [
-    {
-      type: "TXT",
-      name: `send.${domain}`,
-      value: "v=spf1 include:amazonses.com ~all",
-      verified: true,
-      purpose:
-        "SPF. Tells receiving servers that this sender is allowed to send as you.",
-    },
-    {
-      type: "MX",
-      name: `send.${domain}`,
-      value: "feedback-smtp.us-east-1.amazonses.com",
-      priority: 10,
-      verified: true,
-      purpose: "Where bounces and complaints come back to.",
-    },
-    {
-      type: "TXT",
-      name: `resend._domainkey.${domain}`,
-      value:
-        "p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC7pRePLACEHOLDERKEYONLYnotarealDKIMkeyREPLACEwhenResendissuesyoursQIDAQAB",
-      verified: false,
-      purpose: "DKIM. Signs each message so it cannot be forged or altered.",
-    },
-    {
-      type: "TXT",
-      name: `_dmarc.${domain}`,
-      value: "v=DMARC1; p=none;",
-      verified: false,
-      purpose:
-        "DMARC. Optional, but inbox providers increasingly expect it. Start at p=none and tighten later.",
-    },
-  ];
-}
-
-export const PREVIEW_EMAIL_DOMAINS: EmailDomain[] = [
-  {
-    name: "voltascales.com",
-    status: "pending",
-    region: "us-east-1",
-    records: previewEmailRecords("voltascales.com"),
-    lastCheckedAt: "2026-08-14T18:22:00.000Z",
-  },
-];
 
 /** "$11.06" from 1106. */
 export function formatDomainPrice(cents: number): string {
