@@ -1,6 +1,5 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
@@ -8,28 +7,22 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Who is asking, and on whose behalf.
  *
- * Replaces the browser-held simulation in `components/orgs/org-context.tsx`.
- * The difference is not cosmetic: that one was a value the browser set and the
- * server never saw, and this one is derived from the session on every request.
+ * The organization an admin is working in lives in `active_org`, a table, and
+ * that is what makes this real rather than decorative. Phase 2 kept it in a
+ * cookie, which the database never saw — so it could only narrow what the app
+ * chose to ask for, and any query that forgot to filter returned every
+ * tenant's rows. Now the RLS policies read `active_org_id()` themselves, so
+ * the scope applies to all seventy-odd queries in the app without any of them
+ * mentioning it, including ones not written yet.
  *
- * ## Why the cookie is not a security boundary
+ * What this function does is therefore only to *report* the scope, for the nav
+ * and the banner. Getting it wrong would draw the wrong name on the screen; it
+ * could not show anyone another tenant's data.
  *
- * A platform admin can be looking at any organization, and that choice has to
- * live somewhere between requests — here, a cookie. Forging it gets you
- * nothing:
- *
- *   - For an `org_owner` the cookie is ignored outright. Their organization is
- *     whichever one their membership row names, and a second membership is
- *     something only the agency can create.
- *   - For a `platform_admin` the cookie only narrows a view of data they are
- *     already entitled to by role. Postgres would hand them those rows anyway.
- *
- * So the cookie chooses a lens, never a permission. Row-level security decides
- * what is behind it, and the check that matters happens in the database.
+ * For a client none of it applies: their organization is whichever one their
+ * membership names, `active_org` is never consulted, and a row written there
+ * for them would do nothing.
  */
-
-/** Which organization a platform admin is currently looking at. */
-const VIEWING_COOKIE = "voltascales-viewing-org";
 
 export type OrgRole = "platform_admin" | "org_owner";
 
@@ -106,12 +99,18 @@ export async function getOrgContext(): Promise<OrgContext | null> {
     };
   }
 
-  const viewing = (await cookies()).get(VIEWING_COOKIE)?.value;
+  const { data: active } = await supabase
+    .from("active_org")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const viewing = active?.org_id;
 
   if (viewing && viewing !== home.id) {
-    // Resolved rather than trusted: a cookie naming an organization that was
-    // deleted, or was never one, falls back to the agency instead of leaving
-    // the app pointed at nothing.
+    // `organizations` is deliberately not scoped by active_org — the agency
+    // needs to list every client to switch between them — so this reads the
+    // target directly.
     const { data: target } = await supabase
       .from("organizations")
       .select("id, name, status")
@@ -187,4 +186,3 @@ export async function requirePlatformAdmin(): Promise<OrgContext> {
   return context;
 }
 
-export { VIEWING_COOKIE };

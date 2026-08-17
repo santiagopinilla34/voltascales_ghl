@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+
 import { redirect } from "next/navigation";
 
 import { appBaseUrl } from "@/lib/env";
-import { VIEWING_COOKIE, requirePlatformAdmin } from "@/lib/orgs/context";
+import { requirePlatformAdmin } from "@/lib/orgs/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -172,14 +172,14 @@ export async function createSubAccount(input: {
 }
 
 /**
- * Points the agency's session at a client organization.
+ * Points the agency at a client organization.
  *
- * The cookie chooses a lens, not a permission — see the comment on
- * `getOrgContext`. A client never reaches this: `requirePlatformAdmin` sends
- * them back to their own inbox.
+ * A client never reaches this. `requirePlatformAdmin` sends them to their own
+ * inbox, and the policy on `active_org` refuses a row written for anyone but
+ * yourself in any case.
  */
 export async function switchToOrg(orgId: string): Promise<void> {
-  await requirePlatformAdmin();
+  const context = await requirePlatformAdmin();
 
   const supabase = await createClient();
   const { data: org } = await supabase
@@ -190,13 +190,18 @@ export async function switchToOrg(orgId: string): Promise<void> {
 
   if (!org) redirect("/sub-accounts");
 
-  const store = await cookies();
-  store.set(VIEWING_COOKIE, orgId, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-  });
+  // One row re-aims the entire app: the RLS policies read `active_org_id()` on
+  // every query, so no page and no query has to know this happened. That is
+  // the difference from the cookie it replaces, which Postgres never saw.
+  const { error } = await supabase.from("active_org").upsert(
+    { user_id: context.userId, org_id: orgId, set_at: new Date().toISOString() },
+    { onConflict: "user_id" },
+  );
+
+  if (error) {
+    console.error("[orgs] could not switch organization", error);
+    redirect("/sub-accounts");
+  }
 
   revalidatePath("/", "layout");
   redirect("/inbox");
@@ -209,10 +214,10 @@ export async function switchToOrg(orgId: string): Promise<void> {
  * blocked outright at the database. The data stays put, the client stops
  * getting in, and it reverses in one click when they pay.
  *
- * A door, not a wall — see the note on `requireOrgContext`. It stops the
- * client using the app; their automations still answer a text, because those
- * run from webhooks that do not yet know whose account they are acting for.
- * Phase 4 makes suspension a real stop.
+ * Stops the sending as well as the signing in: the automations engine, the AI
+ * reply and the booking reminders all check `isOrgSuspended` before they spend
+ * anything. A pause that kept answering texts on the agency's Twilio account
+ * would be the wrong way round for the one thing it exists to handle.
  */
 export async function setSubAccountStatus(
   orgId: string,
@@ -327,10 +332,19 @@ export async function sendPasswordReset(orgId: string): Promise<ActionResult> {
 
 /** Back to the agency's own account. */
 export async function returnToAgency(): Promise<void> {
-  await requirePlatformAdmin();
+  const context = await requirePlatformAdmin();
 
-  const store = await cookies();
-  store.delete(VIEWING_COOKIE);
+  const supabase = await createClient();
+
+  // Deleted rather than pointed at the agency: `active_org_id()` already falls
+  // back to the agency when there is no row, so "no row" and "the agency" are
+  // the same state and keeping one of them is enough.
+  const { error } = await supabase
+    .from("active_org")
+    .delete()
+    .eq("user_id", context.userId);
+
+  if (error) console.error("[orgs] could not return to the agency", error);
 
   revalidatePath("/", "layout");
   redirect("/sub-accounts");

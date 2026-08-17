@@ -2,7 +2,10 @@ import { redirect } from "next/navigation";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { AccountBadge } from "@/components/orgs/account-badge";
+import { AccountSwitcher } from "@/components/orgs/account-switcher";
+import { OrgBanner } from "@/components/orgs/org-banner";
 import { AppTopbar } from "@/components/topbar/app-topbar";
+import { listSubAccounts } from "@/lib/orgs/queries";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -47,6 +50,11 @@ export default async function AppLayout({
     redirect("/suspended");
   }
 
+  // Only the agency gets a list to switch between. A client's query would
+  // return their own organization and nothing else anyway, but there is no
+  // reason to spend the round trip.
+  const accounts = context.isPlatformAdmin ? await listSubAccounts() : [];
+
   return (
     // Radix tooltips throw outside a provider, and both the thread timestamps
     // and the sidebar's collapsed-icon labels use them.
@@ -56,17 +64,31 @@ export default async function AppLayout({
           email={context.email || "Signed in"}
           signOut={signOut}
           isPlatformAdmin={context.isPlatformAdmin}
-          // Rendered here rather than inside the sidebar: it reads the session,
-          // and the sidebar is a client component.
+          isViewingOther={context.isViewingOther}
+          // Rendered here rather than inside the sidebar: both read the
+          // session, and the sidebar is a client component. An admin gets the
+          // switcher; a client gets their name, because they have nowhere to
+          // switch to.
           accountBadge={
-            <AccountBadge
-              name={context.orgName}
-              isPlatformAdmin={context.isPlatformAdmin}
-            />
+            context.isPlatformAdmin ? (
+              <AccountSwitcher
+                currentOrgId={context.orgId}
+                currentOrgName={context.orgName}
+                agencyName="VoltaScales"
+                isViewingOther={context.isViewingOther}
+                accounts={accounts}
+              />
+            ) : (
+              <AccountBadge
+                name={context.orgName}
+                isPlatformAdmin={false}
+              />
+            )
           }
         />
         <SidebarInset className="h-dvh min-w-0 overflow-hidden">
           <AppTopbar />
+          {context.isViewingOther && <OrgBanner orgName={context.orgName} />}
           {children}
         </SidebarInset>
         <Toaster position="top-center" />

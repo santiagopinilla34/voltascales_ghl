@@ -80,6 +80,7 @@ export function AppSidebar({
   email,
   signOut,
   isPlatformAdmin,
+  isViewingOther,
   accountBadge,
 }: {
   email: string;
@@ -87,17 +88,24 @@ export function AppSidebar({
   signOut: () => Promise<void>;
   /** From the session, not from the browser. */
   isPlatformAdmin: boolean;
+  /** True when the agency is working inside a client account. */
+  isViewingOther: boolean;
   /** Rendered on the server, so the sidebar stays a client component. */
   accountBadge: React.ReactNode;
 }) {
   const pathname = usePathname();
 
-  // A client's nav is the agency's minus the agency's own pages. Filtered
-  // rather than kept as a second list: two lists drift, and the difference
-  // between the roles *is* this flag.
-  const items = isPlatformAdmin
-    ? NAV
-    : NAV.filter((item) => !item.platformOnly);
+  // A client's nav is the agency's minus the agency's own pages — and so is
+  // the agency's, while it is working inside a client, because those pages are
+  // not part of that account. Filtered rather than kept as a second list: two
+  // lists drift, and the difference between the views *is* this flag.
+  //
+  // The switcher and the banner are how you get back out, which is why neither
+  // is filtered away with the rest.
+  const items =
+    isPlatformAdmin && !isViewingOther
+      ? NAV
+      : NAV.filter((item) => !item.platformOnly);
 
   return (
     <Sidebar collapsible="icon">

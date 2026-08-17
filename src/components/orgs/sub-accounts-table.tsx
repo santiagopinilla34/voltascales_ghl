@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
-import { createSubAccount } from "@/app/(app)/sub-accounts/actions";
+import { createSubAccount, switchToOrg } from "@/app/(app)/sub-accounts/actions";
 import { ManageSubAccountDialog } from "@/components/orgs/manage-sub-account-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,14 +36,16 @@ import {
 } from "@/lib/orgs/sub-accounts";
 
 /**
- * The client list, and the form that creates one for real.
+ * The client list, the form that creates one, and the way into each.
  *
- * Rows are no longer clickable. They were, back when clicking one swapped in a
- * simulated empty account; now that the data behind these organizations is
- * real, opening one would show the agency's rows under the client's name,
- * because the app's queries do not filter by organization yet. A control that
- * does the wrong thing convincingly is worse than no control, so it is gone
- * until phase 3 puts it back meaning what it says.
+ * Rows open the account. They did not for a while — between the organizations
+ * becoming real and `active_org` existing, opening one would have shown the
+ * agency's own rows under a client's name, so the control was removed rather
+ * than left to mislead. Now the switch is enforced by the database and the row
+ * does what it looks like it does.
+ *
+ * Manage is a button rather than another row action because it is the one
+ * thing here you do *about* a client instead of *as* them.
  */
 
 function StatusBadge({ status }: { status: SubAccount["status"] }) {
@@ -186,6 +188,8 @@ function CreateSubAccountDialog() {
 }
 
 export function SubAccountsTable({ accounts }: { accounts: SubAccount[] }) {
+  const [, startTransition] = useTransition();
+
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -223,7 +227,21 @@ export function SubAccountsTable({ accounts }: { accounts: SubAccount[] }) {
 
             <TableBody>
               {accounts.map((account) => (
-                <TableRow key={account.id} className="hover:bg-transparent">
+                <TableRow
+                  key={account.id}
+                  className="cursor-pointer"
+                  // A row, not a link: switching is a server-side state change
+                  // and the destination depends on it.
+                  onClick={() => startTransition(() => switchToOrg(account.id))}
+                  tabIndex={0}
+                  role="button"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      startTransition(() => switchToOrg(account.id));
+                    }
+                  }}
+                >
                   <TableCell>
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium">
@@ -248,7 +266,13 @@ export function SubAccountsTable({ accounts }: { accounts: SubAccount[] }) {
                     {formatSubAccountDate(account.createdAt)}
                   </TableCell>
 
-                  <TableCell className="text-right">
+                  {/* Stops the row's own click firing underneath: opening the
+                      Manage window should not also switch you into the account
+                      you were about to change. */}
+                  <TableCell
+                    className="text-right"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <ManageSubAccountDialog account={account} />
                   </TableCell>
                 </TableRow>

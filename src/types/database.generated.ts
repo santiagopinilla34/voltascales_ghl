@@ -116,6 +116,32 @@ export type Database = {
           },
         ]
       }
+      active_org: {
+        Row: {
+          org_id: string
+          set_at: string
+          user_id: string
+        }
+        Insert: {
+          org_id: string
+          set_at?: string
+          user_id: string
+        }
+        Update: {
+          org_id?: string
+          set_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "active_org_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_drafts: {
         Row: {
           body: string
@@ -910,6 +936,7 @@ export type Database = {
     }
     Functions: {
       activate_my_organizations: { Args: never; Returns: number }
+      active_org_id: { Args: never; Returns: string }
       automation_triggers_valid: { Args: { triggers: Json }; Returns: boolean }
       booking_span: {
         Args: { ends_at: string; starts_at: string }
