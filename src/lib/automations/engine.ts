@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isOrgSuspended } from "@/lib/orgs/suspension";
 import type {
   Automation,
   AutomationRunStatus,
@@ -469,6 +470,23 @@ export async function runAutomationsForEvent(
   supabase: SupabaseClient<Database>,
   event: AutomationEvent,
 ): Promise<AutomationRunOutcome[]> {
+  // A paused account sends nothing. Checked here rather than inside each
+  // action because this is the one door every automation comes through, and a
+  // rule that fires and then fails at the last step still burns an AI call and
+  // writes a run log that reads like a bug.
+  //
+  // The organization comes from the contact the event is about — no inbound
+  // routing needed, since that row has named its organization since phase 1.
+  // An event with no contact (an email event for an address matching nobody)
+  // cannot be attributed and is allowed through, which is correct while the
+  // agency is the only tenant and is phase 4's problem after that.
+  if (event.contact && (await isOrgSuspended(supabase, event.contact.org_id))) {
+    console.log(
+      `[automations] skipping ${event.trigger}: organization ${event.contact.org_id} is suspended`,
+    );
+    return [];
+  }
+
   const { data: automations, error } = await supabase
     .from("automations")
     .select("*")

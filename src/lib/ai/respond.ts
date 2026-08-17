@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { listMessages } from "@/lib/conversations";
+import { isOrgSuspended } from "@/lib/orgs/suspension";
 import { notifyHandoff } from "@/lib/notify/handoff";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
@@ -39,6 +40,16 @@ export async function respondToInbound(
   { contact, messageId }: { contact: Contact; messageId: string },
 ): Promise<void> {
   try {
+    // Before the settings read and well before Claude: a suspended account
+    // should cost nothing, and the AI reply is the most expensive thing an
+    // inbound text can trigger.
+    if (await isOrgSuspended(supabase, contact.org_id)) {
+      console.log(
+        `[ai] no reply for message ${messageId}: organization ${contact.org_id} is suspended`,
+      );
+      return;
+    }
+
     const settings = await getSettings(supabase);
 
     if (!settings) {

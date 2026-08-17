@@ -160,10 +160,11 @@ export async function requireOrgContext(): Promise<OrgContext> {
   // able to undo from inside, and locking yourself out of a client you just
   // suspended would make unsuspending them impossible.
   //
-  // This is a door, not a wall. It stops a client using the app; it does not
-  // stop their automations replying to a text, because those run from webhooks
-  // that do not yet know which organization they are acting for. Suspension
-  // becomes a real stop in phase 4, alongside the caps.
+  // This is the front door only, and it is no longer the whole of it — the
+  // send paths check `isOrgSuspended` too, so a paused account's automations,
+  // AI replies and booking reminders are held as well. Without that half, a
+  // suspension for non-payment would keep spending the agency's Twilio and
+  // Anthropic budget on the client who stopped paying.
   if (!context.isPlatformAdmin && context.orgStatus === "suspended") {
     redirect("/suspended");
   }

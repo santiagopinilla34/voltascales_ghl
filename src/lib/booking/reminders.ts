@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { cancelUrl, formatBookingTime } from "@/lib/notify/booking";
+import { isOrgSuspended } from "@/lib/orgs/suspension";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import type { Booking, Database, TablesUpdate } from "@/types/database";
@@ -149,7 +150,12 @@ export async function runReminderPass(
   now: Date = new Date(),
 ): Promise<ReminderReport> {
   const spec = SPECS[kind];
-  const { ready, skipped } = await due(supabase, spec, now);
+  const pass = await due(supabase, spec, now);
+  const ready = pass.ready;
+  // Not const: a booking whose organization is paused is skipped below, and it
+  // belongs in the same count as one skipped for being booked inside the
+  // window — both mean "in range, deliberately not texted".
+  let skipped = pass.skipped;
 
   let sent = 0;
   let failed = 0;
@@ -164,6 +170,19 @@ export async function runReminderPass(
   // there is no deadline — a burst of parallel sends buys nothing and is the
   // easiest way to trip a rate limit on a busy day.
   for (const booking of ready) {
+    // Per booking rather than once for the pass: this job sweeps every
+    // organization at once, so "is this one paused" is a different answer for
+    // each row. A paused account's reminders are left unstamped and simply not
+    // sent — if they are restored before the meeting, the next pass picks the
+    // booking up and the client still gets their reminder.
+    if (await isOrgSuspended(supabase, booking.org_id)) {
+      skipped++;
+      console.log(
+        `[reminders] ${kind} reminder held for booking ${booking.id}: organization ${booking.org_id} is suspended`,
+      );
+      continue;
+    }
+
     try {
       await sendSms(booking.client_phone, spec.body(booking, join));
     } catch (error) {

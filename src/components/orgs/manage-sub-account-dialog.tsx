@@ -258,8 +258,8 @@ export function ManageSubAccountDialog({ account }: { account: SubAccount }) {
             </h3>
             <p className="text-muted-foreground text-xs">
               {suspended
-                ? "This account is paused. Signing in shows a billing notice instead of the app. Nothing has been deleted."
-                : "Pausing signs the client out of the app and shows a billing notice instead. Their data stays exactly as it is, and it reverses in one click."}
+                ? "This account is paused. The client sees a billing notice instead of the app, and their automations, AI replies and booking reminders are all held. Nothing has been deleted."
+                : "Pausing shows the client a billing notice instead of the app, and stops their automations, AI replies and booking reminders — so a paused account costs you nothing. Their data stays exactly as it is, and it reverses in one click."}
             </p>
             <Button
               variant={suspended ? "default" : "outline"}
