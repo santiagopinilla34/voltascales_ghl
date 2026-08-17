@@ -314,7 +314,52 @@ every six months** — put a reminder somewhere or sign-in dies quietly.
 
 ---
 
-## 9. Later, not now
+## 9. Multi-tenancy — organizations, roles and RLS · Size L
+
+**In the repo already.** `/sub-accounts` is a front end with nothing behind it,
+added 17 Aug 2026. A list of five invented client businesses
+(`src/lib/orgs/sub-accounts.ts`), a create form that appends a row and emails
+nobody, and a simulated context switch: click a client and the shell stays put
+while the page beneath it is replaced by an empty account
+(`src/components/orgs/`). The banner and the sidebar say "simulated" in three
+places.
+
+What it demonstrates is the *shape* — that stepping into a client's account
+feels like the same app, and that the client's nav is the platform's minus
+Usage and Sub Accounts. What it demonstrates nothing about is isolation.
+
+**What to write.**
+
+1. `organizations` and `org_members`, with two roles: `platform_admin` across
+   organizations, `org_owner` inside exactly one.
+2. `org_id` on every table holding client data, backfilled to your own
+   organization. This is the whole job — the page is an afternoon next to it.
+3. RLS policies keyed on the caller's organization, on every one of those
+   tables. This is the only thing that actually isolates anything.
+4. A magic-link invite, which is what moves a sub account from Invited to
+   Active and decides the first `org_owner`.
+5. Context switching the *server* honours — carried in the session and
+   re-checked per query, not held in the browser as it is now.
+
+**What will bite you.**
+
+- **The simulated switch is client-side and must not survive.** It lives in
+  sessionStorage. When the real one lands, delete `OrgContextProvider` rather
+  than wiring it up: a switch the browser can set is a switch a client can set.
+- **Nav filtering is not a permission check.** `platformOnly` in
+  `src/components/app-sidebar.tsx` hides items and nothing more. Both routes
+  are reachable by URL today, and are only harmless because a simulated
+  account has no data.
+- **Backfilling `org_id` is the migration to be careful with.** Every existing
+  row is yours; getting that wrong once RLS is on means a client sees data
+  that predates them.
+- **Twilio numbers and Resend domains are per-account too.** Both are bought
+  against your own credentials right now. Whose account a client's number sits
+  in is the same open question as the one on the Domains page.
+
+---
+
+## 10. Later, not now
 
 - **Google Calendar two-way sync.** The calendar reads its own bookings; an
   external sync is a genuinely separate feature.
