@@ -5,21 +5,14 @@ import { revalidatePath } from "next/cache";
 import {
   parseActions,
   parseConditions,
-  parseFormTriggerConfig,
-  parseKeywordTriggerConfig,
+  parseTriggers,
 } from "@/lib/automations/config";
 import { createClient } from "@/lib/supabase/server";
-import type { AutomationTriggerType, Json } from "@/types/database";
+import type { Json } from "@/types/database";
 
 export type ActionResult<T = null> =
   | { ok: true; value: T }
   | { ok: false; error: string };
-
-const TRIGGER_TYPES: readonly AutomationTriggerType[] = [
-  "missed_call",
-  "keyword",
-  "form_submit",
-];
 
 async function requireUser() {
   const supabase = await createClient();
@@ -55,16 +48,14 @@ export async function setAutomationActive(
 
 export type AutomationInput = {
   name: string;
-  trigger_type: string;
-  trigger_config: Json;
+  triggers: Json;
   conditions: Json;
   actions: Json;
 };
 
 type ValidatedRule = {
   name: string;
-  trigger_type: AutomationTriggerType;
-  trigger_config: Json;
+  triggers: Json;
   conditions: Json;
   actions: Json;
 };
@@ -87,18 +78,12 @@ function validate(input: AutomationInput): ActionResult<ValidatedRule> {
     return { ok: false, error: "Give the rule a name." };
   }
 
-  if (!TRIGGER_TYPES.includes(input.trigger_type as AutomationTriggerType)) {
-    return { ok: false, error: `"${input.trigger_type}" is not a valid trigger` };
-  }
-  const triggerType = input.trigger_type as AutomationTriggerType;
-
-  // missed_call takes no parameters, so it has no parser and nothing to check.
-  if (triggerType === "keyword") {
-    const parsed = parseKeywordTriggerConfig(input.trigger_config);
-    if (!parsed.ok) return { ok: false, error: `Trigger: ${parsed.error}` };
-  } else if (triggerType === "form_submit") {
-    const parsed = parseFormTriggerConfig(input.trigger_config);
-    if (!parsed.ok) return { ok: false, error: `Trigger: ${parsed.error}` };
+  // One parser for the whole array, which also rejects an empty one and a
+  // repeated type — a rule listening for the same event twice would run twice
+  // for one thing that happened.
+  const triggers = parseTriggers(input.triggers);
+  if (!triggers.ok) {
+    return { ok: false, error: `Triggers: ${triggers.error}` };
   }
 
   const conditions = parseConditions(input.conditions);
@@ -115,11 +100,11 @@ function validate(input: AutomationInput): ActionResult<ValidatedRule> {
     ok: true,
     value: {
       name,
-      trigger_type: triggerType,
-      // A missed_call rule keeps no trigger parameters, so switching to it
-      // clears whatever the previous trigger had rather than leaving a stale
-      // keyword sitting in the column.
-      trigger_config: triggerType === "missed_call" ? {} : input.trigger_config,
+      // The parsed array, not the raw input: `validateTriggerConfig` blanks the
+      // config of any trigger type that takes no parameters, so switching a
+      // trigger cannot leave a stale keyword sitting behind it looking
+      // meaningful.
+      triggers: triggers.value as unknown as Json,
       conditions: input.conditions,
       actions: input.actions,
     },

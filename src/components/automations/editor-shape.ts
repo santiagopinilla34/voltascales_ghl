@@ -42,17 +42,34 @@ function asTarget(value: Json | undefined): MessageTarget {
   return value === "business" ? "business" : "contact";
 }
 
-export type EditorState = {
-  name: string;
-  triggerType: TriggerType;
+/**
+ * One trigger on a rule, flattened for the form.
+ *
+ * Every trigger type's parameters live side by side rather than in a nested
+ * config bag, so switching a trigger's type in the editor doesn't lose what
+ * was typed for the previous one. The narrowing back down to just the fields
+ * that type uses happens in `toAutomationInput`.
+ */
+export type EditorTrigger = {
+  type: TriggerType;
   keywords: string[];
   matchMode: MatchMode;
   formSource: string;
+};
+
+export type EditorState = {
+  name: string;
+  /** A rule fires when any of these matches. Never empty on a saveable rule. */
+  triggers: EditorTrigger[];
   statuses: string[];
   aiEnabled: AiCondition;
   hasTags: string[];
   actions: EditorAction[];
 };
+
+export function blankTrigger(type: TriggerType): EditorTrigger {
+  return { type, keywords: [], matchMode: "word", formSource: "" };
+}
 
 function asRecord(value: Json): Record<string, Json> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -67,6 +84,51 @@ function asStringArray(value: Json | undefined): string[] {
 }
 
 /**
+ * Reads the stored `triggers` array leniently.
+ *
+ * The lenient half of the pair, as with actions: a row with an unknown trigger
+ * type still has to open in the editor rather than erroring, so unknown types
+ * are dropped and whatever is left is shown. The strict check happens on save,
+ * through the engine's own `parseTriggers`.
+ */
+function readTriggers(raw: Json): EditorTrigger[] {
+  const entries = Array.isArray(raw) ? raw : [];
+
+  return entries.flatMap<EditorTrigger>((entry) => {
+    const record = asRecord(entry);
+    const type = record.type;
+    if (typeof type !== "string" || !isTriggerType(type)) return [];
+
+    const config = asRecord(record.config ?? {});
+
+    return [
+      {
+        type,
+        keywords: asStringArray(config.keyword),
+        matchMode:
+          config.match === "exact" || config.match === "contains"
+            ? config.match
+            : "word",
+        formSource: typeof config.source === "string" ? config.source : "",
+      },
+    ];
+  });
+}
+
+const TRIGGER_TYPE_VALUES: readonly string[] = [
+  "missed_call",
+  "keyword",
+  "form_submit",
+  "booking_confirmed",
+  "booking_cancelled",
+  "ai_handoff",
+];
+
+function isTriggerType(value: string): value is TriggerType {
+  return TRIGGER_TYPE_VALUES.includes(value);
+}
+
+/**
  * Starting point for a rule that doesn't exist yet.
  *
  * Defaults to `keyword` because it's the trigger with parameters worth filling
@@ -75,10 +137,7 @@ function asStringArray(value: Json | undefined): string[] {
 export function blankEditorState(): EditorState {
   return {
     name: "",
-    triggerType: "keyword",
-    keywords: [],
-    matchMode: "word",
-    formSource: "",
+    triggers: [blankTrigger("keyword")],
     statuses: [],
     aiEnabled: "any",
     hasTags: [],
@@ -87,7 +146,6 @@ export function blankEditorState(): EditorState {
 }
 
 export function toEditorState(automation: Automation): EditorState {
-  const trigger = asRecord(automation.trigger_config);
   const conditions = asRecord(automation.conditions);
 
   const rawActions = Array.isArray(automation.actions) ? automation.actions : [];
@@ -140,13 +198,7 @@ export function toEditorState(automation: Automation): EditorState {
 
   return {
     name: automation.name,
-    triggerType: automation.trigger_type as TriggerType,
-    keywords: asStringArray(trigger.keyword),
-    matchMode:
-      trigger.match === "exact" || trigger.match === "contains"
-        ? trigger.match
-        : "word",
-    formSource: typeof trigger.source === "string" ? trigger.source : "",
+    triggers: readTriggers(automation.triggers),
     statuses: asStringArray(conditions.status),
     aiEnabled:
       conditions.ai_enabled === true
@@ -168,25 +220,29 @@ export function hasUnsupportedActions(automation: Automation | null): boolean {
 
 export type AutomationInput = {
   name: string;
-  trigger_type: string;
-  trigger_config: Json;
+  triggers: Json;
   conditions: Json;
   actions: Json;
 };
 
-export function toAutomationInput(state: EditorState): AutomationInput {
-  let triggerConfig: Json = {};
-
-  if (state.triggerType === "keyword") {
-    triggerConfig = {
+/** Narrows one editor trigger down to just the parameters its type uses. */
+function triggerConfigOf(trigger: EditorTrigger): Json {
+  if (trigger.type === "keyword") {
+    return {
       // A single keyword stays a plain string, matching how the seeded rules
       // are written and how PRD 3 documents it.
-      keyword: state.keywords.length === 1 ? state.keywords[0] : state.keywords,
-      match: state.matchMode,
+      keyword:
+        trigger.keywords.length === 1 ? trigger.keywords[0] : trigger.keywords,
+      match: trigger.matchMode,
     };
-  } else if (state.triggerType === "form_submit" && state.formSource.trim()) {
-    triggerConfig = { source: state.formSource.trim() };
   }
+  if (trigger.type === "form_submit" && trigger.formSource.trim()) {
+    return { source: trigger.formSource.trim() };
+  }
+  return {};
+}
+
+export function toAutomationInput(state: EditorState): AutomationInput {
 
   // Omitted rather than sent empty: the parser rejects an empty status array,
   // and `{}` is what "no filter" means.
@@ -197,8 +253,10 @@ export function toAutomationInput(state: EditorState): AutomationInput {
 
   return {
     name: state.name,
-    trigger_type: state.triggerType,
-    trigger_config: triggerConfig,
+    triggers: state.triggers.map((trigger) => ({
+      type: trigger.type,
+      config: triggerConfigOf(trigger),
+    })) as unknown as Json,
     conditions,
     actions: state.actions as unknown as Json,
   };

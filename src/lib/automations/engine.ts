@@ -12,6 +12,8 @@ import type {
 import { executeAction, templateVariablesFor } from "./actions";
 import {
   explainConditionMismatch,
+  parseTriggers,
+  triggerFor,
   matchKeyword,
   parseActions,
   parseConditions,
@@ -174,13 +176,30 @@ function matchTrigger(
   automation: Automation,
   event: AutomationEvent,
 ): TriggerMatch {
+  const triggers = parseTriggers(automation.triggers);
+  if (!triggers.ok) {
+    return { status: "invalid", reason: triggers.error };
+  }
+
+  // The rule was loaded because it listens for this event type, so the entry
+  // is expected — but the containment query and this lookup read the column
+  // separately, and disagreeing silently would mean matching against another
+  // trigger's config.
+  const trigger = triggerFor(triggers.value, event.trigger);
+  if (!trigger) {
+    return {
+      status: "no-match",
+      reason: `rule has no ${event.trigger} trigger`,
+    };
+  }
+
   switch (event.trigger) {
     case "missed_call":
       // No parameters: every active missed-call rule applies.
       return { status: "match", variables: {} };
 
     case "keyword": {
-      const config = parseKeywordTriggerConfig(automation.trigger_config);
+      const config = parseKeywordTriggerConfig(trigger.config);
       if (!config.ok) {
         return { status: "invalid", reason: config.error };
       }
@@ -198,7 +217,7 @@ function matchTrigger(
     }
 
     case "form_submit": {
-      const config = parseFormTriggerConfig(automation.trigger_config);
+      const config = parseFormTriggerConfig(trigger.config);
       if (!config.ok) {
         return { status: "invalid", reason: config.error };
       }
@@ -393,7 +412,7 @@ export async function runAutomationsForEvent(
   const { data: automations, error } = await supabase
     .from("automations")
     .select("*")
-    .eq("trigger_type", event.trigger)
+    .contains("triggers", [{ type: event.trigger }])
     .eq("active", true)
     .order("created_at", { ascending: true });
 

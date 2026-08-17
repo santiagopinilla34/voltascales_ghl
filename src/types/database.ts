@@ -49,7 +49,7 @@ export type MessageSender = "human" | "ai" | "system";
 export type CallDirection = "inbound" | "outbound";
 /** Mirrors `calls_status_check`. */
 export type CallStatus = "missed" | "answered" | "voicemail";
-/** Mirrors `automations_trigger_type_check`. */
+/** Mirrors `automation_triggers_valid`, the CHECK over `automations.triggers`. */
 export type AutomationTriggerType =
   | "missed_call"
   | "keyword"
@@ -99,7 +99,9 @@ type RowOverrides = {
   contacts: { status: ContactStatus };
   messages: { direction: MessageDirection; sent_by: MessageSender };
   calls: { direction: CallDirection; status: CallStatus };
-  automations: { trigger_type: AutomationTriggerType };
+  // `triggers` stays `Json` rather than being narrowed here: it is an array of
+  // objects whose shape depends on each entry's own type, which is a job for
+  // `parseTriggers` rather than for a Row override.
   automation_runs: { status: AutomationRunStatus };
   settings: { ai_mode: AiMode; ai_model: AiModel };
   ai_drafts: { source: AiDraftSource };

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import type { Json } from "@/types/database";
 import { cn } from "@/lib/utils";
 
 /** The values `automations_trigger_type_check` allows. */
@@ -56,6 +57,25 @@ export const TRIGGER_META = {
 } as const;
 
 export type TriggerKey = keyof typeof TRIGGER_META;
+
+/**
+ * The trigger types on a rule, read straight off the jsonb column.
+ *
+ * Lenient on purpose, like the rest of the display layer: a row with a
+ * malformed `triggers` value renders as a rule with no badges rather than
+ * throwing on a list page. The strict reading is `parseTriggers`, server-side.
+ */
+export function triggerTypesOf(automation: { triggers: Json }): string[] {
+  if (!Array.isArray(automation.triggers)) return [];
+
+  return automation.triggers.flatMap((entry) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+    const type = (entry as { type?: unknown }).type;
+    return typeof type === "string" ? [type] : [];
+  });
+}
 
 export const TRIGGER_OPTIONS = (Object.keys(TRIGGER_META) as TriggerKey[]).map(
   (value) => ({ value, ...TRIGGER_META[value] }),

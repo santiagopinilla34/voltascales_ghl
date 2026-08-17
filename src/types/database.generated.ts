@@ -213,8 +213,7 @@ export type Database = {
           id: string
           name: string
           system_key: string | null
-          trigger_config: Json
-          trigger_type: string
+          triggers: Json
         }
         Insert: {
           actions?: Json
@@ -224,8 +223,7 @@ export type Database = {
           id?: string
           name: string
           system_key?: string | null
-          trigger_config?: Json
-          trigger_type: string
+          triggers: Json
         }
         Update: {
           actions?: Json
@@ -235,8 +233,7 @@ export type Database = {
           id?: string
           name?: string
           system_key?: string | null
-          trigger_config?: Json
-          trigger_type?: string
+          triggers?: Json
         }
         Relationships: []
       }
@@ -675,6 +672,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      automation_triggers_valid: { Args: { triggers: Json }; Returns: boolean }
       booking_span: {
         Args: { ends_at: string; starts_at: string }
         Returns: unknown

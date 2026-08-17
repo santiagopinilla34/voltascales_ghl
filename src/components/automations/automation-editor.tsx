@@ -29,9 +29,11 @@ import {
   type AiCondition,
   type EditorAction,
   type EditorState,
+  type EditorTrigger,
   type MatchMode,
   type TriggerType,
   blankEditorState,
+  blankTrigger,
   hasUnsupportedActions,
   templateVariablesFor,
   toAutomationInput,
@@ -145,11 +147,23 @@ export function AutomationEditor({
     automation ? toEditorState(automation) : blankEditorState(),
   );
 
+  // This form edits one trigger. Rules can hold several since the workflow
+  // builder landed, and the canvas is what edits those — here the first is
+  // shown and the rest are left untouched by save.
+  const primary = state.triggers[0] ?? blankTrigger("keyword");
+  const patchTrigger = (fields: Partial<EditorTrigger>) =>
+    setState((current) => ({
+      ...current,
+      triggers: current.triggers.map((trigger, index) =>
+        index === 0 ? { ...trigger, ...fields } : trigger,
+      ),
+    }));
+
   // Changes what "the client" means in the recipient hint: for a booking it is
   // the details on the booking form, which need not be the contact's.
   const isBookingTrigger =
-    state.triggerType === "booking_confirmed" ||
-    state.triggerType === "booking_cancelled";
+    primary.type === "booking_confirmed" ||
+    primary.type === "booking_cancelled";
   const [error, setError] = useState<string | null>(null);
   // Optimistic mirror of `active`, so the switch moves under the cursor and
   // falls back to the server's answer once the transition settles.
@@ -246,8 +260,8 @@ export function AutomationEditor({
         description="What has to happen for this rule to be considered."
       >
         <Select
-          value={state.triggerType}
-          onValueChange={(value) => patch({ triggerType: value as TriggerType })}
+          value={primary.type}
+          onValueChange={(value) => patchTrigger({ type: value as TriggerType })}
           disabled={pending}
         >
           <SelectTrigger className="w-full">
@@ -262,16 +276,16 @@ export function AutomationEditor({
           </SelectContent>
         </Select>
         <p className="text-muted-foreground text-xs">
-          {TRIGGER_META[state.triggerType].description}
+          {TRIGGER_META[primary.type].description}
         </p>
 
-        {state.triggerType === "keyword" && (
+        {primary.type === "keyword" && (
           <div className="flex flex-col gap-3 rounded-md border p-3">
             <div className="grid gap-2">
               <Label>Keywords</Label>
               <TagInput
-                tags={state.keywords}
-                onChange={(keywords) => patch({ keywords })}
+                tags={primary.keywords}
+                onChange={(keywords) => patchTrigger({ keywords })}
                 disabled={pending}
               />
               <p className="text-muted-foreground text-xs">
@@ -282,8 +296,8 @@ export function AutomationEditor({
             <div className="grid gap-2">
               <Label>Match</Label>
               <Select
-                value={state.matchMode}
-                onValueChange={(value) => patch({ matchMode: value as MatchMode })}
+                value={primary.matchMode}
+                onValueChange={(value) => patchTrigger({ matchMode: value as MatchMode })}
                 disabled={pending}
               >
                 <SelectTrigger className="w-full">
@@ -298,7 +312,7 @@ export function AutomationEditor({
                 </SelectContent>
               </Select>
               <p className="text-muted-foreground text-xs">
-                {MATCH_MODES.find((mode) => mode.value === state.matchMode)?.hint}
+                {MATCH_MODES.find((mode) => mode.value === primary.matchMode)?.hint}
               </p>
             </div>
 
@@ -310,12 +324,12 @@ export function AutomationEditor({
           </div>
         )}
 
-        {state.triggerType === "form_submit" && (
+        {primary.type === "form_submit" && (
           <div className="grid gap-2 rounded-md border p-3">
             <Label>Form source (optional)</Label>
             <Input
-              value={state.formSource}
-              onChange={(event) => patch({ formSource: event.target.value })}
+              value={primary.formSource}
+              onChange={(event) => patchTrigger({ formSource: event.target.value })}
               placeholder="Any form"
               disabled={pending}
             />
@@ -533,7 +547,7 @@ export function AutomationEditor({
 
                     <p className="text-muted-foreground text-xs">
                       Variables:{" "}
-                      {templateVariablesFor(state.triggerType).map((variable) => (
+                      {templateVariablesFor(primary.type).map((variable) => (
                         <code key={variable} className="mr-1">
                           {`{{${variable}}}`}
                         </code>

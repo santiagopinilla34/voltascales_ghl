@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { setAutomationActive } from "@/app/(app)/automations/actions";
 import { RunStatusBadge } from "@/components/automations/run-status-badge";
-import { TriggerBadge } from "@/components/automations/trigger-meta";
+import { TriggerBadge, triggerTypesOf } from "@/components/automations/trigger-meta";
 import { Switch } from "@/components/ui/switch";
 import type { AutomationSummary } from "@/lib/automations/queries";
 import { formatListTimestamp } from "@/lib/format";
@@ -45,8 +45,9 @@ function ActiveSwitch({ automation }: { automation: AutomationSummary }) {
             // rather than the same cheerful tick as pausing a keyword rule.
             toast.warning(`"${automation.name}" is paused`, {
               description:
-                automation.trigger_type === "booking_confirmed" ||
-                automation.trigger_type === "booking_cancelled"
+                triggerTypesOf(automation).some((type) =>
+                  type.startsWith("booking_"),
+                )
                   ? "Nothing will be sent for these bookings until it is switched back on."
                   : "This alert will not be sent until it is switched back on.",
             });
@@ -103,7 +104,9 @@ export function AutomationsList({
                 >
                   {automation.name}
                 </span>
-                <TriggerBadge trigger={automation.trigger_type} />
+                {triggerTypesOf(automation).map((type) => (
+                  <TriggerBadge key={type} trigger={type} />
+                ))}
                 {automation.system_key && (
                   <span
                     className="text-muted-foreground shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"

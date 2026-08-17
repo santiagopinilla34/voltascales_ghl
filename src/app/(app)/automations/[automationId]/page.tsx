@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { AutomationEditor } from "@/components/automations/automation-editor";
 import { RunLog } from "@/components/automations/run-log";
-import { TriggerBadge } from "@/components/automations/trigger-meta";
+import { TriggerBadge, triggerTypesOf } from "@/components/automations/trigger-meta";
 import { Button } from "@/components/ui/button";
 import {
   RUN_LOG_LIMIT,
@@ -58,7 +58,9 @@ export default async function AutomationDetailPage({ params }: PageProps) {
           <h1 className="truncate text-sm font-semibold tracking-tight">
             {automation.name}
           </h1>
-          <TriggerBadge trigger={automation.trigger_type} />
+          {triggerTypesOf(automation).map((type) => (
+            <TriggerBadge key={type} trigger={type} />
+          ))}
           {!automation.active && (
             <span className="text-muted-foreground text-[10px] font-medium uppercase">
               Paused

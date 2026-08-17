@@ -1,6 +1,11 @@
 import "server-only";
 
-import type { Contact, ContactStatus, Json } from "@/types/database";
+import type {
+  AutomationTriggerType,
+  Contact,
+  ContactStatus,
+  Json,
+} from "@/types/database";
 
 /**
  * Parsers for the three jsonb columns on `automations`.
@@ -183,6 +188,123 @@ export function parseFormTriggerConfig(
   }
 
   return { ok: true, value: { source: source.trim() } };
+}
+
+// ---------------------------------------------------------------------------
+// triggers
+// ---------------------------------------------------------------------------
+
+/**
+ * One of the things that can start a rule.
+ *
+ * `config` is the parameter bag for that trigger type, already validated — a
+ * keyword trigger's keywords, a form trigger's source. Types with nothing to
+ * configure carry `{}`.
+ */
+export type AutomationTrigger = {
+  type: AutomationTriggerType;
+  config: Json;
+};
+
+export const TRIGGER_TYPES = [
+  "missed_call",
+  "keyword",
+  "form_submit",
+  "booking_confirmed",
+  "booking_cancelled",
+  "ai_handoff",
+] as const satisfies readonly AutomationTriggerType[];
+
+/**
+ * Validates one trigger's config against its type.
+ *
+ * Exported because both the engine and the save action need it, and they must
+ * agree: a config the editor accepts but the engine rejects is a rule that
+ * saves cleanly and then fails every time it fires.
+ */
+export function validateTriggerConfig(
+  type: AutomationTriggerType,
+  config: Json,
+): ParseResult<Json> {
+  switch (type) {
+    case "keyword": {
+      const parsed = parseKeywordTriggerConfig(config);
+      return parsed.ok ? { ok: true, value: config } : parsed;
+    }
+    case "form_submit": {
+      const parsed = parseFormTriggerConfig(config);
+      return parsed.ok ? { ok: true, value: config } : parsed;
+    }
+    // Nothing to configure. An empty object rather than whatever was passed,
+    // so a stale config left behind by switching a trigger's type can't sit
+    // there looking meaningful.
+    default:
+      return { ok: true, value: {} };
+  }
+}
+
+/**
+ * Parses the whole `triggers` array.
+ *
+ * All-or-nothing, like `parseActions`, and for the same reason: a rule with
+ * one broken trigger should refuse to run rather than half-run on the others,
+ * because "it fired for forms but not for bookings" is a much harder thing to
+ * notice than "it did not fire".
+ */
+export function parseTriggers(raw: Json): ParseResult<AutomationTrigger[]> {
+  if (!Array.isArray(raw)) {
+    return { ok: false, error: "triggers must be a JSON array" };
+  }
+  if (raw.length === 0) {
+    return { ok: false, error: "this rule has no trigger, so nothing can start it" };
+  }
+
+  const triggers: AutomationTrigger[] = [];
+  const seen = new Set<string>();
+
+  for (const [index, entry] of raw.entries()) {
+    const label = `trigger ${index + 1}`;
+
+    if (!isRecord(entry)) {
+      return { ok: false, error: `${label} must be a JSON object` };
+    }
+
+    const type = entry.type;
+    if (
+      typeof type !== "string" ||
+      !(TRIGGER_TYPES as readonly string[]).includes(type)
+    ) {
+      return {
+        ok: false,
+        error: `${label} has unknown type ${JSON.stringify(type)} (supported: ${TRIGGER_TYPES.join(", ")})`,
+      };
+    }
+
+    // Two triggers of the same type on one rule would both match the same
+    // event, and the rule would run twice against one thing that happened.
+    if (seen.has(type)) {
+      return { ok: false, error: `${label} repeats the "${type}" trigger` };
+    }
+    seen.add(type);
+
+    const config = validateTriggerConfig(
+      type as AutomationTriggerType,
+      (entry.config ?? {}) as Json,
+    );
+    if (!config.ok) return { ok: false, error: `${label}: ${config.error}` };
+
+    triggers.push({ type: type as AutomationTriggerType, config: config.value });
+  }
+
+  return { ok: true, value: triggers };
+}
+
+/** The trigger on this rule that matches an event type, if any. */
+export function triggerFor(
+  triggers: AutomationTrigger[],
+  type: AutomationTriggerType,
+): AutomationTrigger | null {
+  return triggers.find((trigger) => trigger.type === type) ?? null;
 }
 
 // ---------------------------------------------------------------------------
