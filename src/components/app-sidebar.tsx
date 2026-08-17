@@ -6,6 +6,7 @@ import {
   AtSign,
   Bot,
   Briefcase,
+  Building2,
   CalendarDays,
   FileText,
   Gauge,
@@ -15,9 +16,12 @@ import {
   PhoneCall,
   Settings,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 
 import { Logo, LogoMark } from "@/components/logo";
+import { useOrgContext } from "@/components/orgs/org-context";
+import { subAccountInitials } from "@/lib/orgs/sub-accounts";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +37,20 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /**
+   * Belongs to the platform admin, not to a client. Hidden while a sub account
+   * is open — which is nav filtering and nothing more. There are no roles yet,
+   * so the routes stay reachable by typing them; what stops you seeing client
+   * data on them is that the simulated account has no data at all.
+   */
+  platformOnly?: boolean;
+};
+
+const NAV: NavItem[] = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
@@ -51,9 +68,13 @@ const NAV = [
   // it sits on — not somewhere you go to read mail.
   { href: "/email", label: "Email Services", icon: AtSign },
   { href: "/domains", label: "Domains", icon: Globe },
-  { href: "/usage", label: "Usage", icon: Gauge },
+  // The two platform-level pages, kept adjacent so that in client view they
+  // disappear together and what is left still reads as a deliberate list
+  // rather than one with holes punched in it.
+  { href: "/sub-accounts", label: "Sub Accounts", icon: Building2, platformOnly: true },
+  { href: "/usage", label: "Usage", icon: Gauge, platformOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
-] as const;
+];
 
 export function AppSidebar({
   email,
@@ -64,6 +85,12 @@ export function AppSidebar({
   signOut: () => Promise<void>;
 }) {
   const pathname = usePathname();
+  const { org } = useOrgContext();
+
+  // Client view is exactly the platform view minus the platform's own pages.
+  // Filtered rather than kept as a second list: two lists drift, and the
+  // difference between the roles *is* this flag.
+  const items = org ? NAV.filter((item) => !item.platformOnly) : NAV;
 
   return (
     <Sidebar collapsible="icon">
@@ -78,13 +105,31 @@ export function AppSidebar({
           <Logo className="h-7 group-data-[collapsible=icon]:hidden" />
           <LogoMark className="hidden size-7 group-data-[collapsible=icon]:block" />
         </div>
+
+        {/* Whose account this is, under the wordmark. The banner across the top
+            says it in words; this says it where your eye already is when you
+            reach for the nav, and it survives the collapse to icons as the
+            initials on their own. */}
+        {org && (
+          <div className="flex min-w-0 items-center gap-2 rounded-md bg-violet-100 px-2 py-1.5 text-violet-900 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 dark:bg-violet-950/60 dark:text-violet-200">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-violet-600 text-[9px] font-semibold text-white">
+              {subAccountInitials(org.name)}
+            </span>
+            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+              <p className="truncate text-xs font-medium" title={org.name}>
+                {org.name}
+              </p>
+              <p className="text-[10px] opacity-75">Client view · simulated</p>
+            </div>
+          </div>
+        )}
       </SidebarHeader>
 
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV.map((item) => {
+              {items.map((item) => {
                 // Prefix match so /inbox/<id> keeps Inbox highlighted.
                 const active =
                   pathname === item.href || pathname.startsWith(`${item.href}/`);
