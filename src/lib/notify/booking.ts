@@ -147,10 +147,16 @@ async function textOperator(
 /**
  * Tells the operator a booking came in, by whichever channels are configured.
  *
- * Reuses the `notify_me` pattern: both destinations come from Settings, an
- * unset one means that channel is off rather than broken, and nothing here can
- * fail the booking. The email includes the pipeline and inbox context that the
- * client-facing messages deliberately don't carry.
+ * Reuses the `notify_me` pattern: an unset destination means that channel is
+ * off rather than broken, and nothing here can fail the booking. The email
+ * includes the pipeline and inbox context that the client-facing messages
+ * deliberately don't carry.
+ *
+ * The email goes to `business_email` from My Business, which is the single
+ * destination for every operator alert in the app. Note the asymmetry with the
+ * two channels: the alert number still lives in Settings, because a phone
+ * number for booking alerts is genuinely a behaviour setting rather than a
+ * fact about the business.
  */
 async function notifyOperator(
   supabase: SupabaseClient<Database>,
@@ -159,7 +165,7 @@ async function notifyOperator(
   { cancelled }: { cancelled: boolean },
 ) {
   const settings = await getSettings(supabase);
-  const to = settings?.notification_email?.trim();
+  const to = settings?.business_email?.trim();
   const smsTo = settings?.booking_notify_number?.trim();
 
   // Fired first and not awaited alongside the email's assembly: it is the
@@ -172,7 +178,7 @@ async function notifyOperator(
   if (!to) {
     if (!smsTo) {
       console.log(
-        `[booking] no operator alert for booking ${booking.id}: neither a notification email nor a booking alert number is set in Settings`,
+        `[booking] no operator alert for booking ${booking.id}: no business email is set in My Business and no booking alert number is set in Settings`,
       );
     }
     await texting;

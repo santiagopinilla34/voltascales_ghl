@@ -28,11 +28,11 @@ export async function notifyHandoff(
 ): Promise<void> {
   try {
     const settings = await getSettings(supabase);
-    const to = settings?.notification_email?.trim();
+    const to = settings?.business_email?.trim();
 
     if (!to) {
       console.log(
-        `[notify] no hand-off alert for contact ${contact.id}: no notification email set in Settings`,
+        `[notify] no hand-off alert for contact ${contact.id}: no business email set in My Business`,
       );
       return;
     }

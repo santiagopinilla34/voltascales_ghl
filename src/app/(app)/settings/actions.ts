@@ -13,14 +13,10 @@ export type ActionResult<T = null> =
   | { ok: true; value: T }
   | { ok: false; error: string };
 
-/** Deliberately loose: enough to catch a typo, not to adjudicate RFC 5322. */
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export type SettingsInput = {
   ai_system_prompt: string;
   ai_mode: string;
   ai_model: string;
-  notification_email: string;
   forward_to_number: string;
   booking_min_notice_minutes: number;
   booking_notify_number: string;
@@ -39,11 +35,6 @@ export async function saveSettings(
   } = await supabase.auth.getUser();
 
   if (!user) return { ok: false, error: "Not authenticated" };
-
-  const email = input.notification_email.trim();
-  if (email && !EMAIL.test(email)) {
-    return { ok: false, error: `"${email}" doesn't look like an email address.` };
-  }
 
   // Checked here as well as by the database's CHECK constraints, so an invalid
   // value comes back as a sentence rather than a Postgres constraint name.
@@ -127,9 +118,6 @@ export async function saveSettings(
       ai_system_prompt: input.ai_system_prompt,
       ai_mode: input.ai_mode as AiMode,
       ai_model: input.ai_model as AiModel,
-      // Empty means "not set", which is null — an empty string would read as a
-      // configured value of nothing.
-      notification_email: email || null,
       forward_to_number: forwardToNumber,
       updated_at: new Date().toISOString(),
     })

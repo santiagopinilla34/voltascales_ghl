@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Info, Loader2, TriangleAlert } from "lucide-react";
+import { Briefcase, Info, Loader2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveSettings } from "@/app/(app)/settings/actions";
@@ -60,7 +61,6 @@ export function SettingsForm({
   // validates both against the allowed values before they reach the database.
   const [mode, setMode] = useState<string>(settings.ai_mode);
   const [model, setModel] = useState<string>(settings.ai_model);
-  const [email, setEmail] = useState(settings.notification_email ?? "");
   const [forwardTo, setForwardTo] = useState(settings.forward_to_number ?? "");
   // String, not number: an empty field is a real intermediate state while
   // typing, and a number-typed state would snap it to 0 mid-edit.
@@ -79,7 +79,6 @@ export function SettingsForm({
     prompt !== settings.ai_system_prompt ||
     mode !== settings.ai_mode ||
     model !== settings.ai_model ||
-    email !== (settings.notification_email ?? "") ||
     forwardTo !== (settings.forward_to_number ?? "") ||
     minNotice !== String(settings.booking_min_notice_minutes) ||
     notifyNumber !== (settings.booking_notify_number ?? "") ||
@@ -95,7 +94,6 @@ export function SettingsForm({
         ai_system_prompt: prompt,
         ai_mode: mode,
         ai_model: model,
-        notification_email: email,
         forward_to_number: forwardTo,
         booking_min_notice_minutes: Number(minNotice),
         booking_notify_number: notifyNumber,
@@ -222,22 +220,23 @@ export function SettingsForm({
           </p>
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="notification-email">Notification email</Label>
-          <Input
-            id="notification-email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@example.com"
-            disabled={pending}
-          />
-          <Note>
-            Where the <code>notify_me</code> automation action, AI hand-off
-            alerts and new-booking alerts are sent. Leave empty to switch all of
-            them off.
-          </Note>
-        </div>
+        {/* The notification email used to be a field here, alongside a
+            business email on My Business that meant the same thing. This
+            points at where it went rather than leaving someone hunting for a
+            field they remember filling in. */}
+        <Link
+          href="/business"
+          className="hover:bg-accent/50 flex min-w-0 items-center gap-2 rounded-md border px-3 py-2.5 text-xs transition-colors"
+        >
+          <Briefcase className="text-muted-foreground size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">Alerts go to your business email</span>{" "}
+            <span className="text-muted-foreground">
+              — the <code>notify_me</code> action, AI hand-offs and new-booking
+              alerts. Set it on My Business.
+            </span>
+          </span>
+        </Link>
       </section>
 
       <Separator />
@@ -421,7 +420,6 @@ export function SettingsForm({
               setPrompt(settings.ai_system_prompt);
               setMode(settings.ai_mode);
               setModel(settings.ai_model);
-              setEmail(settings.notification_email ?? "");
               setForwardTo(settings.forward_to_number ?? "");
               setMinNotice(String(settings.booking_min_notice_minutes));
               setNotifyNumber(settings.booking_notify_number ?? "");

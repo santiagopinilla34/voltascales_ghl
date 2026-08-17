@@ -24,6 +24,9 @@ function revalidateBusiness() {
   revalidatePath("/invoices");
 }
 
+/** Deliberately loose: enough to catch a typo, not to adjudicate RFC 5322. */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function saveBusinessDetails(input: {
   name: string;
   email: string;
@@ -34,13 +37,22 @@ export async function saveBusinessDetails(input: {
   const supabase = await requireUser();
   if (!supabase) return { ok: false, error: "Not authenticated" };
 
+  // Moved here from the Settings action along with the field itself. It matters
+  // more now than it did there: a typo used to mean a wrong address printed on
+  // an invoice, which someone would eventually notice. It now also means every
+  // usage warning, hand-off and booking alert goes nowhere, silently.
+  const email = input.email.trim();
+  if (email && !EMAIL.test(email)) {
+    return { ok: false, error: `"${email}" doesn't look like an email address.` };
+  }
+
   const { error } = await supabase
     .from("settings")
     .update({
       // Empty is null, matching how every other optional text column in this
       // schema stores "not set".
       business_name: input.name.trim() || null,
-      business_email: input.email.trim() || null,
+      business_email: email || null,
       business_phone: input.phone.trim() || null,
       business_address: input.address.trim() || null,
       business_website: input.website.trim() || null,

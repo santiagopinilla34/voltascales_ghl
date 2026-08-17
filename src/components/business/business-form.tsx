@@ -17,6 +17,11 @@ import type { BusinessDetails } from "@/lib/business";
  * Address and website are optional and labelled so: they were not in the
  * original scope, and exist only because the invoice footer has a slot for
  * them. Left blank, the renderer omits their lines rather than printing a gap.
+ *
+ * Email carries more weight than the rest and says so under the field. It used
+ * to be footer text while a second field in Settings received the alerts; they
+ * are one field now, so clearing this does not just blank a line on an invoice,
+ * it switches off every alert the app sends. Worth knowing before you empty it.
  */
 export function BusinessForm({ details }: { details: BusinessDetails }) {
   const router = useRouter();
@@ -80,7 +85,15 @@ export function BusinessForm({ details }: { details: BusinessDetails }) {
             onChange={(event) => setEmail(event.target.value)}
             placeholder="hello@voltascales.com"
             disabled={pending}
+            aria-describedby="business-email-note"
           />
+          <p
+            id="business-email-note"
+            className="text-muted-foreground text-xs"
+          >
+            Also where every alert is sent — usage warnings, AI hand-offs and
+            new bookings. Empty switches those off.
+          </p>
         </div>
 
         <div className="grid gap-2">

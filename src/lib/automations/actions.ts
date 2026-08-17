@@ -66,11 +66,11 @@ async function notifyMeAction(
   { supabase, contact, variables }: ActionContext,
 ): Promise<ActionResult> {
   const settings = await getSettings(supabase);
-  const to = settings?.notification_email?.trim();
+  const to = settings?.business_email?.trim();
 
   if (!to) {
     return {
-      summary: "notify_me skipped: no notification email set in Settings",
+      summary: "notify_me skipped: no business email set in My Business",
       contact,
     };
   }

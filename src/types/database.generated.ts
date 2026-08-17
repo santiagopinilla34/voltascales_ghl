@@ -612,7 +612,6 @@ export type Database = {
           business_website: string | null
           forward_to_number: string | null
           id: boolean
-          notification_email: string | null
           sending_domain_id: string | null
           sending_domain_name: string | null
           sending_from_email: string | null
@@ -636,7 +635,6 @@ export type Database = {
           business_website?: string | null
           forward_to_number?: string | null
           id?: boolean
-          notification_email?: string | null
           sending_domain_id?: string | null
           sending_domain_name?: string | null
           sending_from_email?: string | null
@@ -660,7 +658,6 @@ export type Database = {
           business_website?: string | null
           forward_to_number?: string | null
           id?: boolean
-          notification_email?: string | null
           sending_domain_id?: string | null
           sending_domain_name?: string | null
           sending_from_email?: string | null
