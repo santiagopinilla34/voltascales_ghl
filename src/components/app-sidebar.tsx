@@ -20,8 +20,6 @@ import {
 } from "lucide-react";
 
 import { Logo, LogoMark } from "@/components/logo";
-import { AccountSwitcher } from "@/components/orgs/account-switcher";
-import { useOrgContext } from "@/components/orgs/org-context";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,10 +40,12 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   /**
-   * Belongs to the platform admin, not to a client. Hidden while a sub account
-   * is open — which is nav filtering and nothing more. There are no roles yet,
-   * so the routes stay reachable by typing them; what stops you seeing client
-   * data on them is that the simulated account has no data at all.
+   * Belongs to the agency, not to a client.
+   *
+   * This hides the link; it is no longer the only thing standing in the way.
+   * Both routes now call `requirePlatformAdmin()` on the server and redirect a
+   * client who types the URL, so this is back to being what nav filtering
+   * should be — a tidier menu, not a security control.
    */
   platformOnly?: boolean;
 };
@@ -79,18 +79,25 @@ const NAV: NavItem[] = [
 export function AppSidebar({
   email,
   signOut,
+  isPlatformAdmin,
+  accountBadge,
 }: {
   email: string;
   /** Server Action passed down from the layout. */
   signOut: () => Promise<void>;
+  /** From the session, not from the browser. */
+  isPlatformAdmin: boolean;
+  /** Rendered on the server, so the sidebar stays a client component. */
+  accountBadge: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { org } = useOrgContext();
 
-  // Client view is exactly the platform view minus the platform's own pages.
-  // Filtered rather than kept as a second list: two lists drift, and the
-  // difference between the roles *is* this flag.
-  const items = org ? NAV.filter((item) => !item.platformOnly) : NAV;
+  // A client's nav is the agency's minus the agency's own pages. Filtered
+  // rather than kept as a second list: two lists drift, and the difference
+  // between the roles *is* this flag.
+  const items = isPlatformAdmin
+    ? NAV
+    : NAV.filter((item) => !item.platformOnly);
 
   return (
     <Sidebar collapsible="icon">
@@ -106,11 +113,10 @@ export function AppSidebar({
           <LogoMark className="hidden size-7 group-data-[collapsible=icon]:block" />
         </div>
 
-        {/* Whose account this is, under the wordmark, and the way to any of the
-            others. The banner across the top says it in words; this says it
-            where your eye already is when you reach for the nav, and it is
-            what you click to go somewhere else. */}
-        <AccountSwitcher />
+        {/* Which account this is, under the wordmark — where your eye already
+            is when you reach for the nav. Passed in from the layout because it
+            comes from the session, which a client component cannot read. */}
+        {accountBadge}
       </SidebarHeader>
 
       <SidebarContent>

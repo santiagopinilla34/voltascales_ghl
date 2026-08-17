@@ -4,6 +4,7 @@ import { TriangleAlert } from "lucide-react";
 import { ThresholdsForm } from "@/components/usage/thresholds-form";
 import { UsageWarnings } from "@/components/usage/usage-warnings";
 import { AnthropicCard, TwilioCard } from "@/components/usage/provider-cards";
+import { requirePlatformAdmin } from "@/lib/orgs/context";
 import { getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 import { estimateAnthropicSpend } from "@/lib/usage/anthropic";
@@ -16,6 +17,12 @@ export const metadata: Metadata = { title: "Usage · VoltaScales" };
 export const dynamic = "force-dynamic";
 
 export default async function UsagePage() {
+  // Agency only, and checked here rather than trusted from the sidebar. The
+  // `platformOnly` flag there decides whether a link is drawn; this decides
+  // whether the page renders. Spend across every provider is the agency's
+  // business, not a client's.
+  await requirePlatformAdmin();
+
   const supabase = await createClient();
 
   const [settings, twilio, anthropic] = await Promise.all([

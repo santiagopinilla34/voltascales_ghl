@@ -15,7 +15,17 @@ import type { Database } from "@/types/database";
  * the busy ones, and `/book/cancel/[token]` shows one booking to whoever holds
  * its unguessable token.
  */
-const PUBLIC_PATHS = ["/login", "/book"];
+/*
+ * `/auth` is public for a reason that is easy to get backwards: the whole job
+ * of `/auth/confirm` is to *create* a session from an emailed token, so it is
+ * necessarily reached without one. Guarding it would send every invited client
+ * to the login page holding a token they can no longer spend.
+ *
+ * It is not a hole. `/auth/confirm` grants nothing without a valid, single-use,
+ * short-lived token, and `/auth/set-password` renders a form only for a session
+ * that already exists and redirects anyone else to /login.
+ */
+const PUBLIC_PATHS = ["/login", "/book", "/auth"];
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PATHS.some(

@@ -2,29 +2,43 @@ import type { Metadata } from "next";
 import { TriangleAlert } from "lucide-react";
 
 import { SubAccountsTable } from "@/components/orgs/sub-accounts-table";
+import { requirePlatformAdmin } from "@/lib/orgs/context";
+import { listSubAccounts } from "@/lib/orgs/queries";
 
 export const metadata: Metadata = { title: "Sub Accounts · VoltaScales" };
 
+// The list changes when you create one, and creating one is the reason you are
+// here.
+export const dynamic = "force-dynamic";
+
 /**
- * Sub Accounts (front end).
+ * The agency view: every client business, and the way into one.
  *
- * The agency view: every client business you run, and a way to step into one
- * and see the app as they see it. All of it simulated — see the module comment
- * in `src/lib/orgs/sub-accounts.ts` for what has to exist behind it.
+ * Real now. The organizations are rows, creating one sends an invite the
+ * client can actually accept, and the row-level security written in phase 1
+ * is what keeps each client's data to themselves.
  *
- * "Admin-only" here means the nav item is hidden while you are inside a client
- * account. It is not a permission check, and cannot be one: there are no roles
- * yet, so every signed-in user is the admin and this URL is reachable by
- * typing it. The page says as much rather than implying a guard that isn't
- * there.
+ * What is not real yet is the *switch*. See the note rendered below — the app's
+ * queries do not filter by organization, so stepping into a client would show
+ * them the agency's rows. That is phase 3, and until then this page can create
+ * accounts and hand them out but not look inside one.
  */
-export default function SubAccountsPage() {
+export default async function SubAccountsPage() {
+  await requirePlatformAdmin();
+
+  const accounts = await listSubAccounts();
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
-        <h1 className="truncate text-sm font-semibold tracking-tight">
-          Sub Accounts
-        </h1>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h1 className="truncate text-sm font-semibold tracking-tight">
+            Sub Accounts
+          </h1>
+          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+            {accounts.length}
+          </span>
+        </div>
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
@@ -32,63 +46,47 @@ export default function SubAccountsPage() {
           <p className="text-muted-foreground flex items-start gap-2 rounded-md border border-dashed px-3 py-2.5 text-xs">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
             <span>
-              This page is the front end only. Every client below is invented,
-              creating one saves nothing and emails nobody, and opening one
-              simulates the context switch in the browser — there are no
-              organizations, no roles and no data isolation behind it yet.
+              Creating an account here is real: it makes an organization, emails
+              the client an invite, and seeds their defaults. Opening one is not
+              — the app&apos;s queries don&apos;t filter by organization yet, so
+              stepping inside would show them your rows rather than theirs.
+              That&apos;s the next phase.
             </span>
           </p>
 
-          <SubAccountsTable />
+          <SubAccountsTable accounts={accounts} />
 
           <section className="flex min-w-0 flex-col gap-2 border-t pt-4">
             <h2 className="text-sm font-semibold tracking-tight">
-              What has to be real before this is
+              What happens when you create one
             </h2>
-            <ul className="text-muted-foreground flex flex-col gap-1.5 text-xs">
+            <ol className="text-muted-foreground flex list-decimal flex-col gap-1.5 pl-4 text-xs">
               <li>
-                <strong className="text-foreground">
-                  An organization per client.
-                </strong>{" "}
-                Every table that holds client data needs an{" "}
-                <code className="text-[11px]">org_id</code>, and every existing
-                row needs one backfilled to yours. That migration is the whole
-                job — the page above is an afternoon.
+                An <code className="text-[11px]">organizations</code> row is
+                created, with a slug for the booking link it will eventually
+                have.
               </li>
               <li>
-                <strong className="text-foreground">
-                  Row-level security on it.
-                </strong>{" "}
-                Policies keyed on the caller&apos;s organization are the only
-                thing that actually keeps one client&apos;s contacts away from
-                another&apos;s. Filtering in the front end is decoration.
+                The client is emailed an invite. They set their own password —
+                you never choose it and never see it, which is deliberate:
+                holding a client&apos;s password means holding the ability to
+                act as them.
               </li>
               <li>
-                <strong className="text-foreground">
-                  Two roles, one of them yours.
-                </strong>{" "}
-                <code className="text-[11px]">platform_admin</code> reaches
-                across organizations,{" "}
-                <code className="text-[11px]">org_owner</code> is scoped to one.
-                The nav difference you can see by opening an account is the
-                cosmetic half of that.
+                They become <code className="text-[11px]">org_owner</code> of
+                that organization and nothing else. Row-level security is what
+                enforces it, so it holds even if the app has a bug.
               </li>
               <li>
-                <strong className="text-foreground">
-                  A magic-link invite.
-                </strong>{" "}
-                What moves a row from Invited to Active, and what decides who the
-                first <code className="text-[11px]">org_owner</code> is.
+                The account is seeded with a settings row and the system
+                automations — the booking confirmation, the cancellation notice,
+                the hand-off alert. Without those a new account looks fine and
+                silently sends nothing.
               </li>
               <li>
-                <strong className="text-foreground">
-                  Switching that the server honours.
-                </strong>{" "}
-                Context has to travel in the session and be re-checked on every
-                query, not held in the browser. Anything else means a client
-                could ask for another client&apos;s data and be given it.
+                Their status turns Active the moment they set a password.
               </li>
-            </ul>
+            </ol>
           </section>
         </div>
       </div>

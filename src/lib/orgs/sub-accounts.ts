@@ -1,116 +1,33 @@
 /**
- * Shapes for the Sub Accounts page.
+ * Shapes for the Sub Accounts page. Client-safe.
  *
- * Front end only, and further from real than Domains is: that page at least
- * has a registrar to call once someone writes the fetch. This one has nothing
- * behind it at all. There are no `organizations` or `org_members` tables, no
- * RLS policies, no roles, and no invite mail. Every row below is invented, and
- * the page says so.
+ * The same split as `lib/phone/numbers.ts` against `lib/twilio/numbers.ts`:
+ * this owns the types and the pure functions, `lib/orgs/queries.ts` owns the
+ * database calls and is server-only. Without the split, the client component
+ * that renders the table drags a Supabase server client into the browser
+ * bundle — which `server-only` refuses at build time rather than shipping.
  *
- * ## What this is standing in for
- *
- * The multi-tenant model that has been scoped but not built:
- *
- * - `organizations` — one row per client business, which is what a sub account
- *   becomes. `SubAccount` below is deliberately the shape that row would have.
- * - `org_members` — who belongs to which organization, and as what. Two roles:
- *   `platform_admin` (you, across every organization) and `org_owner` (the
- *   client, inside exactly one).
- * - Row-level security keyed on the caller's organization, which is the only
- *   thing that will ever really keep one client's contacts away from another's.
- *   Nothing in the front end can do that job, and nothing here pretends to.
- * - A magic-link invite, which is what moves a row from `invited` to `active`.
- *
- * ## Why the addresses are `.example`
- *
- * `.example` is reserved by RFC 2606 and can never be registered, so none of
- * the emails here can collide with a real business — including one that might
- * plausibly own `northbrookroofing.com`. Preview data that looks *exactly*
- * like production data is how preview data ends up mailed to a stranger.
- *
- * Client-safe: the page filters and appends to this list in the browser.
+ * This file used to hold five invented businesses. They are gone: the accounts
+ * are rows now.
  */
 
-/** Where a sub account is in the invite flow. */
-export type SubAccountStatus = "invited" | "active";
+export type SubAccountStatus = "invited" | "active" | "suspended";
 
-/**
- * A client business, as `organizations` would hold it.
- *
- * `ownerEmail` is a convenience that the real schema would not have — there it
- * lives on the `org_members` row for the owner, because an organization can
- * outlive any one member. Flattened here because there is no join to make.
- */
 export type SubAccount = {
   id: string;
-  /** The client's business name, which is also the account name. */
   name: string;
-  /** Where the invite went. */
-  ownerEmail: string;
+  slug: string;
+  /** Where the invite went. Null for organizations created before it existed. */
+  invitedEmail: string | null;
   status: SubAccountStatus;
-  /** ISO date, no time — nothing here is precise enough to deserve one. */
   createdAt: string;
 };
 
 export const STATUS_LABELS: Record<SubAccountStatus, string> = {
   invited: "Invited",
   active: "Active",
+  suspended: "Suspended",
 };
-
-/**
- * Invented client accounts.
- *
- * A deliberate mix of both statuses: `invited` is the state a sub account sits
- * in between being created and the client clicking the link, and it is the one
- * most likely to be forgotten when the real flow gets built.
- */
-export const PREVIEW_SUB_ACCOUNTS: SubAccount[] = [
-  {
-    id: "org_preview_northbrook",
-    name: "Northbrook Roofing",
-    ownerEmail: "dana@northbrookroofing.example",
-    status: "active",
-    createdAt: "2026-05-14",
-  },
-  {
-    id: "org_preview_lumen",
-    name: "Lumen Dental Studio",
-    ownerEmail: "front.desk@lumendental.example",
-    status: "active",
-    createdAt: "2026-06-02",
-  },
-  {
-    id: "org_preview_rivet",
-    name: "Rivet & Oak Cabinetry",
-    ownerEmail: "sam@rivetandoak.example",
-    status: "active",
-    createdAt: "2026-07-21",
-  },
-  {
-    id: "org_preview_coastline",
-    name: "Coastline Auto Detailing",
-    ownerEmail: "bookings@coastlinedetail.example",
-    status: "invited",
-    createdAt: "2026-08-09",
-  },
-  {
-    id: "org_preview_beacon",
-    name: "Beacon Physio",
-    ownerEmail: "admin@beaconphysio.example",
-    status: "invited",
-    createdAt: "2026-08-15",
-  },
-];
-
-/**
- * An id for a sub account created in the browser.
- *
- * Postgres will generate these for real. `crypto.randomUUID` is only here so
- * two rows added in the same session can't collide on a React key.
- */
-export function newSubAccountId(): string {
-  return `org_local_${crypto.randomUUID()}`;
-}
 
 /** Up to two letters for the avatar, from the business name's first words. */
 export function subAccountInitials(name: string): string {
@@ -125,14 +42,9 @@ export function subAccountInitials(name: string): string {
   return letters || "?";
 }
 
-/**
- * "14 May 2026" from an ISO date.
- *
- * Parsed as UTC noon rather than midnight: a bare `YYYY-MM-DD` is UTC, and
- * formatting it in a timezone behind UTC would show the day before.
- */
+/** "14 May 2026" from a timestamp. */
 export function formatSubAccountDate(iso: string): string {
-  return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", {
+  return new Date(iso).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
     year: "numeric",

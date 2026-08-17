@@ -1,13 +1,12 @@
 import { redirect } from "next/navigation";
 
 import { AppSidebar } from "@/components/app-sidebar";
-import { OrgContextProvider } from "@/components/orgs/org-context";
-import { OrgShell } from "@/components/orgs/org-shell";
+import { AccountBadge } from "@/components/orgs/account-badge";
 import { AppTopbar } from "@/components/topbar/app-topbar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { createClient } from "@/lib/supabase/server";
+import { getOrgContext } from "@/lib/orgs/context";
 
 import { signOut } from "./actions";
 
@@ -16,6 +15,13 @@ import { signOut } from "./actions";
  *
  * The proxy already redirects anonymous requests, but this re-checks on the
  * server so a page can never render without a verified user.
+ *
+ * It now also resolves the organization. `getOrgContext` returns null for a
+ * signed-in user with no membership — an account that exists in `auth.users`
+ * and was never invited into anything, which is what happens if someone is
+ * created in the Supabase dashboard by hand. That is a dead end rather than an
+ * error, so it goes to a sign-out rather than rendering an app with nothing in
+ * it and no explanation.
  *
  * The shell owns no scrolling of its own: `SidebarInset` is a flex column and
  * each page decides what scrolls inside it. The Inbox needs its two panes to
@@ -27,13 +33,12 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const context = await getOrgContext();
 
-  if (!user) {
-    redirect("/login");
+  if (!context) {
+    redirect("/login?error=" + encodeURIComponent(
+      "That account isn't attached to any organization yet.",
+    ));
   }
 
   return (
@@ -41,17 +46,23 @@ export default async function AppLayout({
     // and the sidebar's collapsed-icon labels use them.
     <TooltipProvider>
       <SidebarProvider>
-        {/* Wraps the sidebar as well as the page: the simulated sub-account
-            context decides which nav items exist, not just what is drawn to
-            the right of them. Front end only — see the module comment on
-            `OrgContextProvider` for what a real switch would have to do. */}
-        <OrgContextProvider>
-          <AppSidebar email={user.email ?? "Signed in"} signOut={signOut} />
-          <SidebarInset className="h-dvh min-w-0 overflow-hidden">
-            <AppTopbar />
-            <OrgShell>{children}</OrgShell>
-          </SidebarInset>
-        </OrgContextProvider>
+        <AppSidebar
+          email={context.email || "Signed in"}
+          signOut={signOut}
+          isPlatformAdmin={context.isPlatformAdmin}
+          // Rendered here rather than inside the sidebar: it reads the session,
+          // and the sidebar is a client component.
+          accountBadge={
+            <AccountBadge
+              name={context.orgName}
+              isPlatformAdmin={context.isPlatformAdmin}
+            />
+          }
+        />
+        <SidebarInset className="h-dvh min-w-0 overflow-hidden">
+          <AppTopbar />
+          {children}
+        </SidebarInset>
         <Toaster position="top-center" />
       </SidebarProvider>
     </TooltipProvider>
