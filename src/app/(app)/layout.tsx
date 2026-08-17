@@ -41,6 +41,12 @@ export default async function AppLayout({
     ));
   }
 
+  // Suspended clients never reach the shell. The agency is exempt — see
+  // `requireOrgContext`, which makes the same exception for the same reason.
+  if (!context.isPlatformAdmin && context.orgStatus === "suspended") {
+    redirect("/suspended");
+  }
+
   return (
     // Radix tooltips throw outside a provider, and both the thread timestamps
     // and the sidebar's collapsed-icon labels use them.

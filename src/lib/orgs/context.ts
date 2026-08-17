@@ -33,6 +33,8 @@ const VIEWING_COOKIE = "voltascales-viewing-org";
 
 export type OrgRole = "platform_admin" | "org_owner";
 
+export type OrgStatus = "invited" | "active" | "suspended";
+
 export type OrgContext = {
   userId: string;
   email: string;
@@ -42,6 +44,7 @@ export type OrgContext = {
   /** The organization whose data this request is about. */
   orgId: string;
   orgName: string;
+  orgStatus: OrgStatus;
   /**
    * True when an admin is looking at a client rather than at the agency. Drives
    * the banner. Always false for a client, who has nothing else to look at.
@@ -70,7 +73,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
   // service-role escalation.
   const { data: memberships, error } = await supabase
     .from("org_members")
-    .select("org_id, role, organizations (id, name)")
+    .select("org_id, role, organizations (id, name, status)")
     .eq("user_id", user.id);
 
   if (error) {
@@ -85,6 +88,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
   const home = {
     id: membership.org_id,
     name: membership.organizations?.name ?? "Your account",
+    status: (membership.organizations?.status ?? "active") as OrgStatus,
   };
 
   if (!isPlatformAdmin) {
@@ -97,6 +101,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
       isPlatformAdmin: false,
       orgId: home.id,
       orgName: home.name,
+      orgStatus: home.status,
       isViewingOther: false,
     };
   }
@@ -109,7 +114,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
     // the app pointed at nothing.
     const { data: target } = await supabase
       .from("organizations")
-      .select("id, name")
+      .select("id, name, status")
       .eq("id", viewing)
       .maybeSingle();
 
@@ -121,6 +126,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
         isPlatformAdmin: true,
         orgId: target.id,
         orgName: target.name,
+        orgStatus: target.status as OrgStatus,
         isViewingOther: true,
       };
     }
@@ -133,6 +139,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
     isPlatformAdmin: true,
     orgId: home.id,
     orgName: home.name,
+    orgStatus: home.status,
     isViewingOther: false,
   };
 }
@@ -147,6 +154,19 @@ export async function requireOrgContext(): Promise<OrgContext> {
   const context = await getOrgContext();
 
   if (!context) redirect("/login");
+
+  // A suspended client gets the notice instead of the app. The agency is
+  // deliberately exempt: suspending an account is something you need to be
+  // able to undo from inside, and locking yourself out of a client you just
+  // suspended would make unsuspending them impossible.
+  //
+  // This is a door, not a wall. It stops a client using the app; it does not
+  // stop their automations replying to a text, because those run from webhooks
+  // that do not yet know which organization they are acting for. Suspension
+  // becomes a real stop in phase 4, alongside the caps.
+  if (!context.isPlatformAdmin && context.orgStatus === "suspended") {
+    redirect("/suspended");
+  }
 
   return context;
 }

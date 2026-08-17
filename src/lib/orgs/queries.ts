@@ -22,7 +22,9 @@ export async function listSubAccounts(): Promise<SubAccount[]> {
 
   const { data, error } = await supabase
     .from("organizations")
-    .select("id, name, slug, invited_email, status, created_at")
+    .select(
+      "id, name, slug, invited_email, status, created_at, monthly_sms_limit, monthly_email_limit, monthly_ai_cents_limit",
+    )
     .eq("kind", "client")
     .order("created_at", { ascending: false });
 
@@ -38,5 +40,8 @@ export async function listSubAccounts(): Promise<SubAccount[]> {
     invitedEmail: row.invited_email,
     status: row.status as SubAccountStatus,
     createdAt: row.created_at,
+    monthlySmsLimit: row.monthly_sms_limit,
+    monthlyEmailLimit: row.monthly_email_limit,
+    monthlyAiCentsLimit: row.monthly_ai_cents_limit,
   }));
 }

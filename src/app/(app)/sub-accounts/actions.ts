@@ -202,6 +202,129 @@ export async function switchToOrg(orgId: string): Promise<void> {
   redirect("/inbox");
 }
 
+/**
+ * Pauses or restores a client's access.
+ *
+ * What non-payment calls for, and the reason deleting a client account is
+ * blocked outright at the database. The data stays put, the client stops
+ * getting in, and it reverses in one click when they pay.
+ *
+ * A door, not a wall — see the note on `requireOrgContext`. It stops the
+ * client using the app; their automations still answer a text, because those
+ * run from webhooks that do not yet know whose account they are acting for.
+ * Phase 4 makes suspension a real stop.
+ */
+export async function setSubAccountStatus(
+  orgId: string,
+  status: "active" | "suspended",
+): Promise<ActionResult> {
+  await requirePlatformAdmin();
+
+  const supabase = await createClient();
+
+  // `kind` guards against pausing the agency itself, which would lock you out
+  // of the page you would need to undo it from.
+  const { error } = await supabase
+    .from("organizations")
+    .update({ status })
+    .eq("id", orgId)
+    .eq("kind", "client");
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/sub-accounts");
+  return { ok: true, value: null };
+}
+
+/**
+ * Monthly caps for one client.
+ *
+ * Empty means uncapped; zero means stopped. Stored on `organizations` because
+ * that table is agency-writable only — the same values on `settings` would be
+ * a limit the client could raise on themselves.
+ *
+ * Recorded, not yet enforced. Every send runs through a webhook on the service
+ * role with no idea which organization it belongs to, so there is nothing to
+ * check a cap against until phase 4.
+ */
+export async function setSubAccountLimits(
+  orgId: string,
+  limits: {
+    monthlySms: number | null;
+    monthlyEmail: number | null;
+    monthlyAiCents: number | null;
+  },
+): Promise<ActionResult> {
+  await requirePlatformAdmin();
+
+  for (const [label, value] of Object.entries(limits)) {
+    if (value !== null && (!Number.isInteger(value) || value < 0)) {
+      return { ok: false, error: `${label} must be a whole number, or blank for no limit.` };
+    }
+  }
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("organizations")
+    .update({
+      monthly_sms_limit: limits.monthlySms,
+      monthly_email_limit: limits.monthlyEmail,
+      monthly_ai_cents_limit: limits.monthlyAiCents,
+    })
+    .eq("id", orgId)
+    .eq("kind", "client");
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/sub-accounts");
+  return { ok: true, value: null };
+}
+
+/**
+ * Emails a client a link to set a new password.
+ *
+ * The same shape as the invite, and for the same reason: the agency never
+ * chooses or sees the password, so a forgotten one is reset by the person who
+ * owns it rather than handed over in a message. There is nothing here that
+ * reveals whether the reset worked at the other end, which is correct — the
+ * mailbox is the proof.
+ *
+ * Sent to the address the invite went to, not to one typed at the time, so a
+ * misclick cannot mail a reset link for a client's account to somebody else.
+ */
+export async function sendPasswordReset(orgId: string): Promise<ActionResult> {
+  await requirePlatformAdmin();
+
+  const supabase = await createClient();
+
+  const { data: org, error: orgError } = await supabase
+    .from("organizations")
+    .select("invited_email")
+    .eq("id", orgId)
+    .eq("kind", "client")
+    .maybeSingle();
+
+  if (orgError) return { ok: false, error: orgError.message };
+  if (!org?.invited_email) {
+    return {
+      ok: false,
+      error: "No email is on file for this account, so there is nowhere to send a reset.",
+    };
+  }
+
+  const redirectTo = `${appBaseUrl() ?? "http://localhost:3000"}/auth/confirm?next=/auth/set-password`;
+
+  const { error } = await createAdminClient().auth.resetPasswordForEmail(
+    org.invited_email,
+    { redirectTo },
+  );
+
+  if (error) return { ok: false, error: error.message };
+
+  return { ok: true, value: null };
+}
+
 /** Back to the agency's own account. */
 export async function returnToAgency(): Promise<void> {
   await requirePlatformAdmin();

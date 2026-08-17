@@ -708,6 +708,9 @@ export type Database = {
           id: string
           invited_email: string | null
           kind: string
+          monthly_ai_cents_limit: number | null
+          monthly_email_limit: number | null
+          monthly_sms_limit: number | null
           name: string
           slug: string
           status: string
@@ -717,6 +720,9 @@ export type Database = {
           id?: string
           invited_email?: string | null
           kind?: string
+          monthly_ai_cents_limit?: number | null
+          monthly_email_limit?: number | null
+          monthly_sms_limit?: number | null
           name: string
           slug: string
           status?: string
@@ -726,6 +732,9 @@ export type Database = {
           id?: string
           invited_email?: string | null
           kind?: string
+          monthly_ai_cents_limit?: number | null
+          monthly_email_limit?: number | null
+          monthly_sms_limit?: number | null
           name?: string
           slug?: string
           status?: string

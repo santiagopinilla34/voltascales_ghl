@@ -21,6 +21,16 @@ export type SubAccount = {
   invitedEmail: string | null;
   status: SubAccountStatus;
   createdAt: string;
+  /**
+   * Monthly caps. Null is uncapped, 0 is stopped — a real distinction, which
+   * is why these are nullable numbers rather than 0-means-unlimited.
+   *
+   * Set by the agency and stored on the organization, not in the client's own
+   * settings, so they are not a limit the client can raise on themselves.
+   */
+  monthlySmsLimit: number | null;
+  monthlyEmailLimit: number | null;
+  monthlyAiCentsLimit: number | null;
 };
 
 export const STATUS_LABELS: Record<SubAccountStatus, string> = {

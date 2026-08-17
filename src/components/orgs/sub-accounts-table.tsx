@@ -6,6 +6,7 @@ import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { createSubAccount } from "@/app/(app)/sub-accounts/actions";
+import { ManageSubAccountDialog } from "@/components/orgs/manage-sub-account-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -212,6 +213,11 @@ export function SubAccountsTable({ accounts }: { accounts: SubAccount[] }) {
                 <TableHead>Business</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
+                {/* Holds the Manage button. Labelled for screen readers only —
+                    a visible header over a column of buttons reads as noise. */}
+                <TableHead className="w-10">
+                  <span className="sr-only">Manage</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
 
@@ -240,6 +246,10 @@ export function SubAccountsTable({ accounts }: { accounts: SubAccount[] }) {
 
                   <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
                     {formatSubAccountDate(account.createdAt)}
+                  </TableCell>
+
+                  <TableCell className="text-right">
+                    <ManageSubAccountDialog account={account} />
                   </TableCell>
                 </TableRow>
               ))}
