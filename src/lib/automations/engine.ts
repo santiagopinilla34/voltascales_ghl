@@ -17,6 +17,8 @@ import {
   matchKeyword,
   parseActions,
   parseConditions,
+  UNREACHABLE_EVENTS,
+  parseEmailEventTriggerConfig,
   parseFormTriggerConfig,
   parseKeywordTriggerConfig,
 } from "./config";
@@ -88,7 +90,16 @@ export type AutomationEvent =
     }
   | ({ trigger: "booking_confirmed" } & BookingEventFields)
   | ({ trigger: "booking_cancelled" } & BookingEventFields)
-  | { trigger: "ai_handoff"; contact: Contact; variables: TemplateVariables };
+  | { trigger: "ai_handoff"; contact: Contact; variables: TemplateVariables }
+  | {
+      trigger: "email_event";
+      /** Null when the address on the event matches no contact. */
+      contact: Contact | null;
+      /** Which Resend event this was: `bounced`, `opened`, and so on. */
+      event: string;
+      recipient: EventRecipient;
+      variables: TemplateVariables;
+    };
 
 /**
  * Shared by both booking triggers, and spelled as two separate union members
@@ -130,7 +141,11 @@ function usesCooldown(trigger: AutomationEvent["trigger"]): boolean {
 
 /** Where `to: "contact"` goes for this event. */
 function recipientOf(event: AutomationEvent): EventRecipient {
-  if (event.trigger === "booking_confirmed" || event.trigger === "booking_cancelled") {
+  if (
+    event.trigger === "booking_confirmed" ||
+    event.trigger === "booking_cancelled" ||
+    event.trigger === "email_event"
+  ) {
     return event.recipient;
   }
   return { phone: event.contact.phone, email: event.contact.email };
@@ -155,6 +170,7 @@ function eventVariables(event: AutomationEvent): TemplateVariables {
     case "booking_confirmed":
     case "booking_cancelled":
     case "ai_handoff":
+    case "email_event":
       return event.variables;
   }
 }
@@ -242,6 +258,20 @@ function matchTrigger(
     case "booking_cancelled":
     case "ai_handoff":
       return { status: "match", variables: {} };
+
+    case "email_event": {
+      const config = parseEmailEventTriggerConfig(trigger.config);
+      if (!config.ok) {
+        return { status: "invalid", reason: config.error };
+      }
+      if (!config.value.events.includes(event.event)) {
+        return {
+          status: "no-match",
+          reason: `email event is "${event.event}", rule wants ${config.value.events.join(" or ")}`,
+        };
+      }
+      return { status: "match", variables: {} };
+    }
   }
 }
 
@@ -364,11 +394,41 @@ async function runAutomation(
 
   const triggerVariables = { ...eventVariables(event), ...matchVariables };
   const recipient = recipientOf(event);
+
+  /**
+   * Whether emailing the address this event was about would be a loop.
+   *
+   * A rule that fires on `email.bounced` and emails the client will email the
+   * address that just bounced, which bounces, which fires the rule again. The
+   * rerun cooldown does not save you: it is 60 seconds and keyed on the
+   * contact, while a soft bounce can take minutes to come back — comfortably
+   * on the wrong side of the window, and the loop is then unbounded.
+   *
+   * So it is stopped by construction rather than by timing. The action is
+   * skipped with a reason in the run log; everything else in the rule — the
+   * tag, the status change, the text, the alert to you — still runs, because
+   * those are usually the entire point of a rule that watches for bounces.
+   */
+  const emailToRecipientWouldLoop =
+    event.trigger === "email_event" && UNREACHABLE_EVENTS.includes(event.event);
   let current = contact;
   let variables = templateVariablesFor(current, triggerVariables);
   const done: string[] = [];
 
   for (const [index, action] of actions.value.entries()) {
+    if (
+      emailToRecipientWouldLoop &&
+      action.type === "send_email" &&
+      action.to === "contact"
+    ) {
+      done.push(
+        `send_email (contact) skipped: that address just produced a "${
+          event.trigger === "email_event" ? event.event : ""
+        }" event, so emailing it again would loop`,
+      );
+      continue;
+    }
+
     try {
       const result = await executeAction(action, {
         supabase,
@@ -412,7 +472,12 @@ export async function runAutomationsForEvent(
   const { data: automations, error } = await supabase
     .from("automations")
     .select("*")
-    .contains("triggers", [{ type: event.trigger }])
+    // Serialised by hand, not handed an array. `.contains` given a JS array
+    // formats it as a Postgres *array* literal — `{...}` — and jsonb
+    // containment then fails to parse it, which comes back as
+    // `invalid input syntax for type json` and loads no rules at all. A JSON
+    // string is what a jsonb column needs.
+    .contains("triggers", JSON.stringify([{ type: event.trigger }]))
     .eq("active", true)
     .order("created_at", { ascending: true });
 

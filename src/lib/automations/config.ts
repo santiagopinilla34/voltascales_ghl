@@ -190,6 +190,93 @@ export function parseFormTriggerConfig(
   return { ok: true, value: { source: source.trim() } };
 }
 
+/**
+ * `email_event` trigger parameters: which of Resend's events to react to.
+ *
+ * Required rather than defaulting to all of them, and that is the important
+ * decision here. Resend emits `delivered` for every message that lands, so a
+ * rule listening to everything would fire on each booking confirmation, each
+ * invoice, each alert — turning the run log into noise and, if it sends
+ * anything, doubling the mail this app produces. Choosing is cheap; the
+ * default being wrong is not.
+ */
+export type EmailEventTriggerConfig = { events: string[] };
+
+/**
+ * The events worth building a rule on.
+ *
+ * A subset of what Resend sends. `sent` and `scheduled` are omitted because
+ * they say only that this app did what it was told, which it already knows,
+ * and a trigger that fires on your own action is a loop waiting to be written.
+ */
+export const EMAIL_EVENTS = [
+  "delivered",
+  "bounced",
+  "complained",
+  "opened",
+  "clicked",
+  "failed",
+  "delivery_delayed",
+  "suppressed",
+] as const;
+
+export type EmailEvent = (typeof EMAIL_EVENTS)[number];
+
+/**
+ * The events that mean this address should not be emailed again right now.
+ *
+ * Used to break the obvious loop: a rule that fires on a bounce and replies to
+ * the address that bounced will bounce again, fire again, and keep going. The
+ * cooldown is too short to stop it — a hard bounce can come back in seconds
+ * but a soft one takes minutes, which is on the wrong side of a 60s window.
+ */
+export const UNREACHABLE_EVENTS: readonly string[] = [
+  "bounced",
+  "complained",
+  "suppressed",
+];
+
+export function parseEmailEventTriggerConfig(
+  raw: Json,
+): ParseResult<EmailEventTriggerConfig> {
+  if (!isRecord(raw)) {
+    return { ok: false, error: "trigger_config must be a JSON object" };
+  }
+
+  const unknown = Object.keys(raw).filter((key) => key !== "events");
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      error: `unknown trigger_config key ${unknown.map((key) => `"${key}"`).join(", ")} (supported: events)`,
+    };
+  }
+
+  const raws = Array.isArray(raw.events) ? raw.events : [raw.events];
+  const events: string[] = [];
+
+  for (const entry of raws) {
+    if (
+      typeof entry !== "string" ||
+      !(EMAIL_EVENTS as readonly string[]).includes(entry)
+    ) {
+      return {
+        ok: false,
+        error: `trigger_config.events has invalid entry ${JSON.stringify(entry)} (expected one of ${EMAIL_EVENTS.join(", ")})`,
+      };
+    }
+    events.push(entry);
+  }
+
+  if (events.length === 0) {
+    return {
+      ok: false,
+      error: "trigger_config.events must name at least one event to listen for",
+    };
+  }
+
+  return { ok: true, value: { events } };
+}
+
 // ---------------------------------------------------------------------------
 // triggers
 // ---------------------------------------------------------------------------
@@ -213,6 +300,7 @@ export const TRIGGER_TYPES = [
   "booking_confirmed",
   "booking_cancelled",
   "ai_handoff",
+  "email_event",
 ] as const satisfies readonly AutomationTriggerType[];
 
 /**
@@ -233,6 +321,10 @@ export function validateTriggerConfig(
     }
     case "form_submit": {
       const parsed = parseFormTriggerConfig(config);
+      return parsed.ok ? { ok: true, value: config } : parsed;
+    }
+    case "email_event": {
+      const parsed = parseEmailEventTriggerConfig(config);
       return parsed.ok ? { ok: true, value: config } : parsed;
     }
     // Nothing to configure. An empty object rather than whatever was passed,

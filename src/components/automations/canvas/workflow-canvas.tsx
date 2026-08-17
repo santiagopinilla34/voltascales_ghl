@@ -40,6 +40,11 @@ function triggerSubtitle(trigger: EditorTrigger): string {
   if (trigger.type === "form_submit") {
     return trigger.formSource.trim() || "any form";
   }
+  if (trigger.type === "email_event") {
+    return trigger.emailEvents.length > 0
+      ? trigger.emailEvents.join(", ")
+      : "no events chosen";
+  }
   return TRIGGER_META[trigger.type as TriggerKey]?.description ?? "";
 }
 

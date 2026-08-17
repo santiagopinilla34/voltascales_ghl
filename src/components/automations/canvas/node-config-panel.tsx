@@ -37,6 +37,57 @@ import { nonGsmCharacters } from "@/components/automations/gsm";
  * node at a time is the whole point.
  */
 
+/**
+ * Resend's email events, in the order they matter.
+ *
+ * Bounced and complained first: they are the ones whose absence is invisible —
+ * a hard bounce looks exactly like a delivery from inside this app — and the
+ * ones anybody wants a rule on. Delivered and opened are last because a rule
+ * that fires on every delivery mostly produces noise.
+ *
+ * Kept in step with EMAIL_EVENTS in `lib/automations/config.ts`, which is the
+ * server-only half that validates them. Duplicated rather than imported for
+ * the usual reason — that module is server-only and this renders in a browser.
+ */
+const EMAIL_EVENT_CHOICES: { value: string; label: string; hint: string }[] = [
+  {
+    value: "bounced",
+    label: "Bounced",
+    hint: "The receiving server permanently rejected it.",
+  },
+  {
+    value: "complained",
+    label: "Marked as spam",
+    hint: "The recipient reported it. Worth knowing about immediately.",
+  },
+  {
+    value: "delivery_delayed",
+    label: "Delayed",
+    hint: "Not delivered yet, still trying.",
+  },
+  { value: "failed", label: "Failed", hint: "Resend could not send it at all." },
+  {
+    value: "suppressed",
+    label: "Suppressed",
+    hint: "Not sent, because the address is on your suppression list.",
+  },
+  {
+    value: "opened",
+    label: "Opened",
+    hint: "Needs open tracking switched on for the domain in Resend.",
+  },
+  {
+    value: "clicked",
+    label: "Link clicked",
+    hint: "Needs click tracking switched on for the domain in Resend.",
+  },
+  {
+    value: "delivered",
+    label: "Delivered",
+    hint: "Fires for every email that lands — usually a lot.",
+  },
+];
+
 const MATCH_MODES: { value: MatchMode; label: string; hint: string }[] = [
   {
     value: "word",
@@ -143,7 +194,63 @@ function TriggerConfig({
         </Field>
       )}
 
-      {trigger.type !== "keyword" && trigger.type !== "form_submit" && (
+      {trigger.type === "email_event" && (
+        <>
+          <Field
+            label="Which events"
+            hint={
+              trigger.emailEvents.length === 0
+                ? "Pick at least one — a rule listening for nothing can't be saved."
+                : undefined
+            }
+          >
+            <div className="flex flex-wrap gap-1.5">
+              {EMAIL_EVENT_CHOICES.map((choice) => {
+                const on = trigger.emailEvents.includes(choice.value);
+                return (
+                  <Button
+                    key={choice.value}
+                    type="button"
+                    size="xs"
+                    variant={on ? "secondary" : "outline"}
+                    disabled={disabled}
+                    title={choice.hint}
+                    onClick={() =>
+                      onChange({
+                        emailEvents: on
+                          ? trigger.emailEvents.filter(
+                              (value) => value !== choice.value,
+                            )
+                          : [...trigger.emailEvents, choice.value],
+                      })
+                    }
+                  >
+                    {choice.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </Field>
+
+          {/* Said here rather than left to be discovered in the run log. The
+              guard is in the engine either way, but somebody building a
+              bounce rule will reach for "email them about it" first. */}
+          {trigger.emailEvents.some((event) =>
+            ["bounced", "complained", "suppressed"].includes(event),
+          ) && (
+            <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-[11px]">
+              An email step addressed to the client is skipped for these
+              events — the address just bounced or reported spam, so writing to
+              it again would bounce again and fire this rule in a loop. Texting
+              them, tagging them, or emailing you all still run.
+            </p>
+          )}
+        </>
+      )}
+
+      {trigger.type !== "keyword" &&
+        trigger.type !== "form_submit" &&
+        trigger.type !== "email_event" && (
         <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-[11px]">
           This trigger has nothing to configure — it either happened or it
           didn&apos;t. Narrow it with the filters on the rule instead.

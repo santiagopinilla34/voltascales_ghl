@@ -122,12 +122,9 @@ export const TRIGGER_CATALOGUE: CatalogueEntry[] = [
   {
     label: "Email events",
     category: "Events",
-    description: "An email you sent is opened, bounces, or is marked as spam.",
-    status: "unavailable",
-    // The closest of all of these. Resend publishes exactly these webhooks and
-    // the sending domain is already verified — it needs an endpoint and a
-    // trigger type, not an integration.
-    blockedBy: "needs a webhook endpoint for Resend's email events",
+    description: "An email you sent is delivered, opened, bounces, or is marked as spam.",
+    status: "available",
+    type: "email_event",
   },
   {
     label: "Inbound email",

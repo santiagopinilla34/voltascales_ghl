@@ -100,13 +100,18 @@ export async function executeAction(
 /**
  * The actions that need a contact row say so once, here.
  *
- * A booking with no matching contact should not fail a rule whose real job is
- * sending a confirmation — the tag it also wanted to apply simply has nowhere
- * to go, and the run log records that rather than the whole rule collapsing.
+ * An event with no matching contact should not fail a rule whose real job is
+ * sending a message — the tag it also wanted to apply simply has nowhere to
+ * go, and the run log records that rather than the whole rule collapsing.
+ *
+ * Worded without naming bookings: it started as a booking-only case, and then
+ * email events arrived, where the same thing happens whenever a bounce is for
+ * an address no contact holds. A run log that calls an email event a booking
+ * sends the reader looking for a meeting that does not exist.
  */
 function noContact(action: string): ActionResult {
   return {
-    summary: `${action} skipped: no contact is linked to this booking`,
+    summary: `${action} skipped: no contact matched this event`,
     contact: null,
   };
 }

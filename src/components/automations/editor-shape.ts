@@ -18,7 +18,8 @@ export type TriggerType =
   | "form_submit"
   | "booking_confirmed"
   | "booking_cancelled"
-  | "ai_handoff";
+  | "ai_handoff"
+  | "email_event";
 export type MatchMode = "word" | "exact" | "contains";
 export type AiCondition = "any" | "true" | "false";
 export type MessageTarget = "contact" | "business";
@@ -55,6 +56,8 @@ export type EditorTrigger = {
   keywords: string[];
   matchMode: MatchMode;
   formSource: string;
+  /** email_event only: which of Resend's events to react to. */
+  emailEvents: string[];
 };
 
 export type EditorState = {
@@ -68,7 +71,16 @@ export type EditorState = {
 };
 
 export function blankTrigger(type: TriggerType): EditorTrigger {
-  return { type, keywords: [], matchMode: "word", formSource: "" };
+  return {
+    type,
+    keywords: [],
+    matchMode: "word",
+    formSource: "",
+    // Bounces and spam complaints are the two anybody wants first, and the
+    // two whose absence is otherwise invisible. Delivered and opened are
+    // available but off, because a rule on every delivery is mostly noise.
+    emailEvents: type === "email_event" ? ["bounced", "complained"] : [],
+  };
 }
 
 function asRecord(value: Json): Record<string, Json> {
@@ -110,6 +122,7 @@ function readTriggers(raw: Json): EditorTrigger[] {
             ? config.match
             : "word",
         formSource: typeof config.source === "string" ? config.source : "",
+        emailEvents: asStringArray(config.events),
       },
     ];
   });
@@ -122,6 +135,7 @@ const TRIGGER_TYPE_VALUES: readonly string[] = [
   "booking_confirmed",
   "booking_cancelled",
   "ai_handoff",
+  "email_event",
 ];
 
 function isTriggerType(value: string): value is TriggerType {
@@ -239,6 +253,9 @@ function triggerConfigOf(trigger: EditorTrigger): Json {
   if (trigger.type === "form_submit" && trigger.formSource.trim()) {
     return { source: trigger.formSource.trim() };
   }
+  if (trigger.type === "email_event") {
+    return { events: trigger.emailEvents };
+  }
   return {};
 }
 
@@ -275,6 +292,17 @@ export function templateVariablesFor(triggerType: TriggerType): string[] {
       return base;
     case "ai_handoff":
       return [...base, "reply", "label", "inbox_link"];
+    case "email_event":
+      return [
+        ...base,
+        "email_event",
+        "email_to",
+        "email_from",
+        "email_subject",
+        "email_id",
+        "bounce_type",
+        "bounce_reason",
+      ];
     case "booking_confirmed":
     case "booking_cancelled":
       // The booking's own values, which override the contact's where they

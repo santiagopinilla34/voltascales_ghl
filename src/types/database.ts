@@ -56,7 +56,8 @@ export type AutomationTriggerType =
   | "form_submit"
   | "booking_confirmed"
   | "booking_cancelled"
-  | "ai_handoff";
+  | "ai_handoff"
+  | "email_event";
 /** Mirrors `automation_runs_status_check`. */
 export type AutomationRunStatus = "success" | "failed" | "skipped";
 /** Mirrors `settings_ai_mode_check`. */

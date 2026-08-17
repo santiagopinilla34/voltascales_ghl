@@ -3,6 +3,7 @@ import {
   CalendarCheck,
   CalendarX,
   FileText,
+  MailCheck,
   MessageSquareText,
   PhoneMissed,
 } from "lucide-react";
@@ -53,6 +54,14 @@ export const TRIGGER_META = {
     description:
       "Fires when the AI stops replying and hands the conversation to you. They are waiting on a person.",
     className: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  },
+  email_event: {
+    label: "Email event",
+    Icon: MailCheck,
+    description:
+      "Fires when Resend reports what happened to an email you sent — delivered, opened, bounced, or marked as spam.",
+    className:
+      "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
   },
 } as const;
 
