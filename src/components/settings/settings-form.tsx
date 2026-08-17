@@ -20,6 +20,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { AI_MODEL_OPTIONS, AI_MODE_OPTIONS } from "@/lib/ai/models";
+import {
+  confirmationEmail,
+  confirmationSms,
+  signature,
+  type MessageInput,
+} from "@/lib/booking/messages";
 import { formatPhone } from "@/lib/format";
 import type { Settings } from "@/types/database";
 
@@ -74,6 +80,34 @@ export function SettingsForm({
     settings.booking_meeting_link ?? "",
   );
   const [hostName, setHostName] = useState(settings.booking_host_name ?? "");
+
+  /**
+   * A stand-in booking for the preview.
+   *
+   * Fixed values rather than a real row: this renders before anything has been
+   * saved, and the point is to show the shape a message takes with the current
+   * settings, not to look up a booking. The links are elided the way a sample
+   * should be — a real cancel token in a preview would be a live link to
+   * cancel someone's meeting.
+   *
+   * Reads from the live form state, so editing the meeting link or your name
+   * updates both panes as you type.
+   */
+  const previewMessage: MessageInput = {
+    firstName: "Jane",
+    when: "Tuesday, August 18 at 2:00 p.m. Eastern",
+    date: "Tue, Aug 18",
+    cancel: "…/book/cancel/…",
+    join: meetingLink.trim() || null,
+    base: "…",
+    phone: "+15145550134",
+    businessName: settings.business_name,
+    signOff: signature({
+      booking_host_name: hostName,
+      business_name: settings.business_name,
+    }),
+  };
+  const previewEmail = confirmationEmail(previewMessage);
 
   const dirty =
     prompt !== settings.ai_system_prompt ||
@@ -304,27 +338,36 @@ export function SettingsForm({
           </Note>
         </div>
 
-        {/* The actual text, assembled the same way the sender assembles it.
-            These messages go to strangers and can't be unsent, so being able
-            to read one before saving is worth the duplication. */}
+        {/* Built by the same functions the sender calls, not a copy of them.
+            These messages go to strangers and cannot be unsent, so a preview
+            is worth having — but a preview assembled separately is only as
+            accurate as the last person to remember to update both, which is
+            the state this was in before.
+
+            Both are shown because they are deliberately different now: the
+            text carries the join link and survives on a phone until the call,
+            the email states the fact and offers one action. Seeing only one
+            would hide the half you did not change. */}
         <div className="grid gap-1.5">
           <span className="text-xs font-medium">
             What they get when they book
           </span>
-          <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
-            {[
-              `Thanks for booking, Jane! Your Discovery Call is Tuesday, August 18 at 2:00 p.m. Eastern.`,
-              meetingLink.trim() ? `\nHere's the link to join:\n${meetingLink.trim()}` : null,
-              `\nNeed to cancel? …/book/cancel/…`,
-              `\n${
-                hostName.trim()
-                  ? `— ${hostName.trim()} from ${settings.business_name?.trim() || "VoltaScales"}`
-                  : `— ${settings.business_name?.trim() || "VoltaScales"}`
-              }`,
-            ]
-              .filter((line) => line !== null)
-              .join("\n")}
-          </pre>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-1">
+              <span className="text-muted-foreground text-[11px]">Text</span>
+              <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
+                {confirmationSms(previewMessage)}
+              </pre>
+            </div>
+
+            <div className="grid gap-1">
+              <span className="text-muted-foreground text-[11px]">Email</span>
+              <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
+                {`Subject: ${previewEmail.subject}\n\n${previewEmail.text}`}
+              </pre>
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-2">

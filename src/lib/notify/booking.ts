@@ -2,12 +2,22 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  cancellationEmail,
+  cancellationSms,
+  confirmationEmail,
+  confirmationSms,
+  formatBookingDate,
+  formatBookingTime,
+  signature,
+  type MessageInput,
+} from "@/lib/booking/messages";
 import { MEETING_NAME } from "@/lib/booking/slots";
 import { appBaseUrl } from "@/lib/env";
 import { formatPhone } from "@/lib/format";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
-import type { Booking, Contact, Database } from "@/types/database";
+import type { Booking, Contact, Database, Settings } from "@/types/database";
 
 import { sendEmail } from "./email";
 
@@ -28,20 +38,7 @@ import { sendEmail } from "./email";
  * link too rather than deferring to the email.
  */
 
-/** Times as the client should read them: Eastern, spelled out. */
-const stamp = new Intl.DateTimeFormat("en-CA", {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-  timeZone: "America/Toronto",
-});
-
-export function formatBookingTime(booking: Pick<Booking, "start_time">): string {
-  return `${stamp.format(new Date(booking.start_time))} Eastern`;
-}
+export { formatBookingTime } from "@/lib/booking/messages";
 
 /**
  * The client's cancel link, or null when the app doesn't know its own origin.
@@ -56,35 +53,27 @@ export function cancelUrl(booking: Pick<Booking, "cancel_token">): string | null
 }
 
 /**
- * How the client-facing messages introduce themselves.
+ * Everything the client-facing message builders need, gathered once.
  *
- * Signed by a person where one is configured, because these are texts to
- * someone about to take a call with you: "Aleck from VoltaScales" reads like
- * the person they are meeting, "VoltaScales" reads like a marketing blast, and
- * people reply to the first and ignore the second.
- *
- * Falls back through both halves rather than leaving a dangling comma or an
- * empty signature when either is unset.
- *
- * A plain hyphen, not an em dash, and that is a billing decision rather than a
- * typographic one. A single character outside GSM-7 switches the whole message
- * to UCS-2, which cuts an SMS segment from 153 characters to 67 — one em dash
- * takes the confirmation from two segments to four. Every client-facing SMS in
- * this file is deliberately ASCII for the same reason.
+ * Assembled here rather than inside the builders so those stay pure and can be
+ * called from the browser for the Settings preview, where there is no booking
+ * row and no environment to read.
  */
-function signature(settings: {
-  booking_host_name: string | null;
-  business_name: string | null;
-}): string {
-  const host = settings.booking_host_name?.trim();
-  const business = settings.business_name?.trim() || "VoltaScales";
-
-  return host ? `- ${host} from ${business}` : `- ${business}`;
-}
-
-/** SMS bodies are trimmed of empty lines a missing link would leave behind. */
-function joinLines(lines: (string | null)[]): string {
-  return lines.filter((line) => line !== null).join("\n");
+function clientMessageInput(
+  booking: Booking,
+  settings: Settings | null,
+): MessageInput {
+  return {
+    firstName: booking.client_name.trim().split(/\s+/)[0],
+    when: formatBookingTime(booking),
+    date: formatBookingDate(booking),
+    cancel: cancelUrl(booking),
+    join: settings?.booking_meeting_link?.trim() || null,
+    base: appBaseUrl(),
+    phone: booking.client_phone,
+    businessName: settings?.business_name ?? null,
+    signOff: settings ? signature(settings) : "- VoltaScales",
+  };
 }
 
 async function textClient(booking: Booking, body: string, label: string) {
@@ -249,55 +238,16 @@ export async function sendBookingConfirmation(
   contact: Contact | null,
 ): Promise<void> {
   try {
-    const when = formatBookingTime(booking);
-    const cancel = cancelUrl(booking);
-    const firstName = booking.client_name.trim().split(/\s+/)[0];
-
     // Read fresh rather than snapshotted onto the booking: changing the meeting
     // link in Settings is meant to fix every future message, including for
     // meetings booked before the change.
     const settings = await getSettings(supabase);
-    const join = settings?.booking_meeting_link?.trim() || null;
-    const signOff = settings ? signature(settings) : "- VoltaScales";
+    const message = clientMessageInput(booking, settings);
+    const email = confirmationEmail(message);
 
     await Promise.all([
-      textClient(
-        booking,
-        joinLines([
-          `Thanks for booking, ${firstName}! Your ${MEETING_NAME} is ${when}.`,
-          "",
-          // The join link leads, because it is the one thing they need at the
-          // moment the call starts and the one thing they will scroll back to
-          // find.
-          join ? `Here's the link to join:\n${join}` : null,
-          join ? "" : null,
-          cancel ? `Need to cancel? ${cancel}` : "Reply here if you need to change it.",
-          "",
-          signOff,
-        ]),
-        "confirmation",
-      ),
-      emailClient(
-        booking,
-        `Confirmed: ${MEETING_NAME}, ${when}`,
-        joinLines([
-          `Hi ${firstName},`,
-          "",
-          `Your ${MEETING_NAME} is confirmed for ${when}. It runs about an hour.`,
-          "",
-          join
-            ? `Join here:\n${join}`
-            : `I'll call the number you gave me: ${formatPhone(booking.client_phone)}.`,
-          booking.notes ? `\nYou mentioned: ${booking.notes}` : null,
-          "",
-          cancel
-            ? `If something changes you can cancel here:\n${cancel}`
-            : "If something changes, just reply to the text you got.",
-          "",
-          signOff,
-        ]),
-        "confirmation email",
-      ),
+      textClient(booking, confirmationSms(message), "confirmation"),
+      emailClient(booking, email.subject, email.text, "confirmation email"),
       notifyOperator(supabase, booking, contact, { cancelled: false }),
     ]);
   } catch (error) {
@@ -317,39 +267,13 @@ export async function sendCancellationNotice(
   contact: Contact | null,
 ): Promise<void> {
   try {
-    const when = formatBookingTime(booking);
-    const base = appBaseUrl();
-    const firstName = booking.client_name.trim().split(/\s+/)[0];
-
     const settings = await getSettings(supabase);
-    const signOff = settings ? signature(settings) : "- VoltaScales";
+    const message = clientMessageInput(booking, settings);
+    const email = cancellationEmail(message);
 
     await Promise.all([
-      textClient(
-        booking,
-        joinLines([
-          `Your ${MEETING_NAME} on ${when} is cancelled.`,
-          "",
-          base ? `Want another time? ${base}/book` : "Reply here to pick another time.",
-          "",
-          signOff,
-        ]),
-        "cancellation",
-      ),
-      emailClient(
-        booking,
-        `Cancelled: ${MEETING_NAME}, ${when}`,
-        joinLines([
-          `Hi ${firstName},`,
-          "",
-          `That's cancelled — your ${MEETING_NAME} on ${when} is off the calendar, and you won't get any reminders for it.`,
-          "",
-          base ? `Whenever you want to rebook:\n${base}/book` : null,
-          "",
-          signOff,
-        ]),
-        "cancellation email",
-      ),
+      textClient(booking, cancellationSms(message), "cancellation"),
+      emailClient(booking, email.subject, email.text, "cancellation email"),
       notifyOperator(supabase, booking, contact, { cancelled: true }),
     ]);
   } catch (error) {
