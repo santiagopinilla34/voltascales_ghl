@@ -6,6 +6,7 @@ import { BlockedDatesEditor } from "@/components/settings/blocked-dates-editor";
 import { BookLink } from "@/components/settings/book-link";
 import { SettingsForm } from "@/components/settings/settings-form";
 import { Separator } from "@/components/ui/separator";
+import { getBookingPreview } from "@/lib/booking/preview";
 import { listAvailabilityRules, listBlockedDates } from "@/lib/booking/queries";
 import { appBaseUrl } from "@/lib/env";
 import { environmentForwardToNumber, getSettings } from "@/lib/settings";
@@ -21,6 +22,11 @@ export default async function SettingsPage() {
     listAvailabilityRules(supabase),
     listBlockedDates(supabase),
   ]);
+
+  // Rendered server-side because the templates now live in an automation and
+  // the renderer is server-only. The form receives finished strings, not the
+  // machinery to build them.
+  const preview = await getBookingPreview(supabase, settings);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -45,6 +51,7 @@ export default async function SettingsPage() {
               <SettingsForm
                 settings={settings}
                 environmentForwardTo={environmentForwardToNumber()}
+                bookingPreview={preview}
               />
 
               {/* Below the settings form rather than inside it: these write

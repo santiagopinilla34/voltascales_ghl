@@ -1,9 +1,16 @@
-import { FileText, MessageSquareText, PhoneMissed } from "lucide-react";
+import {
+  BotMessageSquare,
+  CalendarCheck,
+  CalendarX,
+  FileText,
+  MessageSquareText,
+  PhoneMissed,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-/** The three values `automations_trigger_type_check` allows. */
+/** The values `automations_trigger_type_check` allows. */
 export const TRIGGER_META = {
   missed_call: {
     label: "Missed call",
@@ -23,6 +30,28 @@ export const TRIGGER_META = {
     description: "Fires when the contact form webhook receives a submission.",
     className:
       "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
+  },
+  booking_confirmed: {
+    label: "Booking made",
+    Icon: CalendarCheck,
+    description:
+      "Fires the moment someone books. Both the client's confirmation and your alert are rules on this trigger.",
+    className:
+      "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  },
+  booking_cancelled: {
+    label: "Booking cancelled",
+    Icon: CalendarX,
+    description: "Fires when a client cancels through the link in their confirmation.",
+    className:
+      "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  },
+  ai_handoff: {
+    label: "AI hand-off",
+    Icon: BotMessageSquare,
+    description:
+      "Fires when the AI stops replying and hands the conversation to you. They are waiting on a person.",
+    className: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
   },
 } as const;
 

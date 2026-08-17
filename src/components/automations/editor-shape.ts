@@ -1,3 +1,4 @@
+import { BOOKING_VARIABLES } from "@/lib/booking/variables";
 import type { Automation, Json } from "@/types/database";
 
 /**
@@ -11,15 +12,35 @@ import type { Automation, Json } from "@/types/database";
  * server-side, through the engine's own parsers.
  */
 
-export type TriggerType = "missed_call" | "keyword" | "form_submit";
+export type TriggerType =
+  | "missed_call"
+  | "keyword"
+  | "form_submit"
+  | "booking_confirmed"
+  | "booking_cancelled"
+  | "ai_handoff";
 export type MatchMode = "word" | "exact" | "contains";
 export type AiCondition = "any" | "true" | "false";
+export type MessageTarget = "contact" | "business";
 
 export type EditorAction =
-  | { type: "send_sms"; template: string }
+  | { type: "send_sms"; to: MessageTarget; template: string }
+  | { type: "send_email"; to: MessageTarget; subject: string; template: string }
   | { type: "add_tag"; tag: string }
   | { type: "set_status"; status: string }
   | { type: "notify_me"; note: string };
+
+/**
+ * Reads a stored `to`, defaulting to `contact`.
+ *
+ * The same default the engine's parser applies, and it has to stay that way:
+ * this half decides what the form shows, and disagreeing with the half that
+ * decides what actually sends is how an operator ends up looking at a form
+ * that says one thing while the message goes somewhere else.
+ */
+function asTarget(value: Json | undefined): MessageTarget {
+  return value === "business" ? "business" : "contact";
+}
 
 export type EditorState = {
   name: string;
@@ -78,6 +99,16 @@ export function toEditorState(automation: Automation): EditorState {
         return [
           {
             type: "send_sms",
+            to: asTarget(action.to),
+            template: typeof action.template === "string" ? action.template : "",
+          },
+        ];
+      case "send_email":
+        return [
+          {
+            type: "send_email",
+            to: asTarget(action.to),
+            subject: typeof action.subject === "string" ? action.subject : "",
             template: typeof action.template === "string" ? action.template : "",
           },
         ];
@@ -173,9 +204,9 @@ export function toAutomationInput(state: EditorState): AutomationInput {
   };
 }
 
-/** Template variables available per trigger, for the send_sms hint. */
+/** Template variables available per trigger, for the message hints. */
 export function templateVariablesFor(triggerType: TriggerType): string[] {
-  const base = ["name", "first_name", "phone"];
+  const base = ["name", "first_name", "phone", "phone_formatted"];
 
   switch (triggerType) {
     case "keyword":
@@ -184,5 +215,13 @@ export function templateVariablesFor(triggerType: TriggerType): string[] {
       return [...base, "message", "source"];
     case "missed_call":
       return base;
+    case "ai_handoff":
+      return [...base, "reply", "label", "inbox_link"];
+    case "booking_confirmed":
+    case "booking_cancelled":
+      // The booking's own values, which override the contact's where they
+      // clash — the booking form is where they said to reach them about this
+      // meeting. Listed in `src/lib/booking/variables.ts`.
+      return BOOKING_VARIABLES.map((variable) => variable.name);
   }
 }

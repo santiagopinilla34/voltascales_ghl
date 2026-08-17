@@ -20,12 +20,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { AI_MODEL_OPTIONS, AI_MODE_OPTIONS } from "@/lib/ai/models";
-import {
-  confirmationEmail,
-  confirmationSms,
-  signature,
-  type MessageInput,
-} from "@/lib/booking/messages";
+import type { BookingPreview } from "@/lib/booking/preview";
 import { formatPhone } from "@/lib/format";
 import type { Settings } from "@/types/database";
 
@@ -53,10 +48,17 @@ function Note({ children }: { children: React.ReactNode }) {
 export function SettingsForm({
   settings,
   environmentForwardTo,
+  bookingPreview,
 }: {
   settings: Settings;
   /** What the voice webhook reads today, so the fallback is visible. */
   environmentForwardTo: string | null;
+  /**
+   * The confirmation as the rule will actually send it, rendered server-side.
+   * Null when the rule is missing or unreadable — which also means nothing
+   * will be sent, so the preview says that rather than showing sample text.
+   */
+  bookingPreview: BookingPreview | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -80,34 +82,6 @@ export function SettingsForm({
     settings.booking_meeting_link ?? "",
   );
   const [hostName, setHostName] = useState(settings.booking_host_name ?? "");
-
-  /**
-   * A stand-in booking for the preview.
-   *
-   * Fixed values rather than a real row: this renders before anything has been
-   * saved, and the point is to show the shape a message takes with the current
-   * settings, not to look up a booking. The links are elided the way a sample
-   * should be — a real cancel token in a preview would be a live link to
-   * cancel someone's meeting.
-   *
-   * Reads from the live form state, so editing the meeting link or your name
-   * updates both panes as you type.
-   */
-  const previewMessage: MessageInput = {
-    firstName: "Jane",
-    when: "Tuesday, August 18 at 2:00 p.m. Eastern",
-    date: "Tue, Aug 18",
-    cancel: "…/book/cancel/…",
-    join: meetingLink.trim() || null,
-    base: "…",
-    phone: "+15145550134",
-    businessName: settings.business_name,
-    signOff: signature({
-      booking_host_name: hostName,
-      business_name: settings.business_name,
-    }),
-  };
-  const previewEmail = confirmationEmail(previewMessage);
 
   const dirty =
     prompt !== settings.ai_system_prompt ||
@@ -338,36 +312,65 @@ export function SettingsForm({
           </Note>
         </div>
 
-        {/* Built by the same functions the sender calls, not a copy of them.
-            These messages go to strangers and cannot be unsent, so a preview
-            is worth having — but a preview assembled separately is only as
-            accurate as the last person to remember to update both, which is
-            the state this was in before.
+        {/* Rendered from the rule that will actually send, not from a copy of
+            its wording. The wording is editable now, so a preview built any
+            other way starts lying the first time somebody edits it — which is
+            the exact problem this preview had before these messages moved out
+            of code.
 
-            Both are shown because they are deliberately different now: the
-            text carries the join link and survives on a phone until the call,
-            the email states the fact and offers one action. Seeing only one
-            would hide the half you did not change. */}
+            Both are shown because they are deliberately different: the text
+            carries the join link and survives on a phone until the call, the
+            email states the fact and offers one action. Seeing only one would
+            hide the half you did not change. */}
         <div className="grid gap-1.5">
-          <span className="text-xs font-medium">
-            What they get when they book
-          </span>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className="grid gap-1">
-              <span className="text-muted-foreground text-[11px]">Text</span>
-              <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
-                {confirmationSms(previewMessage)}
-              </pre>
-            </div>
-
-            <div className="grid gap-1">
-              <span className="text-muted-foreground text-[11px]">Email</span>
-              <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
-                {`Subject: ${previewEmail.subject}\n\n${previewEmail.text}`}
-              </pre>
-            </div>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-xs font-medium">
+              What they get when they book
+            </span>
+            {bookingPreview && (
+              <Link
+                href={`/automations/${bookingPreview.automationId}`}
+                className="text-muted-foreground hover:text-foreground text-[11px] underline underline-offset-2"
+              >
+                Edit the wording
+              </Link>
+            )}
           </div>
+
+          {bookingPreview === null ? (
+            <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-xs">
+              The booking confirmation rule is missing or can&apos;t be read, so
+              nothing can be previewed — and nothing will be sent either. Check
+              the Automations page.
+            </p>
+          ) : (
+            <>
+              {!bookingPreview.active && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                  This rule is switched off, so clients currently get nothing
+                  when they book. The wording below is what they would get.
+                </p>
+              )}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-1">
+                  <span className="text-muted-foreground text-[11px]">Text</span>
+                  <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
+                    {bookingPreview.sms ?? "No text is sent to the client."}
+                  </pre>
+                </div>
+
+                <div className="grid gap-1">
+                  <span className="text-muted-foreground text-[11px]">Email</span>
+                  <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
+                    {bookingPreview.email
+                      ? `Subject: ${bookingPreview.email.subject}\n\n${bookingPreview.email.text}`
+                      : "No email is sent to the client."}
+                  </pre>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="grid gap-2">

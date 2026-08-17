@@ -86,7 +86,7 @@ export type AutomationEvent =
     }
   | ({ trigger: "booking_confirmed" } & BookingEventFields)
   | ({ trigger: "booking_cancelled" } & BookingEventFields)
-  | { trigger: "ai_handoff"; contact: Contact; reply: string };
+  | { trigger: "ai_handoff"; contact: Contact; variables: TemplateVariables };
 
 /**
  * Shared by both booking triggers, and spelled as two separate union members
@@ -152,9 +152,8 @@ function eventVariables(event: AutomationEvent): TemplateVariables {
       return { message: event.message ?? "", source: event.source ?? "" };
     case "booking_confirmed":
     case "booking_cancelled":
-      return event.variables;
     case "ai_handoff":
-      return { reply: event.reply };
+      return event.variables;
   }
 }
 

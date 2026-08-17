@@ -36,9 +36,23 @@ function ActiveSwitch({ automation }: { automation: AutomationSummary }) {
             return;
           }
 
-          toast.success(
-            next ? `"${automation.name}" is live` : `"${automation.name}" is paused`,
-          );
+          if (next) {
+            toast.success(`"${automation.name}" is live`);
+          } else if (automation.system_key) {
+            // Switching off a built-in rule stops a message the app has always
+            // sent, and the consequence is invisible — no error, no bounce,
+            // just a client who books and hears nothing. Worth a warning
+            // rather than the same cheerful tick as pausing a keyword rule.
+            toast.warning(`"${automation.name}" is paused`, {
+              description:
+                automation.trigger_type === "booking_confirmed" ||
+                automation.trigger_type === "booking_cancelled"
+                  ? "Nothing will be sent for these bookings until it is switched back on."
+                  : "This alert will not be sent until it is switched back on.",
+            });
+          } else {
+            toast.success(`"${automation.name}" is paused`);
+          }
           router.refresh();
         });
       }}
@@ -90,6 +104,14 @@ export function AutomationsList({
                   {automation.name}
                 </span>
                 <TriggerBadge trigger={automation.trigger_type} />
+                {automation.system_key && (
+                  <span
+                    className="text-muted-foreground shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
+                    title="Ships with the app. You can edit its wording or switch it off, but it can't be deleted."
+                  >
+                    Built in
+                  </span>
+                )}
                 {!automation.active && (
                   <span className="text-muted-foreground text-[10px] font-medium uppercase">
                     Paused

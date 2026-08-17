@@ -1,5 +1,6 @@
 import "server-only";
 
+import { formatPhone } from "@/lib/format";
 import type { Contact } from "@/types/database";
 
 /**
@@ -23,6 +24,11 @@ export function contactVariables(contact: Contact): TemplateVariables {
     // first missed call.
     first_name: name.split(/\s+/)[0] ?? "",
     phone: contact.phone,
+    // Added rather than changing what `phone` means: rules written before this
+    // existed use `{{phone}}` and must keep getting the same string out of it.
+    // E.164 is right for anything a machine reads back; this is for anything a
+    // person does.
+    phone_formatted: formatPhone(contact.phone),
   };
 }
 

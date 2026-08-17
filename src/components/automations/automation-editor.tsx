@@ -63,6 +63,7 @@ const MATCH_MODES: { value: MatchMode; label: string; hint: string }[] = [
 
 const ACTION_META = {
   send_sms: { label: "Send SMS", Icon: MessageSquare },
+  send_email: { label: "Send email", Icon: Mail },
   add_tag: { label: "Add tag", Icon: Tag },
   set_status: { label: "Set status", Icon: ToggleRight },
   notify_me: { label: "Email me", Icon: Mail },
@@ -71,7 +72,9 @@ const ACTION_META = {
 function newAction(type: EditorAction["type"]): EditorAction {
   switch (type) {
     case "send_sms":
-      return { type: "send_sms", template: "" };
+      return { type: "send_sms", to: "contact", template: "" };
+    case "send_email":
+      return { type: "send_email", to: "contact", subject: "", template: "" };
     case "add_tag":
       return { type: "add_tag", tag: "" };
     case "set_status":
@@ -79,6 +82,30 @@ function newAction(type: EditorAction["type"]): EditorAction {
     case "notify_me":
       return { type: "notify_me", note: "" };
   }
+}
+
+/**
+ * Characters that quietly double the cost of a text.
+ *
+ * SMS is billed per segment, and a segment is 153 characters while every
+ * character fits GSM-7. One that doesn't — an em dash, a curly apostrophe, an
+ * accented letter, an emoji — switches the whole message to UCS-2 and cuts the
+ * segment to 67. A single smart quote pasted in from a word processor can take
+ * a two-segment confirmation to four, on every booking, forever.
+ *
+ * Not blocked, because sometimes the character is the right call. Warned
+ * about, because the cost is otherwise completely invisible: nothing in the
+ * message looks different and the bill arrives a month later.
+ */
+const GSM7 =
+  /^[A-Za-z0-9@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà^{}\\[~\]|€\n\r]*$/;
+
+function nonGsmCharacters(text: string): string[] {
+  const offenders = new Set<string>();
+  for (const character of text) {
+    if (!GSM7.test(character)) offenders.add(character);
+  }
+  return [...offenders];
 }
 
 function Section({
@@ -117,6 +144,12 @@ export function AutomationEditor({
   const [state, setState] = useState<EditorState>(() =>
     automation ? toEditorState(automation) : blankEditorState(),
   );
+
+  // Changes what "the client" means in the recipient hint: for a booking it is
+  // the details on the booking form, which need not be the contact's.
+  const isBookingTrigger =
+    state.triggerType === "booking_confirmed" ||
+    state.triggerType === "booking_cancelled";
   const [error, setError] = useState<string | null>(null);
   // Optimistic mirror of `active`, so the switch moves under the cursor and
   // falls back to the server's answer once the transition settles.
@@ -427,18 +460,77 @@ export function AutomationEditor({
                   </Button>
                 </div>
 
-                {action.type === "send_sms" && (
+                {(action.type === "send_sms" || action.type === "send_email") && (
                   <div className="grid gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-muted-foreground text-xs">To</span>
+                      {(["contact", "business"] as const).map((target) => (
+                        <Button
+                          key={target}
+                          type="button"
+                          size="xs"
+                          variant={action.to === target ? "secondary" : "ghost"}
+                          disabled={pending}
+                          onClick={() => patchAction(index, { to: target })}
+                        >
+                          {target === "contact" ? "The client" : "You"}
+                        </Button>
+                      ))}
+                      <span className="text-muted-foreground text-[11px]">
+                        {action.to === "contact"
+                          ? isBookingTrigger
+                            ? "the phone and email on the booking"
+                            : "the contact this rule fired for"
+                          : action.type === "send_email"
+                            ? "your business email, from My Business"
+                            : "your alert number, from Settings"}
+                      </span>
+                    </div>
+
+                    {action.type === "send_email" && (
+                      <Input
+                        value={action.subject}
+                        onChange={(event) =>
+                          patchAction(index, { subject: event.target.value })
+                        }
+                        placeholder="{{business_name}}: booked for {{booking_date}}"
+                        disabled={pending}
+                        aria-label="Email subject"
+                      />
+                    )}
+
                     <Textarea
                       value={action.template}
                       onChange={(event) =>
                         patchAction(index, { template: event.target.value })
                       }
-                      rows={3}
+                      rows={action.type === "send_email" ? 5 : 3}
                       disabled={pending}
                       placeholder="Hi {{first_name}}, thanks for getting in touch…"
                       aria-label="Message template"
                     />
+
+                    {/* Only for SMS. An email has no segments and no per-message
+                        cost, so the same character is free there. */}
+                    {action.type === "send_sms" &&
+                      (() => {
+                        const offenders = nonGsmCharacters(action.template);
+                        if (offenders.length === 0) return null;
+                        return (
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            {offenders.map((character) => (
+                              <code key={character} className="mr-1">
+                                {character}
+                              </code>
+                            ))}
+                            {offenders.length === 1 ? "is" : "are"} outside the
+                            basic SMS alphabet, which cuts each segment from 153
+                            characters to 67 — roughly doubling what this text
+                            costs to send. Fine if you meant it.
+                          </p>
+                        );
+                      })()}
+
                     <p className="text-muted-foreground text-xs">
                       Variables:{" "}
                       {templateVariablesFor(state.triggerType).map((variable) => (

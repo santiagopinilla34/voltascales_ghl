@@ -2,12 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { runAutomationsForEvent } from "@/lib/automations/engine";
 import { appBaseUrl } from "@/lib/env";
-import { contactLabel, formatPhone } from "@/lib/format";
-import { getSettings } from "@/lib/settings";
+import { contactLabel } from "@/lib/format";
 import type { Contact, Database } from "@/types/database";
-
-import { sendEmail } from "./email";
 
 /**
  * Tells the operator that the AI has handed a conversation over.
@@ -19,6 +17,12 @@ import { sendEmail } from "./email";
  * nobody is watching. A lead who was told to expect a follow-up and never gets
  * one is the most expensive failure this app has.
  *
+ * The message itself is no longer written here. It is the `ai_handoff_operator`
+ * automation, seeded with exactly the text this function used to build, and
+ * editable on the Automations page — which is also where you go to see that it
+ * exists at all. This function's remaining job is to gather what the template
+ * cannot work out for itself and fire the event.
+ *
  * Never throws. The hand-off itself already happened and is correct; this is
  * strictly an attempt to tell someone about it.
  */
@@ -27,56 +31,27 @@ export async function notifyHandoff(
   { contact, reply }: { contact: Contact; reply: string },
 ): Promise<void> {
   try {
-    const settings = await getSettings(supabase);
-    const to = settings?.business_email?.trim();
-
-    if (!to) {
-      console.log(
-        `[notify] no hand-off alert for contact ${contact.id}: no business email set in My Business`,
-      );
-      return;
-    }
-
-    const label = contactLabel(contact);
     const base = appBaseUrl();
 
-    const lines = [
-      `${label} was handed over to you by the AI.`,
-      "",
-      `Phone: ${formatPhone(contact.phone)}`,
-      "",
-      "The AI sent this and then stopped answering:",
-      "",
-      reply,
-      "",
-      "AI handling is now off for this contact. It stays off until you turn it",
-      "back on, so nothing further will be sent automatically — they are waiting",
-      "on a reply from you.",
-    ];
-
-    // Only when the origin is configured. A dead link in an alert is worse than
-    // no link, and this is optional everywhere else in the app.
-    if (base) {
-      lines.push("", `${base}/inbox/${contact.id}`);
-    }
-
-    const result = await sendEmail({
-      to,
-      subject: `Take over: ${label}`,
-      text: lines.join("\n"),
+    const outcomes = await runAutomationsForEvent(supabase, {
+      trigger: "ai_handoff",
+      contact,
+      variables: {
+        reply,
+        // The contact's name, or their number when there isn't one — a
+        // hand-off often happens before anyone has learned it.
+        label: contactLabel(contact),
+        // Only when the origin is configured. A dead link in an alert is worse
+        // than no link, and this is optional everywhere else in the app.
+        inbox_link: base ? `\n${base}/inbox/${contact.id}` : "",
+      },
     });
 
-    if (!result.ok) {
-      console.error(
-        `[notify] could not email the hand-off alert for contact ${contact.id} — ` +
-          `they are waiting on a human and nobody has been told: ${result.error}`,
+    if (outcomes.length === 0) {
+      console.log(
+        `[notify] no hand-off alert for contact ${contact.id}: no active ai_handoff rule`,
       );
-      return;
     }
-
-    console.log(
-      `[notify] hand-off alert for contact ${contact.id} emailed to ${to} [${result.id}]`,
-    );
   } catch (error) {
     console.error(
       `[notify] unexpected failure sending the hand-off alert for contact ${contact.id}`,
