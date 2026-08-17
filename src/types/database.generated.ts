@@ -212,6 +212,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          system_key: string | null
           trigger_config: Json
           trigger_type: string
         }
@@ -222,6 +223,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          system_key?: string | null
           trigger_config?: Json
           trigger_type: string
         }
@@ -232,6 +234,7 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          system_key?: string | null
           trigger_config?: Json
           trigger_type?: string
         }

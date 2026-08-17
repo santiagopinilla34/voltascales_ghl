@@ -9,7 +9,8 @@ import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import type { Contact, Database } from "@/types/database";
 
-import type { AutomationAction } from "./config";
+import type { AutomationAction, MessageTarget } from "./config";
+import type { EventRecipient } from "./engine";
 import { contactVariables, renderTemplate, type TemplateVariables } from "./template";
 
 /** Twilio rejects bodies over 1600 characters. */
@@ -21,8 +22,14 @@ export type ActionContext = {
    * The contact as it stands *now*. Actions that change it return the updated
    * row so later actions in the same run see their own effects (e.g. `add_tag`
    * then a condition-free `send_sms` template using `{{name}}`).
+   *
+   * Null when a booking could not be matched to a contact. The messages still
+   * go out — they are addressed from the booking, not the contact — but the
+   * actions that operate on a contact row have nothing to operate on.
    */
-  contact: Contact;
+  contact: Contact | null;
+  /** Where a `to: "contact"` message goes. See `EventRecipient`. */
+  recipient: EventRecipient;
   /** Contact variables plus whatever the trigger contributed. */
   variables: TemplateVariables;
 };
@@ -30,8 +37,43 @@ export type ActionContext = {
 export type ActionResult = {
   /** One line for the `automation_runs.detail` summary. */
   summary: string;
-  contact: Contact;
+  contact: Contact | null;
 };
+
+/**
+ * Resolves an action's target into an address, or explains why it can't.
+ *
+ * Returning the reason rather than throwing matters for the `business` case:
+ * an alert with nowhere to go is a configuration gap the operator should see
+ * in the run log, not a failure that stops the client's confirmation going out
+ * in the same rule.
+ */
+async function resolveTarget(
+  target: MessageTarget,
+  channel: "sms" | "email",
+  { supabase, recipient }: ActionContext,
+): Promise<{ address: string } | { missing: string }> {
+  if (target === "contact") {
+    const address = channel === "sms" ? recipient.phone : recipient.email;
+    return address?.trim()
+      ? { address: address.trim() }
+      : { missing: `no ${channel === "sms" ? "phone number" : "email address"} for the contact` };
+  }
+
+  const settings = await getSettings(supabase);
+
+  if (channel === "email") {
+    const address = settings?.business_email?.trim();
+    return address
+      ? { address }
+      : { missing: "no business email set in My Business" };
+  }
+
+  const address = settings?.booking_notify_number?.trim();
+  return address
+    ? { address }
+    : { missing: "no alert number set in Settings" };
+}
 
 /**
  * Executes one action. Throws on failure — the engine catches, marks the run
@@ -43,7 +85,9 @@ export async function executeAction(
 ): Promise<ActionResult> {
   switch (action.type) {
     case "send_sms":
-      return sendSmsAction(action.template, context);
+      return sendSmsAction(action.to, action.template, context);
+    case "send_email":
+      return sendEmailAction(action.to, action.subject, action.template, context);
     case "add_tag":
       return addTagAction(action.tag, context);
     case "set_status":
@@ -51,6 +95,20 @@ export async function executeAction(
     case "notify_me":
       return notifyMeAction(action.note, context);
   }
+}
+
+/**
+ * The actions that need a contact row say so once, here.
+ *
+ * A booking with no matching contact should not fail a rule whose real job is
+ * sending a confirmation — the tag it also wanted to apply simply has nowhere
+ * to go, and the run log records that rather than the whole rule collapsing.
+ */
+function noContact(action: string): ActionResult {
+  return {
+    summary: `${action} skipped: no contact is linked to this booking`,
+    contact: null,
+  };
 }
 
 /**
@@ -65,6 +123,8 @@ async function notifyMeAction(
   note: string,
   { supabase, contact, variables }: ActionContext,
 ): Promise<ActionResult> {
+  if (!contact) return noContact("notify_me");
+
   const settings = await getSettings(supabase);
   const to = settings?.business_email?.trim();
 
@@ -118,9 +178,11 @@ async function notifyMeAction(
 }
 
 async function sendSmsAction(
+  to: MessageTarget,
   template: string,
-  { supabase, contact, variables }: ActionContext,
+  context: ActionContext,
 ): Promise<ActionResult> {
+  const { supabase, contact, variables } = context;
   const { text, unknown } = renderTemplate(template, variables);
 
   if (!text) {
@@ -132,7 +194,26 @@ async function sendSmsAction(
     );
   }
 
-  const message = await sendSms(contact.phone, text);
+  const resolved = await resolveTarget(to, "sms", context);
+  if ("missing" in resolved) {
+    // Not thrown. A rule that texts the client and alerts you should still
+    // reach the client when your own alert number is unset.
+    return { summary: `send_sms (${to}) skipped: ${resolved.missing}`, contact };
+  }
+
+  const message = await sendSms(resolved.address, text);
+
+  // Only the contact's own thread gets a copy, and only when there is a
+  // contact to attach it to. An alert texted to the business is not part of
+  // any client conversation and would read as the app talking to itself.
+  if (to !== "contact" || !contact) {
+    return {
+      summary: `send_sms → ${resolved.address} [${message.sid}]${
+        unknown.length > 0 ? ` (unknown placeholders: ${unknown.join(", ")})` : ""
+      }`,
+      contact,
+    };
+  }
 
   // Logged after Twilio accepts it, so the thread never shows a message that
   // was never sent (same ordering as the manual reply route).
@@ -162,7 +243,62 @@ async function sendSmsAction(
   const suffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
 
   return {
-    summary: `send_sms → ${contact.phone} [${message.sid}]${suffix}`,
+    summary: `send_sms → ${resolved.address} [${message.sid}]${suffix}`,
+    contact,
+  };
+}
+
+/**
+ * Sends a templated email.
+ *
+ * Both the subject and the body go through the same substitution, because a
+ * subject line carrying the date is the difference between "VoltaScales:
+ * booked for Tue, Aug 18" and an inbox full of identical rows.
+ *
+ * Unlike `send_sms`, a failure here throws and fails the run. That is the
+ * right default for a message *to a client* — a confirmation that did not
+ * arrive is not a footnote — and it matches how `send_sms` already behaves.
+ * The one exception stays `notify_me`, which is explicitly commentary.
+ */
+async function sendEmailAction(
+  to: MessageTarget,
+  subject: string,
+  template: string,
+  context: ActionContext,
+): Promise<ActionResult> {
+  const { contact, variables } = context;
+
+  const body = renderTemplate(template, variables);
+  const line = renderTemplate(subject, variables);
+
+  if (!body.text) {
+    throw new Error("send_email rendered an empty message");
+  }
+  if (!line.text) {
+    throw new Error("send_email rendered an empty subject");
+  }
+
+  const resolved = await resolveTarget(to, "email", context);
+  if ("missing" in resolved) {
+    return { summary: `send_email (${to}) skipped: ${resolved.missing}`, contact };
+  }
+
+  const result = await sendEmail({
+    to: resolved.address,
+    subject: line.text,
+    text: body.text,
+  });
+
+  if (!result.ok) {
+    throw new Error(`send_email to ${resolved.address} failed: ${result.error}`);
+  }
+
+  const unknown = [...new Set([...body.unknown, ...line.unknown])];
+  const suffix =
+    unknown.length > 0 ? ` (unknown placeholders: ${unknown.join(", ")})` : "";
+
+  return {
+    summary: `send_email → ${resolved.address} [${result.id}]${suffix}`,
     contact,
   };
 }
@@ -171,6 +307,7 @@ async function addTagAction(
   tag: string,
   { supabase, contact }: ActionContext,
 ): Promise<ActionResult> {
+  if (!contact) return noContact(`add_tag "${tag}"`);
   if (contact.tags.includes(tag)) {
     return { summary: `add_tag "${tag}" (already present)`, contact };
   }
@@ -193,6 +330,7 @@ async function setStatusAction(
   status: Contact["status"],
   { supabase, contact }: ActionContext,
 ): Promise<ActionResult> {
+  if (!contact) return noContact(`set_status "${status}"`);
   if (contact.status === status) {
     return { summary: `set_status "${status}" (unchanged)`, contact };
   }
@@ -222,8 +360,11 @@ async function setStatusAction(
  * variables win over contact ones on a name clash.
  */
 export function templateVariablesFor(
-  contact: Contact,
+  contact: Contact | null,
   triggerVariables: TemplateVariables,
 ): TemplateVariables {
-  return { ...contactVariables(contact), ...triggerVariables };
+  // Trigger variables win on a name clash, which is what makes a booking's
+  // own `first_name` — taken from the booking form — beat the contact record's
+  // for a message about that booking.
+  return { ...(contact ? contactVariables(contact) : {}), ...triggerVariables };
 }

@@ -321,21 +321,63 @@ export function explainConditionMismatch(
 // ---------------------------------------------------------------------------
 
 /**
- * The action types the engine can execute today. PRD 4.5 also lists `wait` and
- * `notify_me`; see DEFERRED_ACTION_TYPES.
+ * Who a message goes to.
+ *
+ * - `contact` — the person the event is about. For a keyword or missed call
+ *   that is the contact's own phone; for a booking it is the phone and email
+ *   given on the booking form, which are not always the contact's, and the
+ *   booking is the more authoritative of the two for a message about it.
+ * - `business` — you. Email comes from My Business, the SMS number from the
+ *   booking alert number in Settings.
+ */
+export type MessageTarget = "contact" | "business";
+
+const MESSAGE_TARGETS = ["contact", "business"] as const;
+
+/**
+ * The action types the engine can execute today. PRD 4.5 also lists `wait`;
+ * see DEFERRED_ACTION_TYPES.
  */
 export type AutomationAction =
-  | { type: "send_sms"; template: string }
+  | { type: "send_sms"; to: MessageTarget; template: string }
+  | { type: "send_email"; to: MessageTarget; subject: string; template: string }
   | { type: "add_tag"; tag: string }
   | { type: "set_status"; status: ContactStatus }
   | { type: "notify_me"; note: string };
 
 const SUPPORTED_ACTION_TYPES = [
   "send_sms",
+  "send_email",
   "add_tag",
   "set_status",
   "notify_me",
 ] as const;
+
+/**
+ * Reads an action's `to`, defaulting to `contact`.
+ *
+ * Defaulted rather than required because every `send_sms` written before
+ * targeting existed meant "text the contact", and those rows are still in the
+ * database. A missing `to` has to keep meaning what it always meant.
+ */
+function parseTarget(
+  raw: Json | undefined,
+  label: string,
+): ParseResult<MessageTarget> {
+  if (raw === undefined || raw === null) {
+    return { ok: true, value: "contact" };
+  }
+  if (
+    typeof raw !== "string" ||
+    !(MESSAGE_TARGETS as readonly string[]).includes(raw)
+  ) {
+    return {
+      ok: false,
+      error: `${label} has invalid "to" ${JSON.stringify(raw)} (expected ${MESSAGE_TARGETS.join(" or ")})`,
+    };
+  }
+  return { ok: true, value: raw as MessageTarget };
+}
 
 /**
  * In PRD 4.5 but deliberately not implemented yet, with the reason shown to
@@ -397,7 +439,35 @@ export function parseActions(raw: Json): ParseResult<AutomationAction[]> {
             error: `${label} (send_sms) needs a non-empty "template"`,
           };
         }
-        actions.push({ type, template });
+        const to = parseTarget(entry.to, `${label} (send_sms)`);
+        if (!to.ok) return to;
+
+        actions.push({ type, to: to.value, template });
+        break;
+      }
+
+      case "send_email": {
+        const template = nonEmptyString(entry.template);
+        if (template === null) {
+          return {
+            ok: false,
+            error: `${label} (send_email) needs a non-empty "template"`,
+          };
+        }
+        // Required, unlike the body's optionality elsewhere: an email with no
+        // subject renders as "(no subject)" in every client and reads as spam,
+        // which for a booking confirmation is the one outcome that matters.
+        const subject = nonEmptyString(entry.subject);
+        if (subject === null) {
+          return {
+            ok: false,
+            error: `${label} (send_email) needs a non-empty "subject"`,
+          };
+        }
+        const to = parseTarget(entry.to, `${label} (send_email)`);
+        if (!to.ok) return to;
+
+        actions.push({ type, to: to.value, subject, template });
         break;
       }
 

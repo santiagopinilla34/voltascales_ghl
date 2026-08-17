@@ -51,8 +51,29 @@ const RERUN_COOLDOWN_MS = 60_000;
 const MAX_DETAIL_LENGTH = 2000;
 
 /**
+ * Where a `to: "contact"` message actually goes.
+ *
+ * For the inbound triggers this is just the contact's own phone. Bookings need
+ * it stated separately: someone can book with a different phone or email than
+ * the contact record holds, and for a message *about that booking* the booking
+ * form is the more authoritative of the two — it is where they said to reach
+ * them about this meeting.
+ */
+export type EventRecipient = {
+  phone: string | null;
+  email: string | null;
+};
+
+/**
  * What happened, in the shape each trigger needs. A union rather than a loose
  * bag so a webhook can't fire `keyword` without supplying the message text.
+ *
+ * The booking variants carry their own `variables` and `recipient` rather than
+ * having the engine reach for a booking row and work them out. That keeps the
+ * engine ignorant of bookings — it already knows nothing about calls or forms
+ * beyond what the caller hands it — and it keeps the message wording assembled
+ * in one place, `src/lib/booking/messages.ts`, which is also where the Settings
+ * preview reads it from.
  */
 export type AutomationEvent =
   | { trigger: "missed_call"; contact: Contact }
@@ -62,7 +83,56 @@ export type AutomationEvent =
       contact: Contact;
       source: string | null;
       message: string | null;
-    };
+    }
+  | ({ trigger: "booking_confirmed" } & BookingEventFields)
+  | ({ trigger: "booking_cancelled" } & BookingEventFields)
+  | { trigger: "ai_handoff"; contact: Contact; reply: string };
+
+/**
+ * Shared by both booking triggers, and spelled as two separate union members
+ * above rather than one with a two-value `trigger`. TypeScript only narrows a
+ * discriminated union on a single-literal discriminant — with the union form,
+ * excluding both booking cases still left `contact` as possibly null
+ * everywhere else.
+ */
+type BookingEventFields = {
+  /**
+   * Null when the booking could not be matched to a contact. The messages
+   * still send — they are addressed from the booking — but the actions that
+   * operate on a contact have nothing to work on and say so.
+   */
+  contact: Contact | null;
+  recipient: EventRecipient;
+  variables: TemplateVariables;
+};
+
+/**
+ * Whether repeat events of this kind need suppressing.
+ *
+ * The cooldown exists because webhooks redeliver — Twilio retries, and a
+ * retried missed call would text the caller twice. Booking events are fired
+ * once, from inside an action this app already took, and are not redelivered.
+ *
+ * Applying it to them would be actively wrong rather than merely unnecessary:
+ * the same person booking two slots a minute apart is a real thing that
+ * happens, and the cooldown keys on the contact, so the second booking's
+ * confirmation would be silently swallowed as a duplicate of the first.
+ */
+function usesCooldown(trigger: AutomationEvent["trigger"]): boolean {
+  return (
+    trigger === "missed_call" ||
+    trigger === "keyword" ||
+    trigger === "form_submit"
+  );
+}
+
+/** Where `to: "contact"` goes for this event. */
+function recipientOf(event: AutomationEvent): EventRecipient {
+  if (event.trigger === "booking_confirmed" || event.trigger === "booking_cancelled") {
+    return event.recipient;
+  }
+  return { phone: event.contact.phone, email: event.contact.email };
+}
 
 export type AutomationRunOutcome = {
   automationId: string;
@@ -80,6 +150,11 @@ function eventVariables(event: AutomationEvent): TemplateVariables {
       return { message: event.body };
     case "form_submit":
       return { message: event.message ?? "", source: event.source ?? "" };
+    case "booking_confirmed":
+    case "booking_cancelled":
+      return event.variables;
+    case "ai_handoff":
+      return { reply: event.reply };
   }
 }
 
@@ -142,6 +217,13 @@ function matchTrigger(
 
       return { status: "match", variables: {} };
     }
+
+    // No parameters to match on. A booking either happened or it didn't, and
+    // narrowing which bookings a rule applies to is what `conditions` is for.
+    case "booking_confirmed":
+    case "booking_cancelled":
+    case "ai_handoff":
+      return { status: "match", variables: {} };
   }
 }
 
@@ -174,7 +256,7 @@ async function hasRecentSuccess(
 async function logRun(
   supabase: SupabaseClient<Database>,
   automation: Automation,
-  contact: Contact,
+  contact: Contact | null,
   status: AutomationRunStatus,
   detail: string,
 ): Promise<AutomationRunOutcome> {
@@ -184,8 +266,11 @@ async function logRun(
       : detail;
 
   const { error } = await supabase.from("automation_runs").insert({
+    // Nullable in the schema, and a booking that matched no contact is exactly
+    // the case it was nullable for. The run still gets logged — "it ran and
+    // there was nobody to attach it to" is information worth keeping.
     automation_id: automation.id,
-    contact_id: contact.id,
+    contact_id: contact?.id ?? null,
     status,
     detail: trimmed,
   });
@@ -219,12 +304,30 @@ async function runAutomation(
     return logRun(supabase, automation, contact, "failed", conditions.error);
   }
 
-  const mismatch = explainConditionMismatch(conditions.value, contact);
-  if (mismatch) {
-    return logRun(supabase, automation, contact, "skipped", mismatch);
+  if (contact) {
+    const mismatch = explainConditionMismatch(conditions.value, contact);
+    if (mismatch) {
+      return logRun(supabase, automation, contact, "skipped", mismatch);
+    }
+  } else if (Object.keys(conditions.value).length > 0) {
+    // A rule that filters on contact fields cannot be evaluated against a
+    // booking that matched no contact. Skipping is the safe reading: the
+    // operator narrowed this rule deliberately, and "the filter could not be
+    // checked" is not grounds for firing it at everyone.
+    return logRun(
+      supabase,
+      automation,
+      null,
+      "skipped",
+      "no contact was linked to this booking, so the rule's conditions could not be checked",
+    );
   }
 
-  if (await hasRecentSuccess(supabase, automation.id, contact.id)) {
+  if (
+    usesCooldown(event.trigger) &&
+    contact &&
+    (await hasRecentSuccess(supabase, automation.id, contact.id))
+  ) {
     return logRun(
       supabase,
       automation,
@@ -242,6 +345,7 @@ async function runAutomation(
   }
 
   const triggerVariables = { ...eventVariables(event), ...matchVariables };
+  const recipient = recipientOf(event);
   let current = contact;
   let variables = templateVariablesFor(current, triggerVariables);
   const done: string[] = [];
@@ -251,6 +355,7 @@ async function runAutomation(
       const result = await executeAction(action, {
         supabase,
         contact: current,
+        recipient,
         variables,
       });
 

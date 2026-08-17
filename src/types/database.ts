@@ -50,7 +50,13 @@ export type CallDirection = "inbound" | "outbound";
 /** Mirrors `calls_status_check`. */
 export type CallStatus = "missed" | "answered" | "voicemail";
 /** Mirrors `automations_trigger_type_check`. */
-export type AutomationTriggerType = "missed_call" | "keyword" | "form_submit";
+export type AutomationTriggerType =
+  | "missed_call"
+  | "keyword"
+  | "form_submit"
+  | "booking_confirmed"
+  | "booking_cancelled"
+  | "ai_handoff";
 /** Mirrors `automation_runs_status_check`. */
 export type AutomationRunStatus = "success" | "failed" | "skipped";
 /** Mirrors `settings_ai_mode_check`. */
