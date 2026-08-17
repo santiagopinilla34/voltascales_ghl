@@ -1,6 +1,7 @@
 import "server-only";
 
-import { notifyFromAddress, resendApiKey } from "@/lib/env";
+import { resendApiKey } from "@/lib/env";
+import { resolveSendingFrom } from "@/lib/resend/sending";
 
 /**
  * Transactional email, through Resend.
@@ -43,6 +44,12 @@ export async function sendEmail({
     return { ok: false, error: "RESEND_API_KEY is not set" };
   }
 
+  // Resolved per send rather than read from the environment, so choosing a
+  // sending domain on the Email Services page takes effect without a redeploy.
+  // Falls back to NOTIFY_FROM_EMAIL and then to Resend's shared sender, which
+  // is where this started and the reason client mail was vanishing.
+  const from = await resolveSendingFrom();
+
   let response: Response;
   try {
     response = await fetch(ENDPOINT, {
@@ -52,7 +59,7 @@ export async function sendEmail({
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        from: notifyFromAddress(),
+        from,
         to: [to],
         subject,
         text,

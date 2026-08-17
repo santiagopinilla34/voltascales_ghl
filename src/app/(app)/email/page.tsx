@@ -4,8 +4,10 @@ import { ExternalLink, KeyRound, Mail, TriangleAlert } from "lucide-react";
 
 import { AddDomainForm } from "@/components/email/add-domain-form";
 import { DomainCard } from "@/components/email/domain-card";
+import { StatusDashboard } from "@/components/email/status-dashboard";
+import { getSendActivity, type SendActivity } from "@/lib/resend/activity";
 import { listDomains, resendConfigured } from "@/lib/resend/domains";
-import { resolveFromAddress } from "@/lib/resend/sending";
+import { resolveFromAddress, sendingDomainOf } from "@/lib/resend/sending";
 import { getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 
@@ -35,6 +37,29 @@ export default async function EmailServicesPage() {
 
   const sending = resolveFromAddress(settings);
   const reportTo = settings?.business_email?.trim() || null;
+  const businessName = settings?.business_name?.trim() || null;
+
+  // The dashboard is for the domain actually being sent from, and only once
+  // Resend agrees it is verified. A locally-stored selection whose domain has
+  // since failed should show the failure on its card, not a green panel.
+  const selected = sendingDomainOf(settings);
+  const activeDomain =
+    selected && domains.find((domain) => domain.id === selected.id);
+  const showDashboard = Boolean(activeDomain && activeDomain.status === "verified");
+
+  // Only fetched when there is somewhere to show it: it is one or more extra
+  // round trips to Resend, and no page should pay for a panel it won't render.
+  let activity: SendActivity | null = null;
+  let activityError: string | null = null;
+
+  if (showDashboard && activeDomain && selected) {
+    const result = await getSendActivity({
+      domainId: selected.id,
+      domainName: activeDomain.name,
+    });
+    if (result.ok) activity = result.value;
+    else activityError = result.error;
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -80,6 +105,14 @@ export default async function EmailServicesPage() {
                 Adding a domain below and verifying it fixes this.
               </p>
             </section>
+          ) : showDashboard && activeDomain && selected ? (
+            <StatusDashboard
+              domain={activeDomain}
+              from={selected.from}
+              verifiedAt={selected.verifiedAt}
+              activity={activity}
+              activityError={activityError}
+            />
           ) : (
             <section className="flex min-w-0 flex-col gap-1.5 rounded-lg border p-4">
               <div className="flex min-w-0 items-center gap-2">
@@ -91,7 +124,7 @@ export default async function EmailServicesPage() {
               <code className="text-xs break-all">{sending.from}</code>
               <p className="text-muted-foreground text-xs">
                 {sending.source === "domain"
-                  ? "From a verified domain set up on this page."
+                  ? "From a domain set up on this page. Check its status below — Resend has to agree it's verified before mail authenticates."
                   : "From the NOTIFY_FROM_EMAIL environment variable. Verifying a domain here replaces it, and can be changed without a redeploy."}
               </p>
             </section>
@@ -159,6 +192,8 @@ export default async function EmailServicesPage() {
                   key={domain.id}
                   domain={domain}
                   reportTo={reportTo}
+                  businessName={businessName}
+                  active={selected?.id === domain.id ? selected.from : null}
                 />
               ))}
             </section>

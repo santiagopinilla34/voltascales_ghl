@@ -131,7 +131,7 @@ export async function checkDomainVerification(
  * allow it: Resend rejects sends from an unverified domain, so permitting the
  * selection would only move the failure somewhere less visible.
  */
-export async function useSendingDomain(input: {
+export async function selectSendingDomain(input: {
   domainId: string;
   mailbox: string;
 }): Promise<ActionResult<{ from: string }>> {

@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { SETTINGS_ID } from "@/lib/settings";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database, Settings } from "@/types/database";
 
 /**
@@ -71,6 +72,51 @@ export function resolveFromAddress(settings: Settings | null): {
   if (configured) return { from: configured, source: "environment" };
 
   return { from: SHARED_SENDER, source: "shared" };
+}
+
+/**
+ * The From address, read fresh from the database.
+ *
+ * The async counterpart to `resolveFromAddress`, for the send path — which has
+ * no settings row in hand and, in the webhook cases, no user session either.
+ * Uses the service-role client for that reason.
+ *
+ * Never throws, and never lets a database problem stop an email going out.
+ * Modelled on `resolveForwardToNumber`, which makes the same trade for the
+ * same reason: falling back to the environment sends the message from a
+ * less-good address, while propagating the error sends nothing at all. Of
+ * those two, only one loses the message.
+ *
+ * Read on every send rather than cached. Changing the sending domain is meant
+ * to take effect immediately, and this is one indexed lookup on a single-row
+ * table against work that already involves an HTTP round trip to Resend.
+ */
+export async function resolveSendingFrom(): Promise<string> {
+  try {
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from("settings")
+      .select("sending_from_email")
+      .eq("id", SETTINGS_ID)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        "[email] sending-address lookup failed, falling back to NOTIFY_FROM_EMAIL",
+        error,
+      );
+    } else {
+      const configured = data?.sending_from_email?.trim();
+      if (configured) return configured;
+    }
+  } catch (error) {
+    console.error(
+      "[email] sending-address lookup threw, falling back to NOTIFY_FROM_EMAIL",
+      error,
+    );
+  }
+
+  return process.env.NOTIFY_FROM_EMAIL?.trim() || SHARED_SENDER;
 }
 
 /**

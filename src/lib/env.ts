@@ -98,13 +98,20 @@ export function resendApiKey(): string | null {
 }
 
 /**
- * Who notification email comes from.
+ * Who email comes from — NOT the accessor to reach for.
  *
- * Defaults to Resend's shared sender, which needs no DNS setup but will only
- * deliver to the address the Resend account was registered with. That is
- * exactly the shape of these alerts — they go to the operator, not to leads —
- * so the default is the whole configuration for now. Verifying a domain with
- * Resend and setting this is what changes if that ever stops being true.
+ * `resolveSendingFrom` in `src/lib/resend/sending.ts` is what the send path
+ * uses. It checks the sending domain chosen on the Email Services page first
+ * and falls back to NOTIFY_FROM_EMAIL, so the address can be changed without a
+ * redeploy. This function knows only about the environment half and would
+ * silently ignore a domain that had been set up properly.
+ *
+ * Kept because NOTIFY_FROM_EMAIL is still a supported fallback and this is the
+ * documented home of the variable. Nothing calls it.
+ *
+ * The default is Resend's shared sender, which needs no DNS but delivers only
+ * to the address the Resend account was registered with. That default is what
+ * made client-facing email vanish: accepted by the API, delivered to nobody.
  */
 export function notifyFromAddress(): string {
   const value = process.env.NOTIFY_FROM_EMAIL?.trim();
