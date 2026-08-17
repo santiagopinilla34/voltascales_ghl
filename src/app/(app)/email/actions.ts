@@ -73,13 +73,68 @@ export async function addSendingDomain(input: {
 }
 
 /**
- * Re-checks a domain's DNS against Resend.
+ * Keeps `sending_verified_at` honest, in both directions.
  *
- * Also keeps `sending_verified_at` honest, in both directions. If this check is
- * the first to see the *active* domain verified, it stamps the time — that is
- * the only moment the app can truthfully record. If the active domain has
- * fallen out of verified, the stamp is cleared rather than left behind
- * claiming a verification that no longer holds.
+ * If this is the first observation of the *active* domain being verified, the
+ * time is stamped — that is the only moment the app can truthfully record,
+ * since Resend's domain object has no verification timestamp of its own. If
+ * the active domain has fallen out of verified, the stamp is cleared rather
+ * than left behind claiming a verification that no longer holds.
+ */
+async function syncVerifiedAt(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  domain: ResendDomain,
+): Promise<void> {
+  const settings = await getSettings(supabase);
+  const active = sendingDomainOf(settings);
+
+  if (active?.id !== domain.id) return;
+
+  if (domain.status === "verified") {
+    // Only the first sighting. Re-stamping on every read would turn "verified
+    // on the 16th" into "verified just now", every time the page was opened.
+    if (!active.verifiedAt) {
+      await setSendingDomain(supabase, {
+        id: domain.id,
+        name: domain.name,
+        from: active.from,
+        verifiedAt: new Date().toISOString(),
+      });
+    }
+    return;
+  }
+
+  // Cleared only for statuses that mean verification has genuinely lapsed.
+  //
+  // Not for `pending` or `not_started`, and that exclusion is load-bearing:
+  // `POST /verify` moves a domain to `pending` regardless of what it was
+  // before, so re-checking an already-verified domain would otherwise wipe the
+  // original date and replace it with the time of the re-check a few seconds
+  // later. The one honest timestamp available would be destroyed by the act of
+  // confirming it was still true.
+  const lapsed =
+    domain.status === "failed" ||
+    domain.status === "temporary_failure" ||
+    domain.status === "partially_failed";
+
+  if (lapsed && active.verifiedAt) {
+    await setSendingDomain(supabase, {
+      id: domain.id,
+      name: domain.name,
+      from: active.from,
+      verifiedAt: null,
+    });
+  }
+}
+
+/**
+ * Asks Resend to re-read DNS, then reads the result back.
+ *
+ * The expensive half of the pair, and the one that must not be repeated on a
+ * timer: `POST /verify` moves the domain to `pending` whatever it was before,
+ * so calling it every few seconds would keep resetting the very state the
+ * caller is waiting to see change. Start a check with this, then poll with
+ * `readDomainStatus`.
  */
 export async function checkDomainVerification(
   domainId: string,
@@ -90,32 +145,37 @@ export async function checkDomainVerification(
   const result = await verifyAndRead(domainId);
   if (!result.ok) return { ok: false, error: result.error };
 
-  const domain = result.value;
-  const settings = await getSettings(supabase);
-  const active = sendingDomainOf(settings);
-
-  if (active?.id === domain.id) {
-    const verified = domain.status === "verified";
-
-    if (verified && !active.verifiedAt) {
-      await setSendingDomain(supabase, {
-        id: domain.id,
-        name: domain.name,
-        from: active.from,
-        verifiedAt: new Date().toISOString(),
-      });
-    } else if (!verified && active.verifiedAt) {
-      await setSendingDomain(supabase, {
-        id: domain.id,
-        name: domain.name,
-        from: active.from,
-        verifiedAt: null,
-      });
-    }
-  }
+  await syncVerifiedAt(supabase, result.value);
 
   revalidateEmail();
-  return { ok: true, value: domain };
+  return { ok: true, value: result.value };
+}
+
+/**
+ * Reads a domain's current state without triggering anything.
+ *
+ * What the polling loop calls. Resend keeps re-checking DNS on its own for 72
+ * hours after a verification is started, so watching for the answer is a plain
+ * read — no need to keep asking it to start over, and asking would actively
+ * get in the way. See `checkDomainVerification`.
+ *
+ * Deliberately does not revalidate the page: it runs every few seconds, and
+ * busting the route cache on each tick would refetch the whole domain list and
+ * the send activity alongside it. The caller re-renders from the returned
+ * domain and refreshes once, when the status finally settles.
+ */
+export async function readDomainStatus(
+  domainId: string,
+): Promise<ActionResult<ResendDomain>> {
+  const supabase = await requireUser();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  const result = await getDomain(domainId);
+  if (!result.ok) return { ok: false, error: result.error };
+
+  await syncVerifiedAt(supabase, result.value);
+
+  return { ok: true, value: result.value };
 }
 
 /**

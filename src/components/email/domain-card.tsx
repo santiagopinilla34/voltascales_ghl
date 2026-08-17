@@ -6,16 +6,16 @@ import { Check, ChevronDown, Loader2, Mail, RefreshCw, Trash2 } from "lucide-rea
 import { toast } from "sonner";
 
 import {
-  checkDomainVerification,
   removeDomain,
-  stopSendingFromDomain,
   selectSendingDomain,
+  stopSendingFromDomain,
 } from "@/app/(app)/email/actions";
 import { DnsRecords } from "@/components/email/dns-records";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useVerificationPoll } from "@/hooks/use-verification-poll";
 import { recordState } from "@/lib/resend/dns";
 import { describeStatus, type ResendDomain } from "@/lib/resend/types";
 
@@ -123,8 +123,13 @@ function Activate({
   );
 }
 
+/** "4:07" — an elapsed wait reads better than a raw second count. */
+function clock(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 export function DomainCard({
-  domain,
+  domain: serverDomain,
   reportTo,
   businessName,
   active,
@@ -136,10 +141,36 @@ export function DomainCard({
   active: string | null;
 }) {
   const router = useRouter();
-  const [checking, startChecking] = useTransition();
   const [changing, startChanging] = useTransition();
-  const [showRecords, setShowRecords] = useState(domain.status !== "verified");
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+
+  const poll = useVerificationPoll({
+    domainId: serverDomain.id,
+    onSettled: (settled) => {
+      if (settled.status === "verified") {
+        toast.success(`${settled.name} is verified`, {
+          description: "It can be used for sending now.",
+        });
+      } else {
+        toast.warning(describeStatus(settled.status).label, {
+          description: describeStatus(settled.status).detail,
+        });
+      }
+      // Once, at the end. The banner at the top of the page and the dashboard
+      // both depend on this, and refreshing on every tick would refetch the
+      // whole domain list for a status that had not changed.
+      router.refresh();
+    },
+  });
+
+  // What the poll has seen wins over what the server rendered: during a wait
+  // the records flip to Found one at a time, and watching that happen is the
+  // entire reason for not making this a button you press repeatedly.
+  const domain = poll.domain ?? serverDomain;
+
+  const [showRecords, setShowRecords] = useState(
+    serverDomain.status !== "verified",
+  );
 
   const status = describeStatus(domain.status);
   // Absent when the detail fetch behind the list failed — the card still
@@ -172,47 +203,48 @@ export function DomainCard({
           {status.label}
         </span>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={checking}
-          className="shrink-0"
-          onClick={() => {
-            startChecking(async () => {
-              const result = await checkDomainVerification(domain.id);
-
-              if (!result.ok) {
-                toast.error("Couldn't check", { description: result.error });
-                return;
-              }
-
-              const next = describeStatus(result.value.status);
-              if (result.value.status === "verified") {
-                toast.success(`${result.value.name} is verified`);
-              } else {
-                // Not an error. DNS takes time, and the useful thing to say is
-                // how many records are still missing rather than "pending".
-                const checked = result.value.records ?? [];
-                const missing = checked.filter(
-                  (record) => recordState(record.status) !== "found",
-                ).length;
-                toast.info(next.label, {
-                  description: missing
-                    ? `${missing} of ${checked.length} records not visible yet. DNS can take a while — check again shortly.`
-                    : next.detail,
-                });
-              }
-              router.refresh();
-            });
-          }}
-        >
-          {checking ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-          Check verification
-        </Button>
+        {poll.polling ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={poll.stop}
+          >
+            <Loader2 className="animate-spin" />
+            Checking {clock(poll.elapsed)} — stop
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={poll.start}
+          >
+            <RefreshCw />
+            {domain.status === "verified" ? "Re-check" : "Check verification"}
+          </Button>
+        )}
       </div>
 
-      <p className="text-muted-foreground text-xs">{status.detail}</p>
+      <p className="text-muted-foreground text-xs">
+        {poll.polling
+          ? `Waiting for DNS. ${waiting > 0 ? `${waiting} of ${records.length} records still to appear. ` : ""}This keeps checking on its own — leave the page open, or come back and press it again.`
+          : status.detail}
+      </p>
+
+      {poll.note && (
+        <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-xs">
+          {poll.note}
+        </p>
+      )}
+
+      {poll.error && (
+        <p role="alert" className="text-destructive text-xs">
+          {poll.error}
+        </p>
+      )}
 
       {active ? (
         <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border px-3 py-2">
