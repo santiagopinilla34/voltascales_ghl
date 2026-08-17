@@ -10,6 +10,11 @@ import {
   useState,
 } from "react";
 
+import {
+  PREVIEW_SUB_ACCOUNTS,
+  type SubAccount,
+} from "@/lib/orgs/sub-accounts";
+
 /**
  * Which account the app is pretending to be inside.
  *
@@ -43,6 +48,17 @@ type OrgContextValue = {
   ready: boolean;
   enter: (org: ViewingOrg) => void;
   leave: () => void;
+  /**
+   * Every sub account, held here rather than on the page because two things
+   * need the same list: the table on /sub-accounts and the switcher in the
+   * sidebar. A row created in one has to show up in the other, or the demo
+   * contradicts itself within a click.
+   *
+   * Not persisted — a refresh puts it back to the invented five, same as
+   * before it moved.
+   */
+  accounts: SubAccount[];
+  addAccount: (account: SubAccount) => void;
 };
 
 const OrgContext = createContext<OrgContextValue | null>(null);
@@ -91,6 +107,7 @@ function readStored(): ViewingOrg | null {
 export function OrgContextProvider({ children }: { children: React.ReactNode }) {
   const [org, setOrg] = useState<ViewingOrg | null>(null);
   const [ready, setReady] = useState(false);
+  const [accounts, setAccounts] = useState<SubAccount[]>(PREVIEW_SUB_ACCOUNTS);
 
   useIsomorphicLayoutEffect(() => {
     setOrg(readStored());
@@ -115,9 +132,13 @@ export function OrgContextProvider({ children }: { children: React.ReactNode }) 
     }
   }, []);
 
+  const addAccount = useCallback((account: SubAccount) => {
+    setAccounts((current) => [account, ...current]);
+  }, []);
+
   const value = useMemo(
-    () => ({ org, ready, enter, leave }),
-    [org, ready, enter, leave],
+    () => ({ org, ready, enter, leave, accounts, addAccount }),
+    [org, ready, enter, leave, accounts, addAccount],
   );
 
   return <OrgContext.Provider value={value}>{children}</OrgContext.Provider>;

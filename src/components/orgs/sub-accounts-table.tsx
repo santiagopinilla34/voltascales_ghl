@@ -28,7 +28,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  PREVIEW_SUB_ACCOUNTS,
   STATUS_LABELS,
   formatSubAccountDate,
   newSubAccountId,
@@ -160,8 +159,9 @@ function CreateSubAccountDialog({
 
 export function SubAccountsTable() {
   const router = useRouter();
-  const { enter } = useOrgContext();
-  const [accounts, setAccounts] = useState<SubAccount[]>(PREVIEW_SUB_ACCOUNTS);
+  // The list lives on the context rather than here: the sidebar switcher shows
+  // the same accounts, and a row created on this page has to appear there too.
+  const { enter, accounts, addAccount } = useOrgContext();
 
   function open(account: SubAccount) {
     enter({ id: account.id, name: account.name });
@@ -180,9 +180,7 @@ export function SubAccountsTable() {
             open one to see the app as that client sees it
           </p>
         </div>
-        <CreateSubAccountDialog
-          onCreate={(account) => setAccounts((current) => [account, ...current])}
-        />
+        <CreateSubAccountDialog onCreate={addAccount} />
       </div>
 
       <div className="overflow-x-auto rounded-lg border">

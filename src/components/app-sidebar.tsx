@@ -20,8 +20,8 @@ import {
 } from "lucide-react";
 
 import { Logo, LogoMark } from "@/components/logo";
+import { AccountSwitcher } from "@/components/orgs/account-switcher";
 import { useOrgContext } from "@/components/orgs/org-context";
-import { subAccountInitials } from "@/lib/orgs/sub-accounts";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -106,23 +106,11 @@ export function AppSidebar({
           <LogoMark className="hidden size-7 group-data-[collapsible=icon]:block" />
         </div>
 
-        {/* Whose account this is, under the wordmark. The banner across the top
-            says it in words; this says it where your eye already is when you
-            reach for the nav, and it survives the collapse to icons as the
-            initials on their own. */}
-        {org && (
-          <div className="flex min-w-0 items-center gap-2 rounded-md bg-violet-100 px-2 py-1.5 text-violet-900 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 dark:bg-violet-950/60 dark:text-violet-200">
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-violet-600 text-[9px] font-semibold text-white">
-              {subAccountInitials(org.name)}
-            </span>
-            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-xs font-medium" title={org.name}>
-                {org.name}
-              </p>
-              <p className="text-[10px] opacity-75">Client view · simulated</p>
-            </div>
-          </div>
-        )}
+        {/* Whose account this is, under the wordmark, and the way to any of the
+            others. The banner across the top says it in words; this says it
+            where your eye already is when you reach for the nav, and it is
+            what you click to go somewhere else. */}
+        <AccountSwitcher />
       </SidebarHeader>
 
       <SidebarContent>
