@@ -728,6 +728,41 @@ export type Database = {
           },
         ]
       }
+      org_secrets: {
+        Row: {
+          created_at: string
+          form_webhook_secret: string | null
+          org_id: string
+          twilio_auth_token: string | null
+          twilio_subaccount_sid: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          form_webhook_secret?: string | null
+          org_id: string
+          twilio_auth_token?: string | null
+          twilio_subaccount_sid?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          form_webhook_secret?: string | null
+          org_id?: string
+          twilio_auth_token?: string | null
+          twilio_subaccount_sid?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_secrets_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizations: {
         Row: {
           created_at: string
@@ -740,6 +775,7 @@ export type Database = {
           name: string
           slug: string
           status: string
+          twilio_phone_number: string | null
         }
         Insert: {
           created_at?: string
@@ -752,6 +788,7 @@ export type Database = {
           name: string
           slug: string
           status?: string
+          twilio_phone_number?: string | null
         }
         Update: {
           created_at?: string
@@ -764,6 +801,7 @@ export type Database = {
           name?: string
           slug?: string
           status?: string
+          twilio_phone_number?: string | null
         }
         Relationships: []
       }

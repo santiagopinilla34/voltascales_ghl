@@ -50,7 +50,7 @@ export async function respondToInbound(
       return;
     }
 
-    const settings = await getSettings(supabase);
+    const settings = await getSettings(supabase, contact.org_id);
 
     if (!settings) {
       console.log(
@@ -235,7 +235,7 @@ async function deliver(
 
   let sent;
   try {
-    sent = await sendSms(contact.phone, reply);
+    sent = await sendSms(contact.phone, reply, contact.org_id);
   } catch (error) {
     // Held rather than thrown so the hand-off below doesn't run: nothing
     // reached the contact, so this conversation has not actually been passed

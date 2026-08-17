@@ -34,6 +34,7 @@ export async function notifyHandoff(
     const base = appBaseUrl();
 
     const outcomes = await runAutomationsForEvent(supabase, {
+      orgId: contact.org_id,
       trigger: "ai_handoff",
       contact,
       variables: {

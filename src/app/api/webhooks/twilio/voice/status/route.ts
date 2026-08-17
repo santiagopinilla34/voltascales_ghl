@@ -66,7 +66,7 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createAdminClient();
-    const contact = await findOrCreateContactByPhone(supabase, from);
+    const contact = await findOrCreateContactByPhone(supabase, from, verified.orgId);
 
     const parsedDuration = Number.parseInt(dialCallDuration ?? "", 10);
     const accepted = await consumeAcceptance(supabase, dialCallSid);
@@ -80,6 +80,7 @@ export async function POST(request: Request) {
       .upsert(
         {
           contact_id: contact.id,
+          org_id: verified.orgId,
           direction: "inbound",
           status,
           duration: Number.isFinite(parsedDuration) ? parsedDuration : null,
@@ -111,6 +112,7 @@ export async function POST(request: Request) {
     // engine logs its own failures to automation_runs.
     if (status === "missed") {
       await runAutomationsForEvent(supabase, {
+        orgId: verified.orgId,
         trigger: "missed_call",
         contact,
       });

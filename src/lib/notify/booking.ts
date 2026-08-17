@@ -65,9 +65,10 @@ async function runBookingRules(
   // Read fresh rather than snapshotted onto the booking: changing the meeting
   // link or your sign-off is meant to fix every future message, including for
   // meetings booked before the change.
-  const settings = await getSettings(supabase);
+  const settings = await getSettings(supabase, booking.org_id);
 
   const outcomes = await runAutomationsForEvent(supabase, {
+    orgId: booking.org_id,
     trigger: cancelled ? "booking_cancelled" : "booking_confirmed",
     contact,
     recipient: { phone: booking.client_phone, email: booking.client_email },

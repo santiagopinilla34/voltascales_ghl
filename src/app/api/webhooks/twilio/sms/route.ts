@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createAdminClient();
-    const contact = await findOrCreateContactByPhone(supabase, from);
+    const contact = await findOrCreateContactByPhone(supabase, from, verified.orgId);
 
     // Idempotent on MessageSid: a replayed or retried delivery hits the unique
     // index and inserts nothing. An empty result means this was a duplicate.
@@ -61,6 +61,11 @@ export async function POST(request: Request) {
       .upsert(
         {
           contact_id: contact.id,
+          // Explicit rather than left to the column default. `default_org_id()`
+          // raises once there is more than one organization and no session to
+          // attribute the insert to, which is exactly this request — the
+          // default was a phase-1 crutch, and this is the code that replaces it.
+          org_id: verified.orgId,
           direction: "in",
           body,
           sent_by: "human",
@@ -103,6 +108,7 @@ export async function POST(request: Request) {
     // Keyword trigger (PRD 4.5). Rules whose keyword doesn't match this text
     // are passed over silently by the engine.
     await runAutomationsForEvent(supabase, {
+      orgId: verified.orgId,
       trigger: "keyword",
       contact,
       body,

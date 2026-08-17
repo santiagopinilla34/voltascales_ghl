@@ -46,10 +46,11 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createAdminClient();
-    const contact = await findOrCreateContactByPhone(supabase, dialled);
+    const contact = await findOrCreateContactByPhone(supabase, dialled, verified.orgId);
 
     const { error } = await supabase.from("calls").insert({
       contact_id: contact.id,
+      org_id: verified.orgId,
       direction: "outbound",
       status,
       duration: Number.isFinite(parsedDuration) ? parsedDuration : null,

@@ -3,6 +3,7 @@ import "server-only";
 import twilio from "twilio";
 
 import { appBaseUrl, serverEnv } from "@/lib/env";
+import { resolveTwilioOrigin } from "@/lib/orgs/routing";
 
 export type TwilioParams = Record<string, string>;
 
@@ -49,14 +50,35 @@ export function webhookUrl(request: Request, pathname: string): string {
 }
 
 export type VerifiedWebhook =
-  | { ok: true; params: TwilioParams; url: string }
+  | {
+      ok: true;
+      params: TwilioParams;
+      url: string;
+      /** Which organization this request belongs to. Never null on success. */
+      orgId: string;
+      /** True when it arrived on a client's subaccount rather than the parent. */
+      isSubaccount: boolean;
+    }
   | { ok: false; status: number; reason: string };
 
 /**
- * Reads a Twilio webhook body and verifies its X-Twilio-Signature header.
+ * Reads a Twilio webhook body, works out whose account it is, and verifies the
+ * signature with that account's token.
  *
  * These routes are excluded from the auth proxy — the signature *is* the
  * authentication, so an unverified request must never reach the database.
+ *
+ * The order matters and is the whole reason this function grew. Twilio signs a
+ * subaccount's webhooks with the *subaccount's* auth token, not the parent's,
+ * so the token cannot be chosen until the body has been parsed and `AccountSid`
+ * read. Verifying against the parent token unconditionally — which is what this
+ * did before — means every request from every client subaccount fails with a
+ * 403, and the symptom is not "multi-tenancy is misconfigured" but "texts to
+ * this client silently stop arriving".
+ *
+ * Parsing before verifying is safe: nothing is trusted until `validateRequest`
+ * returns, and the SID is used only to pick which key to check against. A
+ * forged SID selects a token that then fails to match the signature.
  */
 export async function verifyTwilioRequest(
   request: Request,
@@ -80,9 +102,20 @@ export async function verifyTwilioRequest(
     return { ok: false, status: 400, reason: "Body is not form-encoded" };
   }
 
+  const origin = await resolveTwilioOrigin(params.AccountSid);
+
+  if (!origin) {
+    // Better a 503 Twilio will retry than a row filed under a guess.
+    return {
+      ok: false,
+      status: 503,
+      reason: `Could not resolve an organization for AccountSid ${params.AccountSid ?? "(absent)"}`,
+    };
+  }
+
   const url = publicUrlFor(request);
   const valid = twilio.validateRequest(
-    serverEnv.twilioAuthToken,
+    origin.authToken ?? serverEnv.twilioAuthToken,
     signature,
     url,
     params,
@@ -96,7 +129,7 @@ export async function verifyTwilioRequest(
     };
   }
 
-  return { ok: true, params, url };
+  return { ok: true, params, url, orgId: origin.orgId, isSubaccount: origin.isSubaccount };
 }
 
 /** TwiML responses must be served as XML or Twilio rejects them. */

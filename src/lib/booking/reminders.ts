@@ -160,11 +160,23 @@ export async function runReminderPass(
   let sent = 0;
   let failed = 0;
 
-  // Read once for the whole pass rather than per booking: it is the same row
-  // for all of them, and a reminder run should not make one settings query per
-  // client it texts.
-  const settings = ready.length > 0 ? await getSettings(supabase) : null;
-  const join = settings?.booking_meeting_link?.trim() || null;
+  // Settings are per organization now, so this can no longer be read once for
+  // the pass — this job sweeps every client at once, and the meeting link in a
+  // reminder is the client's own. Reading the old way is not merely wrong, it
+  // throws: without a session the service role matches every organization's
+  // row and `maybeSingle()` refuses.
+  //
+  // Cached per organization within the pass, which restores most of what the
+  // single read was buying. A run covers a handful of bookings and usually one
+  // or two accounts.
+  const settingsByOrg = new Map<string, Awaited<ReturnType<typeof getSettings>>>();
+
+  async function joinLinkFor(orgId: string): Promise<string | null> {
+    if (!settingsByOrg.has(orgId)) {
+      settingsByOrg.set(orgId, await getSettings(supabase, orgId));
+    }
+    return settingsByOrg.get(orgId)?.booking_meeting_link?.trim() || null;
+  }
 
   // Sequential, deliberately. These are texts on a shared Twilio number and
   // there is no deadline — a burst of parallel sends buys nothing and is the
@@ -184,7 +196,8 @@ export async function runReminderPass(
     }
 
     try {
-      await sendSms(booking.client_phone, spec.body(booking, join));
+      const join = await joinLinkFor(booking.org_id);
+      await sendSms(booking.client_phone, spec.body(booking, join), booking.org_id);
     } catch (error) {
       failed++;
       console.error(

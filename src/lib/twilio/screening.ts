@@ -31,11 +31,12 @@ export async function recordAcceptance(
   supabase: SupabaseClient<Database>,
   childCallSid: string,
   parentCallSid: string | null,
+  orgId: string,
 ): Promise<void> {
   const { error } = await supabase
     .from("call_screenings")
     .upsert(
-      { child_call_sid: childCallSid, parent_call_sid: parentCallSid },
+      { child_call_sid: childCallSid, parent_call_sid: parentCallSid, org_id: orgId },
       { onConflict: "child_call_sid" },
     );
 

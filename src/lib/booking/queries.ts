@@ -29,10 +29,10 @@ import { addDays, todayDayKey, weekOf, zonedTimeToUtc } from "./time";
 
 export async function listAvailabilityRules(
   supabase: SupabaseClient<Database>,
+  orgId?: string,
 ): Promise<AvailabilityRule[]> {
-  const { data, error } = await supabase
-    .from("availability_rules")
-    .select("*")
+  const base = supabase.from("availability_rules").select("*");
+  const { data, error } = await (orgId ? base.eq("org_id", orgId) : base)
     .order("day_of_week")
     .order("start_time");
 
@@ -52,10 +52,10 @@ export async function listAvailabilityRules(
 export async function listBlockedDates(
   supabase: SupabaseClient<Database>,
   fromDayKey: string = todayDayKey(),
+  orgId?: string,
 ): Promise<BlockedDate[]> {
-  const { data, error } = await supabase
-    .from("blocked_dates")
-    .select("*")
+  const base = supabase.from("blocked_dates").select("*");
+  const { data, error } = await (orgId ? base.eq("org_id", orgId) : base)
     .gte("date", fromDayKey)
     .order("date");
 
@@ -78,10 +78,10 @@ export async function listBusyBookings(
   supabase: SupabaseClient<Database>,
   fromDayKey: string,
   toDayKey: string,
+  orgId?: string,
 ): Promise<BusyInterval[]> {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("start_time, end_time")
+  const base = supabase.from("bookings").select("start_time, end_time");
+  const { data, error } = await (orgId ? base.eq("org_id", orgId) : base)
     .eq("status", "confirmed")
     .gte("start_time", zonedTimeToUtc(addDays(fromDayKey, -1), 0).toISOString())
     .lt("start_time", zonedTimeToUtc(addDays(toDayKey, 2), 0).toISOString())
@@ -114,6 +114,7 @@ export async function getCalendarWeek(
   supabase: SupabaseClient<Database>,
   anchorDayKey: string,
   now: Date = new Date(),
+  orgId?: string,
 ): Promise<CalendarWeek> {
   const today = todayDayKey(now);
   const horizonEnd = addDays(today, BOOKING_HORIZON_DAYS);
@@ -124,11 +125,16 @@ export async function getCalendarWeek(
   const days = weekOf(clamped);
   const [first, last] = [days[0], days[6]];
 
+  // `orgId` is passed through to every read rather than relied on from RLS,
+  // because the public booking page runs on the service role with no session —
+  // unscoped, it would generate a calendar from every client's availability at
+  // once, showing one business's free slots as another's and treating a third's
+  // meetings as busy time.
   const [rules, blockedRows, busy, settings] = await Promise.all([
-    listAvailabilityRules(supabase),
-    listBlockedDates(supabase, first),
-    listBusyBookings(supabase, first, last),
-    getSettings(supabase),
+    listAvailabilityRules(supabase, orgId),
+    listBlockedDates(supabase, first, orgId),
+    listBusyBookings(supabase, first, last, orgId),
+    getSettings(supabase, orgId),
   ]);
 
   const blocked = new Map(blockedRows.map((row) => [row.date, row.reason]));

@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
   // Create the contact now so the status callback can rely on it existing.
   try {
-    const contact = await findOrCreateContactByPhone(supabase, from);
+    const contact = await findOrCreateContactByPhone(supabase, from, verified.orgId);
     console.log(`[twilio/voice] inbound call from ${from} → contact ${contact.id}`);
   } catch (error) {
     console.error("[twilio/voice] failed to upsert contact", error);

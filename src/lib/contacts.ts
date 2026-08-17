@@ -7,20 +7,29 @@ import type { Call, Contact, Database } from "@/types/database";
 export const UNIQUE_VIOLATION = "23505";
 
 /**
- * Finds the contact for a phone number, creating it if this is the first time
- * we've heard from them (PRD 4.3 — inbound SMS and calls both create/update a
- * contact).
+ * Finds the contact for a phone number *within one organization*, creating it
+ * if this is the first time that business has heard from them (PRD 4.3 —
+ * inbound SMS and calls both create/update a contact).
  *
  * `phone` is expected in E.164, which is what Twilio sends.
+ *
+ * The organization is required rather than defaulted, and the lookup is scoped
+ * by it, because a phone number is only unique inside an account now. A
+ * plumber and an electrician in the same town share customers; without the
+ * scope the second business's inbound text finds the first business's contact
+ * and files the conversation there. That is not a missing filter — it is one
+ * client reading another's messages.
  */
 export async function findOrCreateContactByPhone(
   supabase: SupabaseClient<Database>,
   phone: string,
+  orgId: string,
 ): Promise<Contact> {
   const { data: existing, error: selectError } = await supabase
     .from("contacts")
     .select("*")
     .eq("phone", phone)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   if (selectError) {
@@ -32,7 +41,7 @@ export async function findOrCreateContactByPhone(
 
   const { data: created, error: insertError } = await supabase
     .from("contacts")
-    .insert({ phone })
+    .insert({ phone, org_id: orgId })
     .select()
     .single();
 
@@ -47,6 +56,7 @@ export async function findOrCreateContactByPhone(
       .from("contacts")
       .select("*")
       .eq("phone", phone)
+      .eq("org_id", orgId)
       .single();
 
     if (raced) {

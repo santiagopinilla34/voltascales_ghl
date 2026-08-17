@@ -91,14 +91,19 @@ export function resolveFromAddress(settings: Settings | null): {
  * to take effect immediately, and this is one indexed lookup on a single-row
  * table against work that already involves an HTTP round trip to Resend.
  */
-export async function resolveSendingFrom(): Promise<string> {
+export async function resolveSendingFrom(orgId?: string): Promise<string> {
   try {
     const supabase = createAdminClient();
-    const { data, error } = await supabase
-      .from("settings")
-      .select("sending_from_email")
-      .eq("id", SETTINGS_ID)
-      .maybeSingle();
+
+    // Without an organization this matches every settings row and fails. That
+    // is the intended outcome for a caller that has not been taught whose mail
+    // it is sending — the fallback below is a worse address, not a wrong
+    // account, whereas picking an arbitrary row would send a client's mail
+    // from another client's domain.
+    const base = supabase.from("settings").select("sending_from_email");
+    const { data, error } = orgId
+      ? await base.eq("org_id", orgId).maybeSingle()
+      : await base.eq("id", SETTINGS_ID).maybeSingle();
 
     if (error) {
       console.error(

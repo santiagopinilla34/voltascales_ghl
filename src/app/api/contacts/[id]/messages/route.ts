@@ -65,7 +65,7 @@ export async function POST(
 
   let sent;
   try {
-    sent = await sendSms(contact.phone, body);
+    sent = await sendSms(contact.phone, body, contact.org_id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown Twilio error";
     return NextResponse.json(

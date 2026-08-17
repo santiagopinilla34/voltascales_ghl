@@ -80,7 +80,19 @@ export type EventRecipient = {
  * in one place, `src/lib/booking/messages.ts`, which is also where the Settings
  * preview reads it from.
  */
-export type AutomationEvent =
+/**
+ * Whose automations these are.
+ *
+ * Required on every event rather than read off `event.contact`, because two of
+ * the triggers can fire with no contact at all — a booking that matched
+ * nobody, a bounce for an address no contact holds — and those still send
+ * messages and still belong to exactly one client. Making it part of the type
+ * means the compiler asks every webhook the question rather than the engine
+ * guessing from whatever row happens to be at hand.
+ */
+export type AutomationEvent = { orgId: string } & AutomationTrigger;
+
+type AutomationTrigger =
   | { trigger: "missed_call"; contact: Contact }
   | { trigger: "keyword"; contact: Contact; body: string }
   | {
@@ -433,6 +445,7 @@ async function runAutomation(
     try {
       const result = await executeAction(action, {
         supabase,
+        orgId: event.orgId,
         contact: current,
         recipient,
         variables,

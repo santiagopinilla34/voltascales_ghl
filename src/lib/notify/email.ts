@@ -30,10 +30,19 @@ export async function sendEmail({
   to,
   subject,
   text,
+  orgId,
 }: {
   to: string;
   subject: string;
   text: string;
+  /**
+   * Whose mail this is. Decides the From address, which is the client's own
+   * verified domain — sending a client's booking confirmation from the
+   * agency's domain is both confusing to the recipient and worse for
+   * deliverability, since the domain has no relationship with the business
+   * that is supposedly writing.
+   */
+  orgId?: string;
 }): Promise<EmailResult> {
   const apiKey = resendApiKey();
 
@@ -48,7 +57,7 @@ export async function sendEmail({
   // sending domain on the Email Services page takes effect without a redeploy.
   // Falls back to NOTIFY_FROM_EMAIL and then to Resend's shared sender, which
   // is where this started and the reason client mail was vanishing.
-  const from = await resolveSendingFrom();
+  const from = await resolveSendingFrom(orgId);
 
   let response: Response;
   try {

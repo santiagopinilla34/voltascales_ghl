@@ -46,7 +46,7 @@ export async function POST(request: Request) {
 
   if (childCallSid) {
     const supabase = createAdminClient();
-    await recordAcceptance(supabase, childCallSid, verified.params.ParentCallSid ?? null);
+    await recordAcceptance(supabase, childCallSid, verified.params.ParentCallSid ?? null, verified.orgId);
     await purgeStaleScreenings(supabase);
     console.log(`[twilio/voice/screen/accept] accepted leg ${childCallSid}`);
   } else {

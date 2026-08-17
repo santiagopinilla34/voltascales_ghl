@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { runAutomationsForEvent } from "@/lib/automations/engine";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
+import { agencyOrgId, resolveOrgByFormSecret } from "@/lib/orgs/routing";
 import { normalizePhone } from "@/lib/phone/normalize";
 import { formWebhookSecret } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -47,20 +48,28 @@ function secretMatches(provided: string, expected: string): boolean {
 export async function POST(request: Request) {
   const expected = formWebhookSecret();
 
-  if (!expected) {
-    console.error("[webhooks/form] FORM_WEBHOOK_SECRET is not set; refusing");
-    return NextResponse.json(
-      { error: "Form webhook is not configured" },
-      { status: 503 },
-    );
-  }
-
   const provided =
     request.headers.get("x-form-secret") ??
     new URL(request.url).searchParams.get("token") ??
     "";
 
-  if (!secretMatches(provided, expected)) {
+  // Two ways in, and the secret decides which account the lead lands in.
+  //
+  // The environment secret is the agency's own, compared in constant time
+  // because it is a fixed string an attacker could probe a byte at a time. A
+  // client's secret is looked up instead — an indexed equality check, where
+  // the value is the routing key as well as the credential, so a miss is
+  // indistinguishable from a wrong secret and neither is told apart in the
+  // response.
+  let orgId: string | null = null;
+
+  if (expected && secretMatches(provided, expected)) {
+    orgId = await agencyOrgId();
+  } else if (provided) {
+    orgId = await resolveOrgByFormSecret(provided);
+  }
+
+  if (!orgId) {
     console.error("[webhooks/form] rejected: bad or missing secret");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -93,7 +102,7 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createAdminClient();
-    const contact = await findOrCreateContactByPhone(supabase, phone);
+    const contact = await findOrCreateContactByPhone(supabase, phone, orgId);
 
     // Fill the name in, never overwrite: a name you set by hand outranks
     // whatever somebody typed into a form.
@@ -120,6 +129,7 @@ export async function POST(request: Request) {
     if (message) {
       const { error } = await supabase.from("messages").insert({
         contact_id: contact.id,
+        org_id: orgId,
         direction: "in",
         body: message,
         sent_by: "human",
@@ -135,6 +145,7 @@ export async function POST(request: Request) {
     );
 
     const runs = await runAutomationsForEvent(supabase, {
+      orgId,
       trigger: "form_submit",
       contact,
       source,

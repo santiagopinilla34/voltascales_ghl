@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { runAutomationsForEvent } from "@/lib/automations/engine";
+import { resolveOrgByFromAddress } from "@/lib/orgs/routing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resendWebhookSecret, verifyResendWebhook } from "@/lib/resend/webhook";
 
@@ -94,15 +95,38 @@ export async function POST(request: Request) {
   const recipient = firstRecipient(body.data?.to);
   const supabase = createAdminClient();
 
-  // Matched by address. Null is a perfectly ordinary outcome and not a
-  // failure: an alert to your own business email that bounced is worth
-  // reacting to, and there is no contact row behind it.
+  // Whose event this is.
+  //
+  // Every client's mail comes back to this one endpoint, and Resend's payload
+  // carries no account of ours — so the From address is the only thing that
+  // identifies the sender, and it is matched against the sending address each
+  // organization configured on Email Services.
+  //
+  // An address that matches nothing belongs to the agency: that is the shared
+  // sender and the NOTIFY_FROM_EMAIL fallback, both of which are ours. Falling
+  // back the other way — dropping the event — would silently lose bounce
+  // handling for every account that has not set a domain up yet.
+  const orgId = await resolveOrgByFromAddress(text(body.data?.from));
+
+  if (!orgId) {
+    console.error("[resend] could not resolve an organization for this event");
+    return NextResponse.json({ error: "Unattributable" }, { status: 503 });
+  }
+
+  // Matched by address, *within that organization*. Null is a perfectly
+  // ordinary outcome and not a failure: an alert to your own business email
+  // that bounced is worth reacting to, and there is no contact row behind it.
+  //
+  // The org filter is what stops a bounce for one client's customer being
+  // attributed to another client's contact with the same address — two
+  // businesses can share a customer, and `contacts.email` was never unique.
   let contact = null;
   if (recipient) {
     const { data } = await supabase
       .from("contacts")
       .select("*")
       .ilike("email", recipient)
+      .eq("org_id", orgId)
       .limit(1)
       .maybeSingle();
     contact = data ?? null;
@@ -111,6 +135,7 @@ export async function POST(request: Request) {
   const bounce = body.data?.bounce;
 
   const outcomes = await runAutomationsForEvent(supabase, {
+    orgId,
     trigger: "email_event",
     event,
     contact,

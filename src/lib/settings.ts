@@ -8,21 +8,36 @@ import type { Database, Settings } from "@/types/database";
 export const SETTINGS_ID = true;
 
 /**
- * Reads the settings row.
+ * Reads one organization's settings row.
  *
- * Returns null only if the row is genuinely missing — the migration seeds it,
- * so that means the migration hasn't been applied. Callers surface that rather
- * than silently substituting defaults, because a blank AI system prompt looks
- * like a configuration choice and isn't one.
+ * Returns null only if the row is genuinely missing — `seed_organization`
+ * creates it, so that means an account was made without being seeded. Callers
+ * surface that rather than silently substituting defaults, because a blank AI
+ * system prompt looks like a configuration choice and isn't one.
+ *
+ * ## Passing `orgId`, and what happens when you don't
+ *
+ * There is one settings row per organization now. A caller holding a *user*
+ * session can leave `orgId` out: row-level security already narrows the table
+ * to the organization that session is scoped to, so `.eq("id", true)` matches
+ * exactly one row — the vestigial `id` column is still true on all of them.
+ *
+ * A caller running as the *service role* cannot. RLS is bypassed there, so the
+ * same query matches every organization's row and `maybeSingle()` fails. That
+ * is deliberate: the webhooks, the cron and the booking pages all read settings
+ * without a session, and each of them has to say whose settings it means. A
+ * loud failure is the right outcome for one that forgets — the alternative is
+ * texting a client using another client's business name.
  */
 export async function getSettings(
   supabase: SupabaseClient<Database>,
+  orgId?: string,
 ): Promise<Settings | null> {
-  const { data, error } = await supabase
-    .from("settings")
-    .select("*")
-    .eq("id", SETTINGS_ID)
-    .maybeSingle();
+  const base = supabase.from("settings").select("*");
+
+  const { data, error } = orgId
+    ? await base.eq("org_id", orgId).maybeSingle()
+    : await base.eq("id", SETTINGS_ID).maybeSingle();
 
   if (error) {
     throw new Error(`Failed to load settings: ${error.message}`);

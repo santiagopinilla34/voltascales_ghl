@@ -19,6 +19,16 @@ const MAX_SMS_LENGTH = 1600;
 export type ActionContext = {
   supabase: SupabaseClient<Database>;
   /**
+   * Whose automation this is.
+   *
+   * Carried explicitly rather than read off `contact`, because a booking event
+   * can have no contact and the messages still go out — addressed from the
+   * booking. Without it, "the business email" would be resolved from whichever
+   * settings row the service role happened to match first, and a client's lead
+   * alert would go to another client's inbox.
+   */
+  orgId: string;
+  /**
    * The contact as it stands *now*. Actions that change it return the updated
    * row so later actions in the same run see their own effects (e.g. `add_tag`
    * then a condition-free `send_sms` template using `{{name}}`).
@@ -51,7 +61,7 @@ export type ActionResult = {
 async function resolveTarget(
   target: MessageTarget,
   channel: "sms" | "email",
-  { supabase, recipient }: ActionContext,
+  { supabase, recipient, orgId }: ActionContext,
 ): Promise<{ address: string } | { missing: string }> {
   if (target === "contact") {
     const address = channel === "sms" ? recipient.phone : recipient.email;
@@ -60,7 +70,7 @@ async function resolveTarget(
       : { missing: `no ${channel === "sms" ? "phone number" : "email address"} for the contact` };
   }
 
-  const settings = await getSettings(supabase);
+  const settings = await getSettings(supabase, orgId);
 
   if (channel === "email") {
     const address = settings?.business_email?.trim();
@@ -126,11 +136,11 @@ function noContact(action: string): ActionResult {
  */
 async function notifyMeAction(
   note: string,
-  { supabase, contact, variables }: ActionContext,
+  { supabase, contact, variables, orgId }: ActionContext,
 ): Promise<ActionResult> {
   if (!contact) return noContact("notify_me");
 
-  const settings = await getSettings(supabase);
+  const settings = await getSettings(supabase, orgId);
   const to = settings?.business_email?.trim();
 
   if (!to) {
@@ -156,6 +166,7 @@ async function notifyMeAction(
   }
 
   const result = await sendEmail({
+    orgId,
     to,
     subject: `VoltaScales: ${label}`,
     text: body.join("\n"),
@@ -206,7 +217,7 @@ async function sendSmsAction(
     return { summary: `send_sms (${to}) skipped: ${resolved.missing}`, contact };
   }
 
-  const message = await sendSms(resolved.address, text);
+  const message = await sendSms(resolved.address, text, context.orgId);
 
   // Only the contact's own thread gets a copy, and only when there is a
   // contact to attach it to. An alert texted to the business is not part of
@@ -289,6 +300,7 @@ async function sendEmailAction(
   }
 
   const result = await sendEmail({
+    orgId: context.orgId,
     to: resolved.address,
     subject: line.text,
     text: body.text,
