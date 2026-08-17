@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { AppSidebar } from "@/components/app-sidebar";
+import { OrgContextProvider } from "@/components/orgs/org-context";
+import { OrgShell } from "@/components/orgs/org-shell";
 import { AppTopbar } from "@/components/topbar/app-topbar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -39,11 +41,17 @@ export default async function AppLayout({
     // and the sidebar's collapsed-icon labels use them.
     <TooltipProvider>
       <SidebarProvider>
-        <AppSidebar email={user.email ?? "Signed in"} signOut={signOut} />
-        <SidebarInset className="h-dvh min-w-0 overflow-hidden">
-          <AppTopbar />
-          {children}
-        </SidebarInset>
+        {/* Wraps the sidebar as well as the page: the simulated sub-account
+            context decides which nav items exist, not just what is drawn to
+            the right of them. Front end only — see the module comment on
+            `OrgContextProvider` for what a real switch would have to do. */}
+        <OrgContextProvider>
+          <AppSidebar email={user.email ?? "Signed in"} signOut={signOut} />
+          <SidebarInset className="h-dvh min-w-0 overflow-hidden">
+            <AppTopbar />
+            <OrgShell>{children}</OrgShell>
+          </SidebarInset>
+        </OrgContextProvider>
         <Toaster position="top-center" />
       </SidebarProvider>
     </TooltipProvider>
