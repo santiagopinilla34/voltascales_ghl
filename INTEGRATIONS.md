@@ -330,16 +330,64 @@ Usage and Sub Accounts. What it demonstrates nothing about is isolation.
 
 **What to write.**
 
-1. `organizations` and `org_members`, with two roles: `platform_admin` across
-   organizations, `org_owner` inside exactly one.
-2. `org_id` on every table holding client data, backfilled to your own
-   organization. This is the whole job — the page is an afternoon next to it.
-3. RLS policies keyed on the caller's organization, on every one of those
-   tables. This is the only thing that actually isolates anything.
+1. ~~`organizations` and `org_members`, with two roles~~ **DONE, 17 Aug 2026.**
+2. ~~`org_id` on every table holding client data, backfilled~~ **DONE.**
+3. ~~RLS policies keyed on the caller's organization~~ **DONE.**
 4. A magic-link invite, which is what moves a sub account from Invited to
    Active and decides the first `org_owner`.
 5. Context switching the *server* honours — carried in the session and
    re-checked per query, not held in the browser as it is now.
+
+### Phase 1 (database isolation) — done
+
+Five migrations, `20260817010000` to `20260817050000`. `organizations` and
+`org_members`; `org_id` on fourteen tables plus the two former singletons; the
+four cross-tenant unique constraints made per-org; composite foreign keys so a
+child row cannot disagree with its parent about which tenant it belongs to; and
+every `using (true)` policy replaced.
+
+Verified against production with a real second tenant holding an `org_owner`
+session — not the service role, which would have proved nothing. They saw 0 of
+65 messages, 0 of 37 drafts, 0 of 3 invoices, could not fetch a known agency
+contact by id, and were refused an insert into the agency org with 42501.
+
+Two things phase 1 deliberately left standing:
+
+- **`default_org_id()`** fills in `org_id` for writes that arrive with no
+  session, and **raises rather than guessing** once a second organization
+  exists. So from the moment the first real client org is created until the
+  list below is fixed, unattributable inbound traffic errors instead of landing
+  in the wrong account. That is the accepted trade, not an oversight.
+- **`settings.id` and `a2p_profile.id`** are vestigial booleans kept only so
+  the six `.eq("id", true)` call sites survive until phase 3.
+
+### Phase 4 — the twelve entry points RLS does not cover
+
+`createAdminClient()` uses the service role, which **bypasses row-level
+security entirely**. Nothing phase 1 did protects any of these; each has to
+resolve an organization explicitly. Twilio sends `AccountSid` on every webhook,
+and for a subaccount that is the subaccount's own SID — a better routing key
+than `To`.
+
+| Entry point | Resolves org from | Note |
+| --- | --- | --- |
+| `api/webhooks/twilio/sms` | AccountSid | **Ignores `To` entirely today.** Creates contacts, logs messages, fires `keyword`. |
+| `api/webhooks/twilio/voice` | AccountSid | Forwards the call, logs it, fires `missed_call`. |
+| `api/webhooks/twilio/voice/status` | AccountSid | Call status updates. |
+| `api/webhooks/twilio/voice/screen/accept` | AccountSid | Writes `call_screenings`. |
+| `api/webhooks/twilio/voice/outbound/status` | AccountSid | Outbound call status. |
+| `api/webhooks/form` | shared secret → org | One secret per org, or a slug in the path. |
+| `api/webhooks/resend` | sending domain | Events come back to one endpoint for every tenant. |
+| `api/cron/booking-reminders` | — | Runs once, globally. Becomes a loop over orgs. |
+| `book/page.tsx` | slug | Needs `/book/<slug>`; there is one global page today. |
+| `book/actions.ts` | slug | Creates the contact and booking. |
+| `book/cancel/[token]/page.tsx` | cancel token | Token is globally unique, so it already identifies one org. |
+| `lib/resend/sending.ts` | caller | `resolveSendingFrom()` reads the settings row; needs an org argument. |
+
+Also: **signature verification breaks before any of this matters.**
+`verifyTwilioRequest` validates against the parent auth token, and a
+subaccount's request is signed with the subaccount's token — so every inbound
+webhook 403s until the right token is looked up first.
 
 **What will bite you.**
 
