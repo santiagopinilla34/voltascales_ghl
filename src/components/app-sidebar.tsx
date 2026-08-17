@@ -11,6 +11,7 @@ import {
   FileText,
   Gauge,
   Globe,
+  Wallet,
   Inbox,
   KanbanSquare,
   PhoneCall,
@@ -68,6 +69,10 @@ const NAV: NavItem[] = [
   // it sits on — not somewhere you go to read mail.
   { href: "/email", label: "Email Services", icon: AtSign },
   { href: "/domains", label: "Domains", icon: Globe },
+  // Money. Sits with the infrastructure it pays for rather than under Settings:
+  // a client comes here because their number stopped working, and that is a
+  // phone-system thought, not a preferences one.
+  { href: "/billing", label: "Balance", icon: Wallet },
   // The two platform-level pages, kept adjacent so that in client view they
   // disappear together and what is left still reads as a deliberate list
   // rather than one with holes punched in it.

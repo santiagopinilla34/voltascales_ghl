@@ -5,6 +5,7 @@ import { AccountBadge } from "@/components/orgs/account-badge";
 import { AccountSwitcher } from "@/components/orgs/account-switcher";
 import { OrgBanner } from "@/components/orgs/org-banner";
 import { AppTopbar } from "@/components/topbar/app-topbar";
+import { VendorProvider } from "@/components/vendor";
 import { listSubAccounts } from "@/lib/orgs/queries";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -59,6 +60,10 @@ export default async function AppLayout({
     // Radix tooltips throw outside a provider, and both the thread timestamps
     // and the sidebar's collapsed-icon labels use them.
     <TooltipProvider>
+      {/* Decides whether the screens below name Twilio out loud. The agency
+          sees the real names, including while working inside a client; a
+          client sees "the phone network". See components/vendor.tsx. */}
+      <VendorProvider isPlatformAdmin={context.isPlatformAdmin}>
       <SidebarProvider>
         <AppSidebar
           email={context.email || "Signed in"}
@@ -93,6 +98,7 @@ export default async function AppLayout({
         </SidebarInset>
         <Toaster position="top-center" />
       </SidebarProvider>
+      </VendorProvider>
     </TooltipProvider>
   );
 }

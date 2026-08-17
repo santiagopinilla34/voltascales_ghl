@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { InsufficientCreditError } from "@/lib/billing/credit";
 
 import { createClient } from "@/lib/supabase/server";
 import { sendSms } from "@/lib/twilio/client";
@@ -67,6 +68,13 @@ export async function POST(
   try {
     sent = await sendSms(contact.phone, body, contact.org_id);
   } catch (error) {
+    // An empty wallet is not a provider failure and must not be reported as
+    // one. 402 rather than 502, and the reason verbatim — the person typing
+    // the reply is the one who can fix it, by topping up.
+    if (error instanceof InsufficientCreditError) {
+      return NextResponse.json({ error: error.message }, { status: 402 });
+    }
+
     const message = error instanceof Error ? error.message : "Unknown Twilio error";
     return NextResponse.json(
       { error: `Twilio rejected the message: ${message}` },

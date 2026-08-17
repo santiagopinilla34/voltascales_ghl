@@ -1,6 +1,8 @@
 import { after } from "next/server";
 
 import { respondToInbound } from "@/lib/ai/respond";
+import { debit } from "@/lib/billing/credit";
+import { RATES } from "@/lib/billing/rates";
 import { runAutomationsForEvent } from "@/lib/automations/engine";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -87,6 +89,26 @@ export async function POST(request: Request) {
     console.log(
       `[twilio/sms] inbound ${messageSid ?? "(no sid)"} from ${from} → contact ${contact.id}`,
     );
+
+    // Receiving is not free — Twilio bills the agency for it — so the client
+    // pays for it too. Charged here rather than gated: the text has already
+    // arrived and the money has already been spent, and refusing to record
+    // that would just mean the agency absorbing it.
+    //
+    // Placed after the duplicate check so a Twilio retry cannot bill twice.
+    // The MessageSid is the idempotency key regardless, which covers the case
+    // where the duplicate check passes and this route is re-entered.
+    if (messageSid) {
+      const segments = Number(verified.params.NumSegments) || 1;
+
+      await debit(verified.orgId, {
+        cents: segments * RATES.smsInbound,
+        kind: "usage",
+        description:
+          segments === 1 ? "Text received" : `Text received (${segments} segments)`,
+        sourceKey: messageSid,
+      });
+    }
 
     // AI reply (PRD 5). Scheduled here rather than after the automations below
     // so that a throwing automation costs us the automation, not the reply.

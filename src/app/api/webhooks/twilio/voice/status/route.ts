@@ -1,6 +1,8 @@
 import twilio from "twilio";
 
 import { runAutomationsForEvent } from "@/lib/automations/engine";
+import { debit } from "@/lib/billing/credit";
+import { billableMinutes, RATES } from "@/lib/billing/rates";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { consumeAcceptance } from "@/lib/twilio/screening";
@@ -106,6 +108,26 @@ export async function POST(request: Request) {
         `(DialCallStatus=${dialCallStatus ?? "none"}, accepted=${accepted}, ` +
         `duration=${dialCallDuration ?? "none"})`,
     );
+
+    // An inbound call bills for the time it was actually connected. A missed
+    // call has no duration and costs nothing — Twilio charges from answer, and
+    // so does this.
+    //
+    // Two legs are involved and only one is charged. The caller's leg into the
+    // number and the forwarded leg out to the real phone both cost the agency,
+    // but the client is quoted one inbound per-minute rate and billing them
+    // twice for one conversation would make the statement impossible to check
+    // against their own call log. The margin on the rate covers both legs.
+    if (Number.isFinite(parsedDuration) && parsedDuration > 0 && callSid) {
+      const minutes = billableMinutes(parsedDuration);
+
+      await debit(verified.orgId, {
+        cents: minutes * RATES.voiceInboundPerMinute,
+        kind: "usage",
+        description: `Call received (${minutes} min)`,
+        sourceKey: callSid,
+      });
+    }
 
     // Missed-call auto-text-back (PRD 4.2). Runs after the call is logged so
     // the run log and the call row can't disagree, and never throws — the

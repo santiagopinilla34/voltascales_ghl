@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createTwilioClient } from "@/lib/twilio/client";
+import type { TwilioClient } from "@/lib/twilio/scope";
 import {
   MONTHLY_CENTS,
   type A2pState,
@@ -20,6 +20,14 @@ import {
  *
  * Every function here returns a result rather than throwing. The page renders
  * on every visit and a Twilio outage should cost you the list, not the page.
+ *
+ * Every function also takes the client to talk to rather than building one
+ * from the environment, which is what they used to do. That single line was
+ * the whole of the multi-tenancy bug: it meant "Twilio" always resolved to the
+ * agency's account, so a client saw the agency's numbers on their Phone System
+ * page and could act on them. `twilioScopeFor` in `scope.ts` decides whose
+ * account a request gets, and there is deliberately no default here to fall
+ * back to.
  */
 
 export type NumbersResult<T> =
@@ -95,15 +103,16 @@ function toCapabilities(value: Record<string, unknown> | null | undefined): Capa
  * pointing at someone else's server is not configured, it is misconfigured,
  * and the distinction is the whole reason the badge exists.
  */
-export async function listOwnedNumbers(): Promise<NumbersResult<OwnedNumber[]>> {
+export async function listOwnedNumbers(
+  client: TwilioClient,
+): Promise<NumbersResult<OwnedNumber[]>> {
   try {
-    const client = createTwilioClient();
     const [rows, a2p] = await Promise.all([
       withTimeout(
         client.incomingPhoneNumbers.list({ limit: 100 }),
         "Twilio number list",
       ),
-      a2pByNumber(),
+      a2pByNumber(client),
     ]);
 
     const base = process.env.APP_BASE_URL?.trim().replace(/\/$/, "") ?? "";
@@ -161,9 +170,10 @@ export async function listOwnedNumbers(): Promise<NumbersResult<OwnedNumber[]>> 
  * registered" when the truth is "could not check" is how someone concludes
  * their texts will be delivered when they will not.
  */
-async function a2pByNumber(): Promise<Map<string, A2pState> | null> {
+async function a2pByNumber(
+  client: TwilioClient,
+): Promise<Map<string, A2pState> | null> {
   try {
-    const client = createTwilioClient();
     const services = await withTimeout(
       client.messaging.v1.services.list({ limit: 20 }),
       "Twilio messaging services",
@@ -245,6 +255,7 @@ export function webhookUrls(): { voiceUrl: string; smsUrl: string } | null {
  * work.
  */
 export async function buyNumber(
+  client: TwilioClient,
   phoneNumber: string,
   friendlyName?: string,
 ): Promise<NumbersResult<{ sid: string; phoneNumber: string }>> {
@@ -258,7 +269,6 @@ export async function buyNumber(
   }
 
   try {
-    const client = createTwilioClient();
     const created = await withTimeout(
       client.incomingPhoneNumbers.create({
         phoneNumber,
@@ -283,11 +293,11 @@ export async function buyNumber(
 
 /** Edits the friendly name and webhook URLs of a number already owned. */
 export async function updateNumber(
+  client: TwilioClient,
   sid: string,
   changes: { friendlyName?: string; voiceUrl?: string; smsUrl?: string },
 ): Promise<NumbersResult<null>> {
   try {
-    const client = createTwilioClient();
     await withTimeout(
       client.incomingPhoneNumbers(sid).update({
         ...(changes.friendlyName !== undefined
@@ -317,9 +327,11 @@ export async function updateNumber(
  * else can take it within minutes. Billing stops, and so does every call and
  * text anyone sends to it.
  */
-export async function releaseNumber(sid: string): Promise<NumbersResult<null>> {
+export async function releaseNumber(
+  client: TwilioClient,
+  sid: string,
+): Promise<NumbersResult<null>> {
   try {
-    const client = createTwilioClient();
     await withTimeout(
       client.incomingPhoneNumbers(sid).remove(),
       "Twilio number release",
@@ -361,10 +373,10 @@ type AvailableRow = {
  * outright for some others, so it is only sent when it is a plain 3-digit code.
  */
 export async function searchAvailableNumbers(
+  client: TwilioClient,
   search: NumberSearch,
 ): Promise<NumbersResult<AvailableNumber[]>> {
   try {
-    const client = createTwilioClient();
     const country = client.availablePhoneNumbers(search.country);
 
     const areaCode = /^\d{3}$/.test(search.areaCode)

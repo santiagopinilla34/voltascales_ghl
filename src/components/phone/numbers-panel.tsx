@@ -6,6 +6,7 @@ import { ShieldCheck } from "lucide-react";
 import { A2pDialog } from "@/components/phone/a2p-dialog";
 import { OwnedNumbers } from "@/components/phone/owned-numbers";
 import { Button } from "@/components/ui/button";
+import { useVendor } from "@/components/vendor";
 import { formatPhone } from "@/lib/format";
 import { missingA2pFields, type A2pProfile } from "@/lib/phone/a2p";
 import type { OwnedNumber } from "@/lib/phone/numbers";
@@ -32,6 +33,7 @@ export function NumbersPanel({
 }) {
   const [open, setOpen] = useState(false);
   const [forNumber, setForNumber] = useState<string | null>(null);
+  const vendor = useVendor();
 
   const missing = missingA2pFields(profile);
 
@@ -71,8 +73,8 @@ export function NumbersPanel({
               </h3>
               <p className="text-muted-foreground max-w-xl text-xs">
                 {started
-                  ? "Your answers are saved. They will pre-fill Twilio's registration form when submitting is wired up."
-                  : "Fill this in now and it will be ready when registration is switched on. Nothing is sent to Twilio yet."}
+                  ? `Your answers are saved. They will pre-fill the registration form at ${vendor.phone} when submitting is wired up.`
+                  : `Fill this in now and it will be ready when registration is switched on. Nothing is sent to ${vendor.phone} yet.`}
               </p>
             </div>
 

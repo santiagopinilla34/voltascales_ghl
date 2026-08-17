@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
+import { useVendor } from "@/components/vendor";
+
 import { saveA2pProfile } from "@/app/(app)/phone/actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -100,6 +102,7 @@ export function A2pDialog({
 }) {
   const [profile, setProfile] = useState<A2pProfile>(initial);
   const [pending, startTransition] = useTransition();
+  const vendor = useVendor();
 
   function set<K extends keyof A2pProfile>(key: K, value: A2pProfile[K]) {
     setProfile((current) => ({ ...current, [key]: value }));
@@ -121,8 +124,7 @@ export function A2pDialog({
 
       onOpenChange(false);
       toast.success("Saved as a draft.", {
-        description:
-          "Nothing has been sent to Twilio — registration is not wired up yet.",
+        description: `Nothing has been sent to ${vendor.phone} — registration is not wired up yet.`,
       });
     });
   }
@@ -147,9 +149,9 @@ export function A2pDialog({
         <p className="text-muted-foreground flex items-start gap-2 rounded-md border border-dashed px-3 py-2 text-xs">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            This saves a draft. Submitting it to Twilio is a later phase — when
-            it lands, these answers pre-fill Twilio&apos;s own registration
-            form, which asks the remaining compliance questions.
+            This saves a draft. Submitting it to {vendor.phone} is a later phase
+            — when it lands, these answers pre-fill the registration form there,
+            which asks the remaining compliance questions.
           </span>
         </p>
 

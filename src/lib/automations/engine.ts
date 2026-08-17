@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isOrgSuspended } from "@/lib/orgs/suspension";
+import { hasCredit } from "@/lib/billing/credit";
 import type {
   Automation,
   AutomationRunStatus,
@@ -496,6 +497,17 @@ export async function runAutomationsForEvent(
   if (event.contact && (await isOrgSuspended(supabase, event.contact.org_id))) {
     console.log(
       `[automations] skipping ${event.trigger}: organization ${event.contact.org_id} is suspended`,
+    );
+    return [];
+  }
+
+  // And the same for an empty wallet. Held here rather than left to fail at
+  // the send, so a rule that texts, waits and texts again does not half-run
+  // and leave a run log that reads like a bug — which is the reasoning
+  // directly above, applied to the other way an account can be stopped.
+  if (event.contact && !(await hasCredit(supabase, event.contact.org_id))) {
+    console.log(
+      `[automations] skipping ${event.trigger}: organization ${event.contact.org_id} is out of credit`,
     );
     return [];
   }

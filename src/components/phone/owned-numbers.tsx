@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useVendor } from "@/components/vendor";
+
 import { releaseOwnedNumber } from "@/app/(app)/phone/actions";
 import { ConfigureNumberDialog } from "@/components/phone/configure-number-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +99,8 @@ function A2pCell({
   state: A2pState;
   onStart: () => void;
 }) {
+  const vendor = useVendor();
+
   if (state === "registered") {
     return (
       <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
@@ -125,7 +129,7 @@ function A2pCell({
           </span>
         </TooltipTrigger>
         <TooltipContent className="max-w-64">
-          Twilio could not be asked. This is not the same as &ldquo;not
+          {vendor.Phone} could not be asked. This is not the same as &ldquo;not
           registered&rdquo; — the number may well be fine.
         </TooltipContent>
       </Tooltip>
@@ -296,6 +300,7 @@ export function OwnedNumbers({
   const [configuring, setConfiguring] = useState<OwnedNumber | null>(null);
   const [releasing, setReleasing] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const vendor = useVendor();
 
   /**
    * Two presses, matching how cancelling a booking works elsewhere here.
@@ -310,8 +315,7 @@ export function OwnedNumbers({
     if (confirmingSid !== key) {
       setConfirmingSid(key);
       toast.warning(`Release ${formatPhone(entry.phoneNumber)}?`, {
-        description:
-          "This gives the number back to Twilio and cannot be undone. Open the menu and press release again to confirm.",
+        description: `This gives the number back to ${vendor.phone} and cannot be undone. Open the menu and press release again to confirm.`,
       });
       return;
     }

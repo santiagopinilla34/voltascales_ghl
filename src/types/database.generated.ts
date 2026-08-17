@@ -568,6 +568,47 @@ export type Database = {
           },
         ]
       }
+      credit_ledger: {
+        Row: {
+          cents: number
+          created_at: string
+          created_by: string | null
+          description: string
+          id: string
+          kind: string
+          org_id: string
+          source_key: string | null
+        }
+        Insert: {
+          cents: number
+          created_at?: string
+          created_by?: string | null
+          description: string
+          id?: string
+          kind: string
+          org_id: string
+          source_key?: string | null
+        }
+        Update: {
+          cents?: number
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          id?: string
+          kind?: string
+          org_id?: string
+          source_key?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_ledger_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoices: {
         Row: {
           client_name: string
@@ -765,7 +806,9 @@ export type Database = {
       }
       organizations: {
         Row: {
+          auto_recharge_cents: number | null
           created_at: string
+          credit_cents: number
           id: string
           invited_email: string | null
           kind: string
@@ -778,7 +821,9 @@ export type Database = {
           twilio_phone_number: string | null
         }
         Insert: {
+          auto_recharge_cents?: number | null
           created_at?: string
+          credit_cents?: number
           id?: string
           invited_email?: string | null
           kind?: string
@@ -791,7 +836,9 @@ export type Database = {
           twilio_phone_number?: string | null
         }
         Update: {
+          auto_recharge_cents?: number | null
           created_at?: string
+          credit_cents?: number
           id?: string
           invited_email?: string | null
           kind?: string
@@ -983,6 +1030,10 @@ export type Database = {
       default_org_id: { Args: never; Returns: string }
       is_platform_admin: { Args: never; Returns: boolean }
       seed_organization: { Args: { target: string }; Returns: undefined }
+      set_my_auto_recharge: {
+        Args: { amount_cents: number }
+        Returns: undefined
+      }
       user_org_ids: { Args: never; Returns: string[] }
     }
     Enums: {

@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { cancelUrl, formatBookingTime } from "@/lib/notify/booking";
 import { isOrgSuspended } from "@/lib/orgs/suspension";
+import { hasCredit } from "@/lib/billing/credit";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import type { Booking, Database, TablesUpdate } from "@/types/database";
@@ -191,6 +192,17 @@ export async function runReminderPass(
       skipped++;
       console.log(
         `[reminders] ${kind} reminder held for booking ${booking.id}: organization ${booking.org_id} is suspended`,
+      );
+      continue;
+    }
+
+    // Left unstamped for the same reason a paused account's are: a reminder
+    // held because the wallet is empty should go out if the client tops up
+    // before the meeting, and the next pass will pick it up.
+    if (!(await hasCredit(supabase, booking.org_id))) {
+      skipped++;
+      console.log(
+        `[reminders] ${kind} reminder held for booking ${booking.id}: organization ${booking.org_id} is out of credit`,
       );
       continue;
     }

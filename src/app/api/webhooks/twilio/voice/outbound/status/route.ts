@@ -1,3 +1,5 @@
+import { debit } from "@/lib/billing/credit";
+import { billableMinutes, RATES } from "@/lib/billing/rates";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
 import { normalizePhone } from "@/lib/phone/normalize";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -63,6 +65,22 @@ export async function POST(request: Request) {
       `[twilio/voice/outbound/status] logged ${status} call to ${dialled} ` +
         `(DialCallStatus=${dialCallStatus ?? "none"})`,
     );
+
+    // Same rule as the inbound leg: connected time only, at the outbound rate.
+    // Keyed on the CallSid so Twilio replaying this callback cannot bill the
+    // call twice.
+    const callSid = verified.params.CallSid;
+
+    if (Number.isFinite(parsedDuration) && parsedDuration > 0 && callSid) {
+      const minutes = billableMinutes(parsedDuration);
+
+      await debit(verified.orgId, {
+        cents: minutes * RATES.voiceOutboundPerMinute,
+        kind: "usage",
+        description: `Call made (${minutes} min)`,
+        sourceKey: callSid,
+      });
+    }
   } catch (error) {
     // Never fail the callback over bookkeeping. The call already happened;
     // returning an error here achieves nothing except a retry storm.

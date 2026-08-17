@@ -2,6 +2,12 @@ import "server-only";
 
 import twilio from "twilio";
 
+import {
+  debit,
+  hasCredit,
+  InsufficientCreditError,
+} from "@/lib/billing/credit";
+import { RATES } from "@/lib/billing/rates";
 import { serverEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -33,17 +39,48 @@ export function createTwilioClient() {
  * a required parameter they would fill with the same lookup adds nothing.
  */
 export async function sendSms(to: string, body: string, orgId?: string) {
+  const admin = createAdminClient();
+
+  // Before anything is spent. `hasCredit` passes the agency unconditionally,
+  // so this is a client-only gate — and it fails closed, which is the opposite
+  // of the suspension check two lines away in every caller. The reasoning for
+  // the difference is in `lib/billing/credit.ts`.
+  if (orgId && !(await hasCredit(admin, orgId))) {
+    throw new InsufficientCreditError();
+  }
+
   const credentials = orgId ? await twilioCredentialsFor(orgId) : null;
 
   const client = credentials
     ? twilio(credentials.accountSid, credentials.authToken)
     : createTwilioClient();
 
-  return client.messages.create({
+  const message = await client.messages.create({
     to,
     from: credentials?.from ?? serverEnv.twilioPhoneNumber,
     body,
   });
+
+  if (orgId) {
+    // Charged per segment, not per message: Twilio splits anything over 160
+    // characters and bills each part, so a long message that cost the agency
+    // three sends must not be sold to the client as one.
+    //
+    // Awaited rather than fired and forgotten. On a serverless function the
+    // invocation can be frozen the moment the response is returned, and an
+    // un-awaited charge is a text the client sent for free.
+    const segments = Number(message.numSegments) || 1;
+
+    await debit(orgId, {
+      cents: segments * RATES.smsOutbound,
+      kind: "usage",
+      description:
+        segments === 1 ? "Text sent" : `Text sent (${segments} segments)`,
+      sourceKey: message.sid,
+    });
+  }
+
+  return message;
 }
 
 /**

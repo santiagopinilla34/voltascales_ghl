@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useVendor } from "@/components/vendor";
+
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -149,6 +151,7 @@ export function DialerBubble({
   const [from, setFrom] = useState(numbers[0] ?? "");
 
   const dialer = useDialer();
+  const vendor = useVendor();
   const target = normalizePhone(dialed);
   const busy = dialer.status !== "idle" && dialer.status !== "error";
 
@@ -219,8 +222,12 @@ export function DialerBubble({
 
     if (!configured) {
       toast.info("Browser calling isn't set up yet.", {
-        description:
-          "It needs a Twilio API key and a TwiML app. Until then, the Call links on a contact still open your phone's dialler.",
+        // The agency gets the actionable version — they are the ones who go and
+        // create the key. A client can only wait for them, so naming the
+        // credential would tell them nothing they could use.
+        description: vendor.named
+          ? "It needs a Twilio API key and a TwiML app. Until then, the Call links on a contact still open your phone's dialler."
+          : "Your agency still has to switch it on. Until then, the Call links on a contact still open your phone's dialler.",
       });
       return;
     }

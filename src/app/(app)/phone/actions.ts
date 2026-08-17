@@ -17,6 +17,11 @@ import {
   type NumberSearch,
   type NumberType,
 } from "@/lib/phone/numbers";
+import { debit } from "@/lib/billing/credit";
+import { formatCredit, RATES } from "@/lib/billing/rates";
+import { getOrgContext } from "@/lib/orgs/context";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { provisionSubaccount } from "@/lib/twilio/provision";
 import {
   buyNumber,
   releaseNumber,
@@ -24,6 +29,11 @@ import {
   updateNumber,
   webhookUrls,
 } from "@/lib/twilio/numbers";
+import {
+  catalogueClient,
+  twilioScopeFor,
+  type TwilioScope,
+} from "@/lib/twilio/scope";
 
 export type ActionResult<T = null> =
   | { ok: true; value: T }
@@ -38,6 +48,42 @@ async function requireUser() {
   return user ? supabase : null;
 }
 
+type Provisioned = Extract<TwilioScope, { provisioned: true }>;
+
+/**
+ * The Twilio account this caller is allowed to act on.
+ *
+ * Every action below used to authenticate the user and then reach for the
+ * environment's credentials, which are the agency's. Signing in was therefore
+ * the only thing standing between a client and the agency's phone numbers:
+ * they could release them, rename them, or point their webhooks somewhere
+ * else. A server action is a public endpoint, so the dialog no longer showing
+ * a button is not a control.
+ *
+ * Refusing an unprovisioned client is the point rather than an edge case. The
+ * alternative — falling back to the agency, as the send path does — is exactly
+ * the behaviour being removed here.
+ */
+async function requireScope(): Promise<
+  { ok: true; scope: Provisioned } | { ok: false; error: string }
+> {
+  const context = await getOrgContext();
+  if (!context) return { ok: false, error: "Not authenticated" };
+
+  const scope = await twilioScopeFor(context.orgId);
+
+  if (!scope.provisioned) {
+    return {
+      ok: false,
+      error:
+        scope.error ??
+        "There's no phone account set up for this business yet, so there is nothing to buy a number into. Your agency sets this up.",
+    };
+  }
+
+  return { ok: true, scope };
+}
+
 /**
  * Searches Twilio for numbers to buy.
  *
@@ -45,13 +91,19 @@ async function requireUser() {
  * caller and it wants a typed result, not a fetch. Every field is re-validated
  * here: a server action is a public endpoint, and `country` in particular is
  * interpolated into the Twilio path.
+ *
+ * Deliberately *not* behind `requireScope`. Searching reads Twilio's public
+ * catalogue of numbers for sale — it owns nothing, spends nothing and reveals
+ * nothing about any account — so it runs on the parent credentials whoever is
+ * asking. Gating it on the caller having a subaccount would mean a client with
+ * no number could not open the dialog that exists to sell them one, which is
+ * the wrong way round.
  */
 export async function findAvailableNumbers(
   search: NumberSearch,
 ): Promise<ActionResult<AvailableNumber[]>> {
-  if (!(await requireUser())) {
-    return { ok: false, error: "Not authenticated" };
-  }
+  const context = await getOrgContext();
+  if (!context) return { ok: false, error: "Not authenticated" };
 
   if (!COUNTRIES.some((country) => country.code === search.country)) {
     return { ok: false, error: `${search.country} is not a supported country.` };
@@ -60,7 +112,7 @@ export async function findAvailableNumbers(
     return { ok: false, error: `${search.type} is not a valid number type.` };
   }
 
-  const result = await searchAvailableNumbers({
+  const result = await searchAvailableNumbers(catalogueClient(), {
     country: search.country,
     type: search.type as NumberType,
     // Anything that is not a bare area code is dropped rather than passed on:
@@ -118,31 +170,37 @@ export async function refreshNumbers(): Promise<void> {
 }
 
 /**
- * The number the app itself sends from.
- *
- * Releasing or unwiring this one breaks every outbound text, the missed-call
- * auto-reply and the booking confirmations, and nothing in the UI would say
- * why. It is guarded rather than merely discouraged.
- */
-function mainLine(): string | null {
-  return process.env.TWILIO_PHONE_NUMBER?.trim() || null;
-}
-
-/**
  * Buys a number. This spends money.
  *
  * Re-validates the number against a fresh Twilio search rather than trusting
  * the one posted back. A server action is a public endpoint, and this one
  * charges the account — without the check, any string reaching it becomes a
  * purchase attempt for whatever number it names.
+ *
+ * ## The first number is sold on credit, the rest are not
+ *
+ * A client is allowed to buy their first number with an empty wallet, because
+ * that is the order the product asks for: buy the number, see it sitting there
+ * at $0.00, top up to switch it on. The first month's rental is charged anyway,
+ * which usually leaves them a couple of dollars overdrawn — visible, owed, and
+ * cleared by the $10 minimum top-up.
+ *
+ * Every number after the first needs the rental in the balance up front. Left
+ * unbounded, "you may buy at zero" is a client buying fifty numbers they never
+ * pay for, on the agency's Twilio bill. One number is an onboarding step; fifty
+ * is an unpaid invoice.
+ *
+ * ## Provisioning happens here
+ *
+ * A client's first purchase is also the moment their Twilio subaccount is
+ * created, because that is the first moment there is anything to put in it.
  */
 export async function purchaseNumber(input: {
   phoneNumber: string;
   search: NumberSearch;
 }): Promise<ActionResult<{ phoneNumber: string }>> {
-  if (!(await requireUser())) {
-    return { ok: false, error: "Not authenticated" };
-  }
+  const context = await getOrgContext();
+  if (!context) return { ok: false, error: "Not authenticated" };
 
   if (!/^\+[1-9]\d{7,14}$/.test(input.phoneNumber)) {
     return { ok: false, error: "That is not a valid phone number." };
@@ -159,10 +217,84 @@ export async function purchaseNumber(input: {
     };
   }
 
-  const result = await buyNumber(input.phoneNumber);
+  const supabase = await createClient();
+
+  const { data: org, error: orgError } = await supabase
+    .from("organizations")
+    .select("id, name, kind, twilio_phone_number, credit_cents")
+    .eq("id", context.orgId)
+    .maybeSingle();
+
+  if (orgError || !org) {
+    return { ok: false, error: orgError?.message ?? "Could not read this account." };
+  }
+
+  const isClient = org.kind !== "agency";
+
+  // The balance rule, and only for a client — the agency pays Twilio directly
+  // and has no wallet to check.
+  if (isClient && org.twilio_phone_number && org.credit_cents < RATES.numberMonthly) {
+    return {
+      ok: false,
+      error: `A second number costs ${formatCredit(RATES.numberMonthly)} a month and your balance is ${formatCredit(org.credit_cents)}. Top up first.`,
+    };
+  }
+
+  // Provisioning is idempotent, so a double-click cannot produce two
+  // subaccounts. The agency skips it entirely and keeps its own account.
+  let client;
+  if (isClient) {
+    const provisioned = await provisionSubaccount({
+      orgId: org.id,
+      orgName: org.name,
+    });
+
+    if (!provisioned.ok) return { ok: false, error: provisioned.error };
+    client = provisioned.client;
+  } else {
+    const scoped = await requireScope();
+    if (!scoped.ok) return scoped;
+    client = scoped.scope.client;
+  }
+
+  const result = await buyNumber(client, input.phoneNumber);
   if (!result.ok) return { ok: false, error: result.error };
 
+  // Charged after Twilio confirms, never before. A rental debited against a
+  // purchase that then failed is money taken for nothing, and the client has no
+  // way to see that is what happened.
+  //
+  // Keyed on the number's SID so a retry cannot bill the first month twice, and
+  // shaped to match the monthly renewals the cron writes later.
+  const period = new Date().toISOString().slice(0, 7);
+
+  await debit(org.id, {
+    cents: RATES.numberMonthly,
+    kind: "rental",
+    description: `Number rental — ${result.value.phoneNumber}`,
+    sourceKey: `rental:${result.value.sid}:${period}`,
+  });
+
+  // The first number becomes the one this account sends from. Without this the
+  // client owns a number and `sendSms` still has no `from` for them, so
+  // `twilioCredentialsFor` reads the pair as unprovisioned and quietly falls
+  // back to the agency's number — the exact bug this whole phase removes.
+  if (!org.twilio_phone_number) {
+    const { error: stampError } = await createAdminClient()
+      .from("organizations")
+      .update({ twilio_phone_number: result.value.phoneNumber })
+      .eq("id", org.id);
+
+    if (stampError) {
+      console.error(
+        "[phone] bought the number but could not set it as the account's line",
+        stampError,
+      );
+    }
+  }
+
   revalidatePath("/phone");
+  revalidatePath("/billing");
   return { ok: true, value: { phoneNumber: result.value.phoneNumber } };
 }
 
@@ -172,9 +304,9 @@ export async function configureNumber(input: {
   friendlyName: string;
   repointWebhooks: boolean;
 }): Promise<ActionResult> {
-  if (!(await requireUser())) {
-    return { ok: false, error: "Not authenticated" };
-  }
+  const scoped = await requireScope();
+  if (!scoped.ok) return scoped;
+
   if (!/^PN[0-9a-f]{32}$/i.test(input.sid)) {
     return { ok: false, error: "That is not a valid number id." };
   }
@@ -189,7 +321,7 @@ export async function configureNumber(input: {
     };
   }
 
-  const result = await updateNumber(input.sid, {
+  const result = await updateNumber(scoped.scope.client, input.sid, {
     friendlyName: input.friendlyName.trim().slice(0, 64),
     ...(urls ?? {}),
   });
@@ -206,27 +338,35 @@ export async function configureNumber(input: {
  * Refuses the main line outright. Confirming twice in the UI protects against
  * a slip, not against not realising which number the app sends from — and the
  * consequence there is the whole CRM going quiet.
+ *
+ * Which number that is depends on who is asking, which is why it comes off the
+ * scope rather than off the environment: for a client it is the number their
+ * organization sends from, and the environment's would be the agency's, on an
+ * account they can no longer reach anyway.
  */
 export async function releaseOwnedNumber(input: {
   sid: string;
   phoneNumber: string;
 }): Promise<ActionResult> {
-  if (!(await requireUser())) {
-    return { ok: false, error: "Not authenticated" };
-  }
+  const scoped = await requireScope();
+  if (!scoped.ok) return scoped;
+
   if (!/^PN[0-9a-f]{32}$/i.test(input.sid)) {
     return { ok: false, error: "That is not a valid number id." };
   }
 
-  if (input.phoneNumber === mainLine()) {
+  if (
+    scoped.scope.mainNumber &&
+    input.phoneNumber === scoped.scope.mainNumber
+  ) {
     return {
       ok: false,
       error:
-        "This is the number the app sends from (TWILIO_PHONE_NUMBER). Releasing it would stop every text, the missed-call auto-reply and all booking confirmations. Point TWILIO_PHONE_NUMBER at another number first.",
+        "This is the number this account sends from. Releasing it would stop every text, the missed-call auto-reply and all booking confirmations. Point the account at another number first.",
     };
   }
 
-  const result = await releaseNumber(input.sid);
+  const result = await releaseNumber(scoped.scope.client, input.sid);
   if (!result.ok) return { ok: false, error: result.error };
 
   revalidatePath("/phone");

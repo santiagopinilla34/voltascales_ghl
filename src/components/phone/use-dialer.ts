@@ -53,7 +53,10 @@ function describeError(error: unknown): string {
     case 31205:
       return "The calling session expired. Close the dialer and reopen it.";
     case 31003:
-      return "Could not reach Twilio's media servers — a firewall may be blocking it.";
+      // Vendor-neutral for everyone, not just for clients: this is a network
+      // diagnostic and the fix is the same firewall either way, so naming the
+      // provider adds nothing an agency admin could act on.
+      return "Could not reach the calling servers — a firewall may be blocking it.";
     default:
       return message;
   }

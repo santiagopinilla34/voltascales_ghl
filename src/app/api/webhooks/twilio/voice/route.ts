@@ -1,5 +1,6 @@
 import twilio from "twilio";
 
+import { creditBalance, hasCredit } from "@/lib/billing/credit";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
 import { resolveForwardToNumber } from "@/lib/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -36,6 +37,32 @@ export async function POST(request: Request) {
   }
 
   const supabase = createAdminClient();
+
+  // An empty wallet is where "the number doesn't work" actually happens. A
+  // client who has not topped up owns a number that rings nobody: the call is
+  // rejected before the forwarding leg is dialled, because dialling it is the
+  // part that costs the agency money.
+  //
+  // `<Reject>` rather than a spoken apology, and that is a billing decision as
+  // much as a wording one — `<Say>` runs text-to-speech on a call that has been
+  // answered, which is billable, and billing the agency to tell someone the
+  // client has not paid is precisely backwards.
+  //
+  // This is the one guard that fails *open*. `hasCredit` returns false when its
+  // lookup errors, so it is asked here in a way that can tell a real refusal
+  // from a broken query: dropping a paying client's incoming call over a
+  // database blip is a worse failure than one free call.
+  const balance = await creditBalance(supabase, verified.orgId);
+
+  if (balance !== null && !(await hasCredit(supabase, verified.orgId))) {
+    console.log(
+      `[twilio/voice] rejecting inbound call for organization ${verified.orgId}: out of credit`,
+    );
+
+    const rejected = new twilio.twiml.VoiceResponse();
+    rejected.reject();
+    return twimlResponse(rejected.toString());
+  }
 
   // Create the contact now so the status callback can rely on it existing.
   try {

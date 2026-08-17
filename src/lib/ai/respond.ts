@@ -4,6 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { listMessages } from "@/lib/conversations";
 import { isOrgSuspended } from "@/lib/orgs/suspension";
+import { debit, hasCredit } from "@/lib/billing/credit";
+import { RATES } from "@/lib/billing/rates";
 import { notifyHandoff } from "@/lib/notify/handoff";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
@@ -46,6 +48,17 @@ export async function respondToInbound(
     if (await isOrgSuspended(supabase, contact.org_id)) {
       console.log(
         `[ai] no reply for message ${messageId}: organization ${contact.org_id} is suspended`,
+      );
+      return;
+    }
+
+    // Same position, same reason, one rung further down: an empty wallet must
+    // stop the Anthropic call, not just the text it would have produced.
+    // Checking only at `sendSms` would let a client with no credit run up the
+    // agency's AI bill on every inbound message and send none of the answers.
+    if (!(await hasCredit(supabase, contact.org_id))) {
+      console.log(
+        `[ai] no reply for message ${messageId}: organization ${contact.org_id} is out of credit`,
       );
       return;
     }
@@ -129,6 +142,16 @@ export async function respondToInbound(
       );
       return;
     }
+
+    // The text itself was charged inside `sendSms`. This is the surcharge for
+    // having the AI write it, keyed on the draft so a retry of this callback
+    // cannot bill twice for one answer.
+    await debit(contact.org_id, {
+      cents: RATES.aiReply,
+      kind: "usage",
+      description: "AI reply",
+      sourceKey: `ai:${draft.id}`,
+    });
 
     // The SMS is already out; this only records that for the Inbox, which
     // otherwise has no way to tell a sent reply from a held-back one. Logged
