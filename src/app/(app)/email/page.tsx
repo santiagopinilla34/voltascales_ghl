@@ -6,7 +6,7 @@ import { AddDomainForm } from "@/components/email/add-domain-form";
 import { DomainCard } from "@/components/email/domain-card";
 import { StatusDashboard } from "@/components/email/status-dashboard";
 import { getSendActivity, type SendActivity } from "@/lib/resend/activity";
-import { listDomains, resendConfigured } from "@/lib/resend/domains";
+import { listDomainsWithRecords, resendConfigured } from "@/lib/resend/domains";
 import { resolveFromAddress, sendingDomainOf } from "@/lib/resend/sending";
 import { getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
@@ -32,7 +32,7 @@ export default async function EmailServicesPage() {
   const settings = await getSettings(supabase);
 
   const configured = resendConfigured();
-  const listed = configured ? await listDomains() : null;
+  const listed = configured ? await listDomainsWithRecords() : null;
   const domains = listed?.ok ? listed.value : [];
 
   const sending = resolveFromAddress(settings);

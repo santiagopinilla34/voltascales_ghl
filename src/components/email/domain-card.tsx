@@ -142,7 +142,10 @@ export function DomainCard({
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   const status = describeStatus(domain.status);
-  const waiting = domain.records.filter(
+  // Absent when the detail fetch behind the list failed — the card still
+  // renders its status rather than disappearing. See `listDomainsWithRecords`.
+  const records = domain.records ?? [];
+  const waiting = records.filter(
     (record) => recordState(record.status) !== "found",
   ).length;
 
@@ -190,12 +193,13 @@ export function DomainCard({
               } else {
                 // Not an error. DNS takes time, and the useful thing to say is
                 // how many records are still missing rather than "pending".
-                const missing = result.value.records.filter(
+                const checked = result.value.records ?? [];
+                const missing = checked.filter(
                   (record) => recordState(record.status) !== "found",
                 ).length;
                 toast.info(next.label, {
                   description: missing
-                    ? `${missing} of ${result.value.records.length} records not visible yet. DNS can take a while — check again shortly.`
+                    ? `${missing} of ${checked.length} records not visible yet. DNS can take a while — check again shortly.`
                     : next.detail,
                 });
               }
@@ -270,7 +274,7 @@ export function DomainCard({
           DNS records
           {waiting > 0 && (
             <span className="tabular-nums">
-              — {waiting} of {domain.records.length} still waiting
+              — {waiting} of {records.length} still waiting
             </span>
           )}
         </button>
@@ -278,13 +282,19 @@ export function DomainCard({
         {/* Collapsed by default once verified: they are a setup instruction,
             and a verified domain has been set up. Still reachable, because
             "which record did I publish" is a real question later. */}
-        {showRecords && (
-          <DnsRecords
-            domain={domain.name}
-            records={domain.records}
-            reportTo={reportTo}
-          />
-        )}
+        {showRecords &&
+          (records.length > 0 ? (
+            <DnsRecords
+              domain={domain.name}
+              records={records}
+              reportTo={reportTo}
+            />
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              Couldn&apos;t load this domain&apos;s records from Resend just
+              now. Reload the page to try again.
+            </p>
+          ))}
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t pt-2">

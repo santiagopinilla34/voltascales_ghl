@@ -287,6 +287,36 @@ export async function getDomain(id: string): Promise<ResendResult<ResendDomain>>
 }
 
 /**
+ * Every domain, each with its DNS records.
+ *
+ * The list endpoint does not return records — see the note on
+ * `ResendDomain.records` — so this follows it with one detail fetch per
+ * domain. An N+1, knowingly: the page's whole purpose is showing those
+ * records, a single business has one or two sending domains, and the
+ * alternative is a list that cannot render what it exists to render.
+ *
+ * A domain whose detail fetch fails is kept with whatever the list gave,
+ * rather than dropped. Its card then shows the status without the records,
+ * which is worse than the full picture and much better than a domain silently
+ * vanishing from a page the operator is using to diagnose delivery.
+ */
+export async function listDomainsWithRecords(): Promise<
+  ResendResult<ResendDomain[]>
+> {
+  const listed = await listDomains();
+  if (!listed.ok) return listed;
+
+  const detailed = await Promise.all(
+    listed.value.map(async (domain) => {
+      const full = await getDomain(domain.id);
+      return full.ok ? full.value : domain;
+    }),
+  );
+
+  return { ok: true, value: detailed };
+}
+
+/**
  * Asks Resend to re-read DNS for a domain.
  *
  * Asynchronous, and this is the single most misleading thing about the flow.

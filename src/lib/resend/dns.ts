@@ -89,17 +89,52 @@ export function sortRecords<T extends { record: string; type: string }>(
  * address that does not exist generates bounces at whoever does own it.
  */
 export function recommendedDmarc(reportTo: string | null): {
-  name: (domain: string) => string;
   type: "TXT";
   value: string;
 } {
   const email = reportTo?.trim();
 
   return {
-    name: (domain: string) => `_dmarc.${domain}`,
     type: "TXT",
     value: email
       ? `v=DMARC1; p=none; rua=mailto:${email};`
       : "v=DMARC1; p=none;",
   };
+}
+
+/**
+ * The DMARC host, written the same way Resend writes its own.
+ *
+ * Resend returns record names relative to the DNS zone rather than fully
+ * qualified — `send.info` for the domain `info.voltascales.com`, because the
+ * zone being edited is `voltascales.com`. A DMARC row saying
+ * `_dmarc.info.voltascales.com` next to rows saying `send.info` would be
+ * inconsistent in a way that gets one of them typed in wrong.
+ *
+ * Rather than reach for a public-suffix list to work out the zone, this reads
+ * it back out of what Resend already said: the SPF MX record is always
+ * `send` plus whatever the domain has above the zone. Strip the `send.` and
+ * the remainder is the prefix DMARC needs too.
+ *
+ * Falls back to the fully-qualified name when the records do not look the way
+ * this expects. Slightly inconsistent beats confidently wrong — a fully
+ * qualified host is unambiguous, and most DNS providers accept it.
+ */
+export function dmarcHost(
+  domain: string,
+  records: { record: string; type: string; name: string }[],
+): string {
+  const spfMx = records.find(
+    (record) =>
+      record.record.toUpperCase() === "SPF" && record.type.toUpperCase() === "MX",
+  );
+
+  if (!spfMx) return `_dmarc.${domain}`;
+
+  if (spfMx.name === "send") return "_dmarc";
+  if (spfMx.name.startsWith("send.")) {
+    return `_dmarc.${spfMx.name.slice("send.".length)}`;
+  }
+
+  return `_dmarc.${domain}`;
 }

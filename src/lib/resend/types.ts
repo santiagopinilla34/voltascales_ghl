@@ -48,10 +48,18 @@ export type ResendRegion =
  * statuses are a narrower set in practice, but they are not separately
  * documented, and a value we have not seen before should render as itself
  * rather than crash a `switch`.
+ *
+ * `name` is **relative to the DNS zone, not fully qualified**. For the domain
+ * `info.voltascales.com` the DKIM record comes back as
+ * `resend._domainkey.info`, because the zone being edited is
+ * `voltascales.com`. Confirmed against the live API, and worth stating here
+ * because appending the domain to it — the obvious-looking thing to do — would
+ * produce a host that is wrong by one level and would never verify.
  */
 export type ResendDnsRecord = {
   /** "SPF" | "DKIM" | "Tracking" — what the record is for, not its DNS type. */
   record: string;
+  /** Relative to the DNS zone. See above. */
   name: string;
   type: string;
   value: string;
@@ -67,7 +75,16 @@ export type ResendDomain = {
   status: ResendDomainStatus;
   created_at: string;
   region: string;
-  records: ResendDnsRecord[];
+  /**
+   * Optional, because it depends on which endpoint produced this.
+   *
+   * `POST /domains` and `GET /domains/{id}` include the records.
+   * `GET /domains` — the list — does not: its items carry id, name, status,
+   * created_at, region, capabilities and the tracking flags, and nothing else.
+   * Typing this as required is how the page crashed the first time it was
+   * pointed at a real account.
+   */
+  records?: ResendDnsRecord[];
   open_tracking?: boolean;
   click_tracking?: boolean;
   tracking_subdomain?: string | null;

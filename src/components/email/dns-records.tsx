@@ -4,8 +4,14 @@ import { Check, CircleDashed, Info, TriangleAlert } from "lucide-react";
 
 import { CopyButton } from "@/components/email/copy-button";
 import { Badge } from "@/components/ui/badge";
-import { recommendedDmarc, recordPurpose, recordState, sortRecords } from "@/lib/resend/dns";
-import type { ResendDnsRecord } from "@/lib/resend/domains";
+import {
+  dmarcHost,
+  recommendedDmarc,
+  recordPurpose,
+  recordState,
+  sortRecords,
+} from "@/lib/resend/dns";
+import type { ResendDnsRecord } from "@/lib/resend/types";
 
 /**
  * The DNS records to publish, one row per record.
@@ -105,6 +111,20 @@ export function DnsRecords({
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
+      {/* The single most likely way to get this wrong. Resend returns hosts
+          relative to the zone — `send.info`, not `send.info.voltascales.com` —
+          and appending the domain "to be safe" produces a host one level too
+          deep that will never verify, with no error to say why. */}
+      <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-[11px]">
+        Hosts are shown the way Resend returns them:{" "}
+        <strong className="text-foreground font-medium">
+          relative to your DNS zone
+        </strong>
+        , not as full domain names. Paste them exactly as they are. If your
+        provider shows the rest of the domain greyed out beside the field, that
+        is the right behaviour — don&apos;t type it again.
+      </p>
+
       <ul className="flex min-w-0 flex-col gap-2">
         {sortRecords(records).map((record) => (
           <RecordRow
@@ -147,7 +167,7 @@ export function DnsRecords({
         <ul className="flex min-w-0 flex-col gap-2">
           <RecordRow
             type={dmarc.type}
-            name={dmarc.name(domain)}
+            name={dmarcHost(domain, records)}
             value={dmarc.value}
             purpose={
               reportTo

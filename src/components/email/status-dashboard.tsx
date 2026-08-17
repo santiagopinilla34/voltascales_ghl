@@ -122,16 +122,13 @@ export function StatusDashboard({
   activity: SendActivity | null;
   activityError: string | null;
 }) {
-  const found = domain.records.filter(
+  const records = domain.records ?? [];
+  const found = records.filter(
     (record) => recordState(record.status) === "found",
   ).length;
 
-  const dkim = domain.records.find(
-    (record) => record.record.toUpperCase() === "DKIM",
-  );
-  const spf = domain.records.find(
-    (record) => record.record.toUpperCase() === "SPF",
-  );
+  const dkim = records.find((record) => record.record.toUpperCase() === "DKIM");
+  const spf = records.find((record) => record.record.toUpperCase() === "SPF");
 
   const sending = domain.capabilities?.sending;
 
@@ -175,7 +172,7 @@ export function StatusDashboard({
         />
         <Stat
           label="Records found"
-          value={`${found} of ${domain.records.length}`}
+          value={records.length ? `${found} of ${records.length}` : "—"}
         />
       </div>
 
