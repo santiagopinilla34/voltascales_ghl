@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { redirect } from "next/navigation";
 
-import { appBaseUrl } from "@/lib/env";
+import { sendAuthLink } from "@/lib/auth/links";
 import { requirePlatformAdmin } from "@/lib/orgs/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -124,23 +124,29 @@ export async function createSubAccount(input: {
   let userId = already?.id ?? null;
 
   if (!userId) {
-    const redirectTo = `${appBaseUrl() ?? "http://localhost:3000"}/auth/confirm?next=/auth/set-password`;
-
-    const invited = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo,
+    const invited = await sendAuthLink({
+      email,
+      kind: "invite",
+      businessName: name,
     });
 
-    if (invited.error || !invited.data.user) {
+    if (!invited.ok) {
       // Undo the organization so a failed invite doesn't leave a client
-      // account nobody can get into and nobody remembers creating.
+      // account nobody can get into and nobody remembers creating. The auth
+      // user goes with it when the link was minted and only the email failed —
+      // otherwise the address is taken, and a second attempt at the same
+      // client would silently skip the invite and mail them nothing.
       await supabase.from("organizations").delete().eq("id", org.id);
+      if (invited.userId) {
+        await admin.auth.admin.deleteUser(invited.userId);
+      }
       return {
         ok: false,
-        error: `Could not send the invite: ${invited.error?.message ?? "unknown error"}`,
+        error: `Could not send the invite: ${invited.error}`,
       };
     }
 
-    userId = invited.data.user.id;
+    userId = invited.userId;
   }
 
   const { error: memberError } = await supabase
@@ -305,7 +311,7 @@ export async function sendPasswordReset(orgId: string): Promise<ActionResult> {
 
   const { data: org, error: orgError } = await supabase
     .from("organizations")
-    .select("invited_email")
+    .select("name, invited_email")
     .eq("id", orgId)
     .eq("kind", "client")
     .maybeSingle();
@@ -318,14 +324,16 @@ export async function sendPasswordReset(orgId: string): Promise<ActionResult> {
     };
   }
 
-  const redirectTo = `${appBaseUrl() ?? "http://localhost:3000"}/auth/confirm?next=/auth/set-password`;
+  // Not `resetPasswordForEmail`, which would send Supabase's own email with
+  // Supabase's own link in it — the one a mail scanner spends on delivery.
+  // Same reasoning as the invite above; it is written out in lib/auth/links.ts.
+  const sent = await sendAuthLink({
+    email: org.invited_email,
+    kind: "recovery",
+    businessName: org.name,
+  });
 
-  const { error } = await createAdminClient().auth.resetPasswordForEmail(
-    org.invited_email,
-    { redirectTo },
-  );
-
-  if (error) return { ok: false, error: error.message };
+  if (!sent.ok) return { ok: false, error: sent.error };
 
   return { ok: true, value: null };
 }
