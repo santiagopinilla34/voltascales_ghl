@@ -32,6 +32,19 @@ export function PaymentsDashboard({ snapshot }: { snapshot: PaymentsSnapshot }) 
         </p>
       )}
 
+      {/*
+        Two columns from `xl` up, split by what the numbers are *about* rather
+        than by what fits.
+
+        Left is the account's own position — what it holds and when that
+        reaches the bank. Right is the traffic that produced it. Stacking all
+        three was only ever a consequence of the page being one narrow column,
+        and it made a balance of $0.00 occupy a card the width of a desk.
+        Payments takes the wider share because its rows carry an email address
+        and a failure message where a payout is a status and a date.
+      */}
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      <div className="flex min-w-0 flex-col gap-6">
       <section className="grid gap-4 sm:grid-cols-2">
         <Panel title="Available" hint="settled and ready to pay out">
           <MoneyList entries={balance.available} currency={account.defaultCurrency} />
@@ -75,6 +88,7 @@ export function PaymentsDashboard({ snapshot }: { snapshot: PaymentsSnapshot }) 
           </div>
         )}
       </section>
+      </div>
 
       <section className="flex min-w-0 flex-col gap-3">
         <div>
@@ -124,6 +138,7 @@ export function PaymentsDashboard({ snapshot }: { snapshot: PaymentsSnapshot }) 
           </div>
         )}
       </section>
+      </div>
     </>
   );
 }

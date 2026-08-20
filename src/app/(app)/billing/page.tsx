@@ -34,7 +34,13 @@ export default async function BillingPage() {
   if (org?.kind === "agency") {
     return (
       <Shell>
-        <div className="flex flex-col gap-2 rounded-lg border p-6">
+        {/*
+          Capped, unlike the rest of the page. This is three lines of prose and
+          nothing else, and a wide container turns it into a lone card the width
+          of the window holding one short paragraph — which looks more like a
+          layout mistake than an explanation.
+        */}
+        <div className="flex max-w-2xl flex-col gap-2 rounded-lg border p-6">
           <h2 className="text-sm font-medium">This account is billed directly</h2>
           <p className="text-muted-foreground max-w-xl text-sm">
             Balances are for client accounts. Yours is invoiced by the providers
@@ -64,6 +70,18 @@ export default async function BillingPage() {
 
   return (
     <Shell>
+      {/*
+        Money on the left, what it buys and where it went on the right, from
+        `xl` up.
+
+        The balance and the top-up form are one thought — how much is there,
+        and add more. The rate card and the ledger are the other — what it
+        costs, and what it has cost. Stacked in one column the ledger sat
+        several screens below the number it explains, which is the wrong way
+        round for the question people arrive with.
+      */}
+      <div className="grid min-w-0 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div className="flex min-w-0 flex-col gap-6">
       <section className="flex min-w-0 flex-col gap-4 rounded-lg border p-6">
         <div className="flex flex-col gap-1">
           <p
@@ -103,7 +121,9 @@ export default async function BillingPage() {
       </section>
 
       <AutoRecharge currentCents={org?.auto_recharge_cents ?? null} />
+      </div>
 
+      <div className="flex min-w-0 flex-col gap-6">
       <section className="flex min-w-0 flex-col gap-3">
         <div>
           <h2 className="text-sm font-semibold tracking-tight">What it costs</h2>
@@ -174,6 +194,8 @@ export default async function BillingPage() {
           </div>
         )}
       </section>
+      </div>
+      </div>
     </Shell>
   );
 }
@@ -194,8 +216,8 @@ function Shell({ children }: { children: React.ReactNode }) {
         <h1 className="truncate text-sm font-semibold tracking-tight">Balance</h1>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 pb-6">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-6 pb-6">
           {children}
         </div>
       </div>

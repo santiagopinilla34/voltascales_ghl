@@ -33,8 +33,8 @@ export default function DomainsPage() {
         </div>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 pb-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-6 pb-4">
           <p className="text-muted-foreground flex items-start gap-2 rounded-md border border-dashed px-3 py-2.5 text-xs">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
             <span>
@@ -77,6 +77,17 @@ export default function DomainsPage() {
             </span>
           </Link>
 
+          {/*
+            The two long notes sit side by side from `xl` up.
+
+            Both are prose, and prose is the one thing a wide container makes
+            worse — these paragraphs ran the better part of thirteen hundred
+            pixels, which is roughly twice a comfortable measure and hard to
+            track back to the start of the next line. Two columns fixes the
+            measure and uses the width in the same move, which capping them
+            into a narrow ribbon would not.
+          */}
+          <div className="grid min-w-0 items-start gap-6 xl:grid-cols-2">
           {/* Deliberately not dismissible. It is a reminder about something
               that has to be settled before the first paying client, and a
               reminder you can dismiss is a reminder you will dismiss. It also
@@ -129,7 +140,7 @@ export default function DomainsPage() {
             </p>
           </section>
 
-          <section className="flex flex-col gap-2 border-t pt-4">
+          <section className="flex min-w-0 flex-col gap-2 rounded-lg border p-4">
             <h2 className="text-sm font-semibold tracking-tight">
               Which registrar this will use
             </h2>
@@ -174,6 +185,7 @@ export default function DomainsPage() {
               </Link>
             </div>
           </section>
+          </div>
         </div>
       </div>
     </div>

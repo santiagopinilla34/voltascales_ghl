@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 
 import { InvoiceBuilder } from "@/components/invoices/invoice-builder";
 import { InvoiceHistory } from "@/components/invoices/invoice-history";
-import { Separator } from "@/components/ui/separator";
 import { businessDetailsOf, listPackages } from "@/lib/business";
 import { getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
@@ -43,17 +42,26 @@ export default async function InvoicesPage() {
         <h1 className="text-sm font-semibold tracking-tight">Invoices</h1>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 pb-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+        {/*
+          Builder on the left, history on the right, from `xl` up.
+
+          Not merely to fill the width — a form is the one thing a wide
+          container actively harms. Stacked in a full-width column, "Notes"
+          became a single-line input thirteen hundred pixels long, which is
+          both ugly and hard to use: the eye loses the line between the label
+          and the caret. Half the width is a sensible field, and the half it
+          gives back holds the history you are about to add to, so the two
+          things you look at while invoicing are on screen together.
+        */}
+        <div className="mx-auto grid w-full min-w-0 max-w-[1600px] gap-8 pb-4 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
           <InvoiceBuilder
             contacts={contactsResult.data ?? []}
             packages={packages}
             businessConfigured={Boolean(business.name.trim())}
           />
 
-          <Separator />
-
-          <section className="flex flex-col gap-3">
+          <section className="flex min-w-0 flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold tracking-tight">History</h2>
               <p className="text-muted-foreground text-xs">

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 
 import { BusinessForm } from "@/components/business/business-form";
 import { PackagesEditor } from "@/components/business/packages-editor";
-import { Separator } from "@/components/ui/separator";
 import { businessDetailsOf, listPackages } from "@/lib/business";
 import { getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
@@ -22,9 +21,17 @@ export default async function BusinessPage() {
         <h1 className="text-sm font-semibold tracking-tight">My Business</h1>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex min-w-0 max-w-2xl flex-col gap-6 pb-4">
-          <section className="flex flex-col gap-3">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+        {/*
+          Who you are on the left, what you sell on the right, from `xl` up.
+
+          They save separately and always did — the Separator between them was
+          admitting as much. Side by side the name and address fields stop
+          stretching across the whole window, and the two halves of an invoice
+          footer are visible at once while you edit either.
+        */}
+        <div className="mx-auto grid w-full min-w-0 max-w-[1600px] items-start gap-8 pb-4 xl:grid-cols-2">
+          <section className="flex min-w-0 flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold tracking-tight">Details</h2>
               <p className="text-muted-foreground text-xs">
@@ -34,9 +41,7 @@ export default async function BusinessPage() {
             <BusinessForm details={businessDetailsOf(settings)} />
           </section>
 
-          <Separator />
-
-          <section className="flex flex-col gap-3">
+          <section className="flex min-w-0 flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold tracking-tight">
                 Packages and offers

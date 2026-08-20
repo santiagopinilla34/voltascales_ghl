@@ -160,8 +160,8 @@ function Shell({ children }: { children: React.ReactNode }) {
         <h1 className="truncate text-sm font-semibold tracking-tight">Payments</h1>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 pb-6">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-6 pb-6">
           {children}
         </div>
       </div>

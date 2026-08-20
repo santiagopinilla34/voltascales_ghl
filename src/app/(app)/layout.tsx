@@ -17,6 +17,36 @@ import { signOut } from "./actions";
 /**
  * Shell for every authenticated page.
  *
+ * ## How wide a page is, and why
+ *
+ * Every page used to invent its own answer — `max-w-2xl` here, `3xl` there,
+ * one `6xl` on Phone System — so the app changed shape as you moved through
+ * it, and on anything wider than a laptop the result was a narrow ribbon of
+ * content with a third of the window empty either side. That reads as a
+ * template somebody filled in rather than a tool somebody built.
+ *
+ * Pages now share one container — `mx-auto w-full min-w-0 max-w-[1600px]` in a
+ * scroll region with `px-4 sm:px-6 lg:px-8` — and, more importantly, use the
+ * width they were given. Widening alone would only stretch the same single
+ * column into long thin rows, which looks worse, so pages carrying independent
+ * blocks put them side by side at `xl` and above.
+ *
+ * Three rules worth keeping when adding a page:
+ *
+ * - **Split by subject, not to fill space.** Two columns because the halves
+ *   answer different questions, not because there was room.
+ * - **Prose stays narrow.** A paragraph is comfortable at 65–75 characters and
+ *   painful long before 1600px. Wide containers are for structure — tables,
+ *   cards, forms, panels — never for sentences. Where a page is mostly prose,
+ *   two columns of readable measure beat one wide one.
+ * - **Forms are what a wide container harms most.** A single-line input 1300px
+ *   long is hard to use, not just ugly. Half a screen is a field; a whole one
+ *   is a mistake.
+ *
+ * The 1600px cap exists because "no maximum" is its own failure: on an
+ * ultrawide monitor a row that long makes the eye track across the desk to
+ * pair a label with its value.
+ *
  * The proxy already redirects anonymous requests, but this re-checks on the
  * server so a page can never render without a verified user.
  *

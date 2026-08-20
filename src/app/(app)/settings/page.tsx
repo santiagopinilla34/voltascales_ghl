@@ -45,24 +45,37 @@ export default async function SettingsPage() {
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4">
-        <div className="mx-auto max-w-2xl py-4">
+        <div className="mx-auto w-full min-w-0 max-w-[1600px] py-4">
           {settings ? (
-            <div className="flex flex-col gap-6">
+            /*
+              Two columns from `xl` up: how the app behaves on the left, when
+              you are available on the right.
+
+              The split is by subject, not to fill space — these already saved
+              independently, which is why they were divided by rules rather
+              than folded into one form. Stacked in a single full-width column
+              the page ran several screens deep and every text field stretched
+              to thirteen hundred pixels, which is both ugly and harder to use.
+              Two columns fixes the field widths and puts the whole of a
+              client's configuration on one screen.
+            */
+            <div className="grid min-w-0 items-start gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <SettingsForm
                 settings={settings}
                 environmentForwardTo={environmentForwardToNumber()}
                 bookingPreview={preview}
               />
 
-              {/* Below the settings form rather than inside it: these write
+              {/* Beside the settings form rather than inside it: these write
                   rows of their own and save independently, so sharing that
                   form's single Save button would be a lie about what it does. */}
-              <Separator />
-              <AvailabilityEditor rules={rules} />
-              <Separator />
-              <BlockedDatesEditor dates={blockedDates} />
-              <Separator />
-              <BookLink configuredOrigin={appBaseUrl()} />
+              <div className="flex min-w-0 flex-col gap-6">
+                <AvailabilityEditor rules={rules} />
+                <Separator />
+                <BlockedDatesEditor dates={blockedDates} />
+                <Separator />
+                <BookLink configuredOrigin={appBaseUrl()} />
+              </div>
             </div>
           ) : (
             // The migration seeds the row, so its absence means the migration

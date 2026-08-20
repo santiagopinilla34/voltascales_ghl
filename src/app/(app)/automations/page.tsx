@@ -35,8 +35,8 @@ export default async function AutomationsPage() {
         </Button>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto max-w-3xl">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto w-full min-w-0 max-w-[1600px]">
           <AutomationsList automations={automations} />
         </div>
       </div>
