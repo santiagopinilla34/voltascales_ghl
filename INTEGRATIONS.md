@@ -452,12 +452,30 @@ Then apply the migration (`npm run db:push`) and regenerate the types
 
 **Watch out:**
 
-- **`read_only` is deliberate.** It is what a dashboard needs, and it dodges a
-  restriction that would otherwise surface as a mystery: since June 2021 Stripe
-  refuses a `read_write` connection to an account already controlled by another
-  platform, so any client whose Stripe sits under Shopify or Squarespace could
-  not connect at all. The cost is that refunds cannot be issued from this app,
-  and raising the scope later means every client reconnects.
+- **`read_only` is gated per platform, whatever the docs say.** Stripe's OAuth
+  page calls it the default scope. Asking for it on this platform was refused
+  outright on 20 Aug 2026: *"Please use the `read_write` scope, or contact
+  support … in order to use read-only connections."* It has to be enabled for
+  your platform by Stripe support. `connectScope()` therefore defaults to
+  `read_write`; set `STRIPE_CONNECT_SCOPE=read_only` once they enable it.
+
+  Two things follow while that is true. Clients whose Stripe is controlled by
+  another platform (Shopify, Squarespace) cannot connect at all under
+  `read_write`, and the error will not make that obvious. And the connect
+  screen's description of what the app may do is **derived from the scope**,
+  never hardcoded — promising "this app cannot move money" while holding
+  `read_write` is a false claim made to somebody deciding whether to trust us
+  with their revenue. If you change how scope is chosen, keep that derivation.
+
+  Changing scope makes every connected client reconnect. Free while there are
+  none.
+
+- **Stripe's up-front rejections never reach the app.** Both the bad-redirect
+  and the refused-scope errors are rendered by `connect.stripe.com` as raw JSON
+  before the approval screen; nothing is sent to `redirect_uri`, so the
+  callback's error handling cannot catch them and there is no in-app screen to
+  improve. They are configuration failures, and the place to notice them is a
+  first manual run of the flow in each environment.
 - **Stripe's deprecation notices do not apply to this.** The docs steer new
   *Connect platforms* away from OAuth and deprecate the Standard/Express/Custom
   account types. That is aimed at marketplaces routing payments between

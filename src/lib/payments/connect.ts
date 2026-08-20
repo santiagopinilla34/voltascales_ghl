@@ -23,17 +23,26 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
  * on our side, and they revoke us from their own Stripe settings rather than by
  * asking us to delete something.
  *
- * ## read_only, deliberately
+ * ## Scope: what we want, and what Stripe allows
  *
- * `read_only` is what a dashboard needs. It also avoids a restriction that
- * would otherwise be invisible until a client hit it: since June 2021 Stripe
- * refuses a `read_write` connection to an account already controlled by another
- * platform, so any client whose Stripe sits under Shopify or Squarespace could
- * not connect at all. Read-only has no such limit.
+ * `read_only` is what a dashboard needs, and it is what this should end up
+ * asking for. It also avoids a restriction that is otherwise invisible until a
+ * client hits it: since June 2021 Stripe refuses a `read_write` connection to
+ * an account already controlled by another platform, so a client whose Stripe
+ * sits under Shopify or Squarespace cannot connect at all.
  *
- * The cost of that choice is that refunds cannot be issued from inside this
- * app. Raising the scope later means every client reconnects, so it is a
- * decision worth making once rather than drifting into.
+ * It is not what we ask for today. Stripe refused `read_only` outright on 20
+ * Aug 2026 — *"Please use the `read_write` scope, or contact support … in order
+ * to use read-only connections"* — so it is gated per platform despite the docs
+ * calling it the default. `connectScope()` therefore defaults to `read_write`
+ * and flips back via one environment variable once Stripe enables it.
+ *
+ * Two consequences worth holding on to while that is true. Clients on
+ * platform-controlled accounts will fail to connect, and the reason will not be
+ * obvious from the error. And the connect screen must describe the scope it
+ * actually holds — see `connect-gate.tsx` — because promising "this app cannot
+ * move money" while holding `read_write` is a lie told to somebody deciding
+ * whether to trust us with their revenue.
  *
  * ## On Stripe's deprecation notices
  *
@@ -59,8 +68,32 @@ const AUTHORIZE_URL = "https://connect.stripe.com/oauth/authorize";
 const TOKEN_URL = "https://connect.stripe.com/oauth/token";
 const DEAUTHORIZE_URL = "https://connect.stripe.com/oauth/deauthorize";
 
-/** The scope we ask for. See the note above before changing it. */
-export const CONNECT_SCOPE = "read_only";
+export type ConnectScope = "read_only" | "read_write";
+
+/**
+ * The scope we ask Stripe for.
+ *
+ * **`read_only` is not available to every platform.** Stripe's docs call it the
+ * default, and it is not: this platform was refused with *"Please use the
+ * `read_write` scope, or contact support … in order to use read-only
+ * connections"* (20 Aug 2026). It has to be enabled per platform by Stripe
+ * support, so the default here is the scope that actually works, and the
+ * intended end state is a support request away.
+ *
+ * Set `STRIPE_CONNECT_SCOPE=read_only` the day Stripe approves it. Every
+ * already-connected client has to reconnect when this changes, so it is cheap
+ * now and expensive later.
+ *
+ * Nothing user-facing hardcodes this. The connect screen's promises are
+ * derived from it — see `connect-gate.tsx` — because a screen that says "this
+ * app cannot move money" while holding `read_write` is a false security claim,
+ * which is worse than an ugly one.
+ */
+export function connectScope(): ConnectScope {
+  return process.env.STRIPE_CONNECT_SCOPE?.trim() === "read_only"
+    ? "read_only"
+    : "read_write";
+}
 
 /** Name of the cookie holding the signed CSRF state between the two hops. */
 export const STATE_COOKIE = "stripe_connect_state";
@@ -193,7 +226,7 @@ export function authorizeUrl(
   const params = new URLSearchParams({
     response_type: "code",
     client_id: config.clientId,
-    scope: CONNECT_SCOPE,
+    scope: connectScope(),
     redirect_uri: redirectUri(config, requestUrl),
     state,
   });

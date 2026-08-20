@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ConnectGate } from "@/components/payments/connect-gate";
 import { ConnectionBar } from "@/components/payments/connection-bar";
 import { PaymentsDashboard } from "@/components/payments/payments-dashboard";
-import { isStripeConfigured } from "@/lib/payments/connect";
+import { connectScope, isStripeConfigured } from "@/lib/payments/connect";
 import { getPaymentsSnapshot } from "@/lib/payments/stripe";
 import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
@@ -57,6 +57,7 @@ export default async function PaymentsPage({
       <Shell>
         <ConnectGate
           configured={isStripeConfigured()}
+          scope={connectScope()}
           cancelled={params.cancelled === "1"}
           error={params.error ?? null}
         />

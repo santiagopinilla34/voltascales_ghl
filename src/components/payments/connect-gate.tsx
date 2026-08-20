@@ -1,6 +1,7 @@
 import { ArrowRight, Lock, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { ConnectScope } from "@/lib/payments/connect";
 
 /**
  * The screen an account sees before it has connected anything.
@@ -24,11 +25,14 @@ import { Button } from "@/components/ui/button";
  */
 export function ConnectGate({
   configured,
+  scope,
   cancelled,
   error,
 }: {
   /** False until the platform credentials exist on this install. */
   configured: boolean;
+  /** What we will ask Stripe for, so the promises below match reality. */
+  scope: ConnectScope;
   /** They pressed Cancel on Stripe's approval screen. */
   cancelled: boolean;
   error: string | null;
@@ -73,10 +77,30 @@ export function ConnectGate({
             You sign in to Stripe the way you normally do and approve the
             connection there. We never see your Stripe password.
           </li>
-          <li>
-            We ask for <strong>read-only</strong> access. This app can show your
-            payments; it cannot move money, issue refunds, or charge anyone.
-          </li>
+
+          {/*
+            Derived from the scope actually requested, never hardcoded. The
+            read-only sentence is the better pitch by a distance, which is
+            exactly why it must not be shown while we hold read_write — this is
+            the paragraph someone reads while deciding whether to trust us with
+            their revenue, and getting it wrong is not a copy bug.
+          */}
+          {scope === "read_only" ? (
+            <li>
+              We ask for <strong>read-only</strong> access. This app can show
+              your payments; it cannot move money, issue refunds, or charge
+              anyone.
+            </li>
+          ) : (
+            <li>
+              Stripe grants this connection <strong>read and write</strong>{" "}
+              access. We use it only to display your payments, and nothing in
+              this app charges or refunds anyone — but the permission Stripe
+              records is the broader one, and you should know that rather than
+              find it later in your Stripe settings.
+            </li>
+          )}
+
           <li>
             No key is created or stored here. You can revoke the connection from
             your own Stripe settings at any time, without asking us.

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
-  CONNECT_SCOPE,
+  connectScope,
   exchangeCode,
   STATE_COOKIE,
   stripePlatformConfig,
@@ -97,7 +97,7 @@ export async function GET(request: Request) {
   // Worth saying out loud rather than only in the row: a connection granted
   // something other than what was asked for still works, but the screen's
   // description of what it can do would be wrong.
-  if (exchanged.scope !== CONNECT_SCOPE) {
+  if (exchanged.scope !== connectScope()) {
     console.warn("[payments] stripe granted an unexpected scope", exchanged.scope);
   }
 
