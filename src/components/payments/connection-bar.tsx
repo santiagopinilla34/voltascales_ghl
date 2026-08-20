@@ -70,7 +70,14 @@ export function ConnectionBar({
                 real one. Saying so is not optional. */}
             {!livemode && <Badge variant="secondary">Test mode</Badge>}
 
-            {scope === "read_only" && <Badge variant="outline">Read-only</Badge>}
+            {/* Both scopes are labelled, not just the flattering one. Badging
+                only `read_only` meant the reassuring case announced itself and
+                the broad case stayed silent — which is precisely backwards, and
+                the same mistake the connect screen made before it derived its
+                copy from the scope. */}
+            <Badge variant="outline">
+              {scope === "read_only" ? "Read-only" : "Read & write"}
+            </Badge>
           </div>
 
           <span className="text-muted-foreground font-mono text-xs">{accountId}</span>

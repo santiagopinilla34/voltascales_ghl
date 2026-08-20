@@ -129,6 +129,34 @@ export function isStripeConfigured(): boolean {
 }
 
 /**
+ * Whether the platform credentials are live ones.
+ *
+ * Test and live are two separate worlds at Stripe: separate `client_id`s,
+ * separate keys, separate lists of registered redirect URIs, and separate
+ * accounts. A test platform key cannot read a live connected account and a live
+ * one cannot read a test account — the id simply does not exist over there.
+ *
+ * This matters at exactly one moment, and it is a moment every install passes
+ * through: the switch from test to live. Connections made while testing keep
+ * pointing at test accounts, and the first thing that happens after the keys
+ * change is that every one of them fails. Without this the failure reads as
+ * "the client revoked us", which sends you looking in the wrong place.
+ */
+export function isPlatformLive(): boolean {
+  return process.env.STRIPE_SECRET_KEY?.trim().startsWith("sk_live_") ?? false;
+}
+
+/**
+ * True when a stored connection belongs to the other Stripe world.
+ *
+ * The row records `livemode` as Stripe reported it at the time, so this is a
+ * fact about the connection rather than a guess.
+ */
+export function isModeMismatch(connectionLivemode: boolean): boolean {
+  return connectionLivemode !== isPlatformLive();
+}
+
+/**
  * Where Stripe sends the client back to.
  *
  * Derived from the request rather than from `APP_BASE_URL`, because that

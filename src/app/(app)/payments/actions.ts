@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-import { deauthorize, stripePlatformConfig } from "@/lib/payments/connect";
+import {
+  deauthorize,
+  isModeMismatch,
+  stripePlatformConfig,
+} from "@/lib/payments/connect";
 import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,7 +37,7 @@ export async function disconnectStripe(): Promise<ActionResult> {
 
   const { data: connection } = await supabase
     .from("payment_connections")
-    .select("account_id")
+    .select("account_id, livemode")
     .eq("org_id", context.orgId)
     .eq("provider", "stripe")
     .maybeSingle();
@@ -49,6 +53,32 @@ export async function disconnectStripe(): Promise<ActionResult> {
       error:
         "Stripe is not configured on this install, so the connection cannot be released.",
     };
+  }
+
+  // A connection from the other Stripe world is deleted without telling Stripe,
+  // and this is the one case where that is correct rather than sloppy.
+  //
+  // The rule above — always deauthorize first, never orphan a live grant —
+  // assumes we *can* reach the grant. Here we cannot: the current credentials
+  // belong to a different platform in a different mode, and the deauthorize
+  // call would be refused for as long as they do. Keeping the row on that
+  // failure would make it permanently undeletable, so the account could never
+  // be reconnected in the mode that matters. The abandoned grant lives on the
+  // old platform and goes when that does.
+  if (isModeMismatch(connection.livemode)) {
+    const { error } = await supabase
+      .from("payment_connections")
+      .delete()
+      .eq("org_id", context.orgId)
+      .eq("provider", "stripe");
+
+    if (error) {
+      console.error("[payments] could not clear mismatched connection", error);
+      return { ok: false, error: "The connection could not be cleared. Try again." };
+    }
+
+    revalidatePath("/payments");
+    return { ok: true };
   }
 
   const released = await deauthorize(config, connection.account_id);

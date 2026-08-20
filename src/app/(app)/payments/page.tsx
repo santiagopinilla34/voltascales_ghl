@@ -3,7 +3,11 @@ import type { Metadata } from "next";
 import { ConnectGate } from "@/components/payments/connect-gate";
 import { ConnectionBar } from "@/components/payments/connection-bar";
 import { PaymentsDashboard } from "@/components/payments/payments-dashboard";
-import { connectScope, isStripeConfigured } from "@/lib/payments/connect";
+import {
+  connectScope,
+  isModeMismatch,
+  isStripeConfigured,
+} from "@/lib/payments/connect";
 import { getPaymentsSnapshot } from "@/lib/payments/stripe";
 import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
@@ -65,27 +69,46 @@ export default async function PaymentsPage({
     );
   }
 
-  const snapshot = await getPaymentsSnapshot(connection.account_id);
+  // Checked before Stripe is called, because the call is guaranteed to fail and
+  // its error would name the wrong cause. A connection made in test mode cannot
+  // be read with a live key — the account id does not exist in that world — and
+  // "Stripe no longer accepts this connection, it was most likely revoked" sends
+  // you hunting through a client's Stripe settings for something that was never
+  // there. This is the state every install passes through exactly once, on the
+  // day it goes live.
+  const mismatched = isModeMismatch(connection.livemode);
+
+  const snapshot = mismatched ? null : await getPaymentsSnapshot(connection.account_id);
 
   return (
     <Shell>
       <ConnectionBar
         accountId={connection.account_id}
-        accountName={snapshot.kind === "ok" ? snapshot.value.account.name : connection.account_name}
+        accountName={
+          snapshot?.kind === "ok" ? snapshot.value.account.name : connection.account_name
+        }
         livemode={connection.livemode}
         scope={connection.scope}
         justConnected={params.connected === "1"}
       />
 
-      {snapshot.kind === "error" ? (
+      {mismatched ? (
+        <Notice>
+          This is a{" "}
+          <strong>{connection.livemode ? "live" : "test"}-mode connection</strong>,
+          but the app is now running on{" "}
+          <strong>{connection.livemode ? "test" : "live"}</strong> Stripe
+          credentials, so it cannot be read. Nothing is wrong with the Stripe
+          account — disconnect and connect again to link{" "}
+          {connection.livemode ? "a test account" : "the real account"}.
+        </Notice>
+      ) : snapshot?.kind === "error" ? (
         // A connected account that cannot be read is a different state from an
         // unconnected one, and the fix is usually different too — most often
         // the client revoked us from their own Stripe settings.
-        <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-          {snapshot.message}
-        </p>
+        <Notice>{snapshot.message}</Notice>
       ) : (
-        <PaymentsDashboard snapshot={snapshot.value} />
+        snapshot?.kind === "ok" && <PaymentsDashboard snapshot={snapshot.value} />
       )}
     </Shell>
   );
@@ -104,5 +127,13 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function Notice({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      {children}
+    </p>
   );
 }
