@@ -36,11 +36,13 @@ export default async function UsagePage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
-        <h1 className="shrink-0 text-sm font-semibold tracking-tight">Usage</h1>
-        <span className="text-muted-foreground hidden text-xs sm:inline">
-          Live from Twilio · estimated for Anthropic
-        </span>
+      <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center justify-between gap-3">
+          <h1 className="shrink-0 text-sm font-semibold tracking-tight">Usage</h1>
+          <span className="text-muted-foreground hidden text-xs sm:inline">
+            Live from Twilio · estimated for Anthropic
+          </span>
+        </div>
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10">

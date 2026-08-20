@@ -30,18 +30,20 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
-        <h1 className="shrink-0 text-sm font-semibold tracking-tight">
-          Settings
-        </h1>
-        {settings && (
-          // Hidden on phones: the full stamp is wider than the space left over
-          // beside the title, and it is reference detail rather than something
-          // the page is for.
-          <span className="text-muted-foreground hidden truncate text-xs sm:inline">
-            Updated {formatFullTimestamp(settings.updated_at)}
-          </span>
-        )}
+      <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center justify-between gap-3">
+          <h1 className="shrink-0 text-sm font-semibold tracking-tight">
+            Settings
+          </h1>
+          {settings && (
+            // Hidden on phones: the full stamp is wider than the space left over
+            // beside the title, and it is reference detail rather than something
+            // the page is for.
+            <span className="text-muted-foreground hidden truncate text-xs sm:inline">
+              Updated {formatFullTimestamp(settings.updated_at)}
+            </span>
+          )}
+        </div>
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 sm:px-6 lg:px-10">

@@ -22,14 +22,16 @@ export const metadata: Metadata = { title: "Domains · VoltaScales" };
 export default function DomainsPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h1 className="truncate text-sm font-semibold tracking-tight">
-            Domains
-          </h1>
-          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-            {PREVIEW_OWNED_DOMAINS.length}
-          </span>
+      <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center justify-between gap-3">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <h1 className="truncate text-sm font-semibold tracking-tight">
+              Domains
+            </h1>
+            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+              {PREVIEW_OWNED_DOMAINS.length}
+            </span>
+          </div>
         </div>
       </header>
 

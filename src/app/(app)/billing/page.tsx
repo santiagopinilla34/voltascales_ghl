@@ -160,7 +160,7 @@ export default async function BillingPage() {
             up here.
           </p>
         ) : (
-          <div className="min-w-0 overflow-hidden rounded-lg border">
+          <div className="min-w-0 overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <tbody>
                 {history.map((entry) => (
@@ -212,8 +212,10 @@ function Rate({ label, value }: { label: string; value: string }) {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
-        <h1 className="truncate text-sm font-semibold tracking-tight">Balance</h1>
+      <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center gap-3">
+          <h1 className="truncate text-sm font-semibold tracking-tight">Balance</h1>
+        </div>
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10">

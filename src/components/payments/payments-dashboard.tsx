@@ -66,7 +66,7 @@ export function PaymentsDashboard({ snapshot }: { snapshot: PaymentsSnapshot }) 
         {payouts.length === 0 ? (
           <Empty>No payouts yet.</Empty>
         ) : (
-          <div className="min-w-0 overflow-hidden rounded-lg border">
+          <div className="min-w-0 overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <tbody>
                 {payouts.map((payout) => (
@@ -101,7 +101,7 @@ export function PaymentsDashboard({ snapshot }: { snapshot: PaymentsSnapshot }) 
         {charges.length === 0 ? (
           <Empty>No payments on this account yet.</Empty>
         ) : (
-          <div className="min-w-0 overflow-hidden rounded-lg border">
+          <div className="min-w-0 overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <tbody>
                 {charges.map((charge) => (

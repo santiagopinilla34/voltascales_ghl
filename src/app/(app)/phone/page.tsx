@@ -166,18 +166,20 @@ export default async function PhonePage() {
  */
 function Header({ count, showBuy }: { count: number | null; showBuy: boolean }) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
-      <div className="flex min-w-0 items-baseline gap-2">
-        <h1 className="truncate text-sm font-semibold tracking-tight">
-          Phone System
-        </h1>
-        {count !== null && (
-          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-            {count}
-          </span>
-        )}
-      </div>
-      {showBuy && <BuyNumberDialog />}
-    </header>
+    <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center justify-between gap-3">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h1 className="truncate text-sm font-semibold tracking-tight">
+            Phone System
+          </h1>
+          {count !== null && (
+            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+              {count}
+            </span>
+          )}
+        </div>
+        {showBuy && <BuyNumberDialog />}
+        </div>
+      </header>
   );
 }

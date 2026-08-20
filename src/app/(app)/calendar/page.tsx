@@ -102,42 +102,44 @@ function Shell({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-4 border-b px-4">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h1 className="truncate text-sm font-semibold tracking-tight">
-            Calendar
-          </h1>
-          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-            {count}
-          </span>
-        </div>
+      <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center gap-4">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <h1 className="truncate text-sm font-semibold tracking-tight">
+              Calendar
+            </h1>
+            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+              {count}
+            </span>
+          </div>
 
-        {/* Underlined tabs rather than the pill TabsList: these navigate, so
-            they have to be links, and a link styled as a tab trigger reads as
-            a control that does not move the URL. */}
-        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
-          {TABS.map((entry) => (
+          {/* Underlined tabs rather than the pill TabsList: these navigate, so
+              they have to be links, and a link styled as a tab trigger reads as
+              a control that does not move the URL. */}
+          <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
+            {TABS.map((entry) => (
+              <Link
+                key={entry.id}
+                href={`?tab=${entry.id}&view=${view}&date=${anchor}`}
+                scroll={false}
+                className={cn(
+                  "shrink-0 border-b-2 px-1 pt-1 pb-1.5 text-xs whitespace-nowrap transition-colors",
+                  tab === entry.id
+                    ? "border-primary text-foreground font-medium"
+                    : "text-muted-foreground hover:text-foreground border-transparent",
+                )}
+              >
+                {entry.label}
+              </Link>
+            ))}
             <Link
-              key={entry.id}
-              href={`?tab=${entry.id}&view=${view}&date=${anchor}`}
-              scroll={false}
-              className={cn(
-                "shrink-0 border-b-2 px-1 pt-1 pb-1.5 text-xs whitespace-nowrap transition-colors",
-                tab === entry.id
-                  ? "border-primary text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground border-transparent",
-              )}
+              href="/settings"
+              className="text-muted-foreground hover:text-foreground shrink-0 border-b-2 border-transparent px-1 pt-1 pb-1.5 text-xs whitespace-nowrap"
             >
-              {entry.label}
+              Calendar settings
             </Link>
-          ))}
-          <Link
-            href="/settings"
-            className="text-muted-foreground hover:text-foreground shrink-0 border-b-2 border-transparent px-1 pt-1 pb-1.5 text-xs whitespace-nowrap"
-          >
-            Calendar settings
-          </Link>
-        </nav>
+          </nav>
+        </div>
       </header>
 
       {children}
