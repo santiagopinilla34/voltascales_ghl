@@ -23,6 +23,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-08-19-payments-tab",
+    date: "2026-08-19",
+    title: "See your Stripe payments without leaving the app",
+    body: "New Payments tab. Connect the Stripe account you already use — you approve it on Stripe's own screen, so there is no API key to find and paste — and your balance, payouts and recent charges show up here. Read-only: the app can show your money, never move it.",
+    href: "/payments",
+    tag: "New",
+  },
+  {
     id: "2026-08-16-dialer-live",
     date: "2026-08-16",
     title: "The dialer places real calls",

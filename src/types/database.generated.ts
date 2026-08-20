@@ -890,6 +890,50 @@ export type Database = {
           },
         ]
       }
+      payment_connections: {
+        Row: {
+          account_id: string
+          account_name: string | null
+          connected_at: string
+          connected_by: string | null
+          id: string
+          livemode: boolean
+          org_id: string
+          provider: string
+          scope: string
+        }
+        Insert: {
+          account_id: string
+          account_name?: string | null
+          connected_at?: string
+          connected_by?: string | null
+          id?: string
+          livemode?: boolean
+          org_id: string
+          provider?: string
+          scope?: string
+        }
+        Update: {
+          account_id?: string
+          account_name?: string | null
+          connected_at?: string
+          connected_by?: string | null
+          id?: string
+          livemode?: boolean
+          org_id?: string
+          provider?: string
+          scope?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_connections_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pipeline_entries: {
         Row: {
           contact_id: string

@@ -8,6 +8,7 @@ import {
   Briefcase,
   Building2,
   CalendarDays,
+  CreditCard,
   FileText,
   Gauge,
   Globe,
@@ -73,6 +74,11 @@ const NAV: NavItem[] = [
   // a client comes here because their number stopped working, and that is a
   // phone-system thought, not a preferences one.
   { href: "/billing", label: "Balance", icon: Wallet },
+  // Money in, as opposed to Balance's money out — the client's own Stripe
+  // account, read through OAuth. Adjacent because both are money and people
+  // look for them together; named apart because confusing the wallet they top
+  // up with the revenue they earn would be a bad day for everyone.
+  { href: "/payments", label: "Payments", icon: CreditCard },
   // The two platform-level pages, kept adjacent so that in client view they
   // disappear together and what is left still reads as a deliberate list
   // rather than one with holes punched in it.

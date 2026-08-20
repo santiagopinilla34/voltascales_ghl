@@ -407,12 +407,114 @@ webhook 403s until the right token is looked up first.
 
 ---
 
-## 10. Later, not now
+## 10. Stripe Connect — a client's own payments · Size M · **built, needs credentials**
+
+Backs the Payments tab, added 19 Aug 2026.
+
+**Not the same money as the Stripe in section 12.** That one is about charging
+a client for numbers and domains, and it would take money *from* them. This
+takes nothing: it reads the Stripe account the client already sells through, so
+the app can show their revenue next to their CRM. `/billing` is our wallet;
+`/payments` is their till. Keeping the two names apart is doing real work —
+resist merging them.
+
+**Why OAuth and not a key.** Asking a non-technical business owner to mint a
+restricted API key ends onboarding calls, and it is the worse option anyway:
+whatever they paste lives in our database, scoped however they happened to
+scope it, valid until somebody remembers to rotate it. The OAuth flow removes
+the request entirely — they click a button, sign into Stripe the way they
+already know how, pick their account and approve. What comes back is an account
+id, not a credential. Every read afterwards is made with *our* platform key
+plus a `Stripe-Account` header naming their account.
+
+**Built:** `supabase/migrations/20260819000000_payment_connections.sql`,
+`src/lib/payments/connect.ts`, `src/lib/payments/stripe.ts`,
+`src/app/api/payments/stripe/{connect,callback}/route.ts`,
+`src/app/(app)/payments/{page.tsx,actions.ts}`, `src/components/payments/`.
+
+**You need**, and this is the only thing between here and it working:
+
+1. A Stripe account with **Connect enabled** → Settings → Connect → Onboarding
+   options → OAuth. Gives you a `client_id` starting `ca_`.
+2. Register a redirect URI there for **every origin you use** —
+   `{origin}/api/payments/stripe/callback`. The URI is taken from the request
+   rather than from `APP_BASE_URL` (which holds the production origin and
+   cannot be flipped to localhost without breaking the Twilio webhooks), so
+   local testing needs `http://localhost:3000/api/payments/stripe/callback`
+   registered as well. Verified 20 Aug 2026: Stripe rejects an unregistered
+   URI up front, before the approval screen, and the match is exact — scheme,
+   port and path all count.
+3. `STRIPE_CLIENT_ID` and `STRIPE_SECRET_KEY`. Both are the *platform's*, never
+   a client's. Test and live are different client ids.
+
+Then apply the migration (`npm run db:push`) and regenerate the types
+(`npm run db:types`).
+
+**Watch out:**
+
+- **`read_only` is deliberate.** It is what a dashboard needs, and it dodges a
+  restriction that would otherwise surface as a mystery: since June 2021 Stripe
+  refuses a `read_write` connection to an account already controlled by another
+  platform, so any client whose Stripe sits under Shopify or Squarespace could
+  not connect at all. The cost is that refunds cannot be issued from this app,
+  and raising the scope later means every client reconnects.
+- **Stripe's deprecation notices do not apply to this.** The docs steer new
+  *Connect platforms* away from OAuth and deprecate the Standard/Express/Custom
+  account types. That is aimed at marketplaces routing payments between
+  parties. This is the extension case — reading an account the user already
+  owns and controls — which Stripe carves out explicitly. Worth re-reading
+  before any larger investment on top of it.
+- **There is no simulated mode, on purpose.** Other pages ship with preview
+  data and that is fine, because a fake domain is obviously a fake domain. A
+  fake revenue figure is not: it is someone else's income drawn exactly where
+  their real income will go, and it would be believed. Unconfigured shows a
+  sentence, never numbers.
+- **`state` is the security of the whole flow.** Without it the callback is a
+  one-click hijack — hand a signed-in user a crafted URL and their organization
+  ends up pointed at your Stripe account. It is HMAC-signed over the org id,
+  compared against a cookie, and re-checked against the org the session is
+  currently in, so a token minted inside one client cannot be replayed inside
+  another.
+- **Disconnect tells Stripe before deleting the row**, and stops if Stripe
+  refuses. The other order leaves us authorized on the client's account while
+  the app says we are not — and with the row gone, nothing here could revoke it
+  afterwards.
+- **Zero-decimal currencies.** ¥1,000 arrives from Stripe as `1000`, not
+  `100000`. `formatMoney` handles it; anything new doing its own arithmetic on
+  Stripe amounts has to as well.
+- **Parity with the Stripe Dashboard was not attempted.** Balance, payouts and
+  recent charges answer what people actually open Stripe for. Invoices,
+  subscriptions, disputes and reporting are Stripe doing it better, and the
+  header links there.
+
+**Still open:** the `account.application.deauthorized` webhook. A client who
+revokes us from their own Stripe settings leaves a stale row here, and the page
+only learns of it when a read fails — which it handles, and tells them to
+reconnect, but after the fact rather than when it happens. One route keyed on
+`account_id`, which is why that column is indexed.
+
+---
+
+## 11. PayPal · not started
+
+The same shape as Stripe: the merchant approves third-party permissions through
+the Partner Referrals API and we act on their account with partner credentials,
+with no key asked of them. The difference is who gets vetted — PayPal vets
+**you**, as an application with a queue behind it, where Stripe Connect can be
+switched on this afternoon.
+
+The Payments tab says PayPal is unavailable rather than drawing a dead button.
+Start the partner application before this is wanted, not when.
+
+---
+
+## 12. Later, not now
 
 - **Google Calendar two-way sync.** The calendar reads its own bookings; an
   external sync is a genuinely separate feature.
-- **Stripe**, if numbers and domains are ever resold rather than bought on your
-  own accounts.
+- **Stripe for reselling**, if numbers and domains are ever charged on rather
+  than bought on your own accounts. Unrelated to section 10 despite the shared
+  name: that one reads a client's account, this one would charge them.
 - **Draggable dialer window.** The pin and minimise controls are drawn and
   inert. Worth doing once calls are real and you need the app underneath during
   one.
