@@ -58,8 +58,8 @@ export default async function CalendarPage({
 
     return (
       <Shell tab={tab} view={view} anchor={anchor} count={listView.upcoming.length}>
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4">
-          <div className="mx-auto w-full min-w-0 max-w-[1600px] py-4">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 sm:px-6 lg:px-10">
+          <div className="mx-auto w-full min-w-0 max-w-[1140px] py-4">
             <BookingsList view={listView} />
           </div>
         </div>

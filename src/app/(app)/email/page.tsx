@@ -76,8 +76,8 @@ export default async function EmailServicesPage() {
         </div>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
-        <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-6 pb-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1140px] flex-col gap-6 pb-4">
           {/* What the app is sending as right now, first thing on the page.
               The failure this fixes is silent — mail is accepted and never
               delivered — so the state has to be stated somewhere it cannot be

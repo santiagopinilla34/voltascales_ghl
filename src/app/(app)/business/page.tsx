@@ -21,7 +21,7 @@ export default async function BusinessPage() {
         <h1 className="text-sm font-semibold tracking-tight">My Business</h1>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10">
         {/*
           Who you are on the left, what you sell on the right, from `xl` up.
 
@@ -30,7 +30,7 @@ export default async function BusinessPage() {
           stretching across the whole window, and the two halves of an invoice
           footer are visible at once while you edit either.
         */}
-        <div className="mx-auto grid w-full min-w-0 max-w-[1600px] items-start gap-8 pb-4 xl:grid-cols-2">
+        <div className="mx-auto grid w-full min-w-0 max-w-[1140px] items-start gap-8 pb-4 xl:grid-cols-2">
           <section className="flex min-w-0 flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold tracking-tight">Details</h2>
