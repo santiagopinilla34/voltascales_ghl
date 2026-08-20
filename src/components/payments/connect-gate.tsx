@@ -121,8 +121,19 @@ export function ConnectGate({
               <ArrowRight className="size-4" />
             </a>
           </Button>
+          {/*
+            The old line here said "about thirty seconds", which is true only
+            for someone who already has Stripe — the case this is built for, but
+            not the only one that reaches this button. Stripe folds account
+            *creation* into the same flow, and that is a long form with bank
+            details and identity checks behind it. Promising thirty seconds to
+            someone about to meet it is how a page loses trust in the first
+            fifteen.
+          */}
           <p className="text-muted-foreground text-xs">
-            Takes you to Stripe and back. About thirty seconds.
+            Takes you to Stripe and back. If you already have a Stripe account,
+            it is two clicks — sign in, pick the account. If you do not, Stripe
+            will walk you through opening one first, which takes longer.
           </p>
         </div>
       ) : (
