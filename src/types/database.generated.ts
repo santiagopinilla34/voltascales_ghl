@@ -861,6 +861,9 @@ export type Database = {
           org_id: string
           price_cents: number
           sort_order: number
+          stripe_price_cents: number | null
+          stripe_price_id: string | null
+          stripe_product_id: string | null
         }
         Insert: {
           created_at?: string
@@ -870,6 +873,9 @@ export type Database = {
           org_id?: string
           price_cents: number
           sort_order?: number
+          stripe_price_cents?: number | null
+          stripe_price_id?: string | null
+          stripe_product_id?: string | null
         }
         Update: {
           created_at?: string
@@ -879,6 +885,9 @@ export type Database = {
           org_id?: string
           price_cents?: number
           sort_order?: number
+          stripe_price_cents?: number | null
+          stripe_price_id?: string | null
+          stripe_product_id?: string | null
         }
         Relationships: [
           {

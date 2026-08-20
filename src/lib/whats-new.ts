@@ -23,6 +23,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-08-20-payment-links",
+    date: "2026-08-20",
+    title: "Send a customer a link to pay",
+    body: "On Payments, create a payment link for one of your packages or for a one-off amount, then text or email it. They pay by card through Stripe and the money lands straight in your own account. Deactivate a link any time to stop it taking anything further.",
+    href: "/payments",
+    tag: "New",
+  },
+  {
     id: "2026-08-19-payments-tab",
     date: "2026-08-19",
     title: "See your Stripe payments without leaving the app",

@@ -407,11 +407,11 @@ webhook 403s until the right token is looked up first.
 
 ---
 
-## 10. Stripe Connect — a client's own payments · Size M · **built, needs credentials**
+## 10. Stripe Connect — a client's own payments · **built, live on test keys**
 
 Backs the Payments tab, added 19 Aug 2026.
 
-**Not the same money as the Stripe in section 12.** That one is about charging
+**Not the same money as the Stripe in section 13.** That one is about charging
 a client for numbers and domains, and it would take money *from* them. This
 takes nothing: it reads the Stripe account the client already sells through, so
 the app can show their revenue next to their CRM. `/billing` is our wallet;
@@ -526,7 +526,72 @@ Start the partner application before this is wanted, not when.
 
 ---
 
-## 12. Later, not now
+---
+
+## 12. Payment links · **built**
+
+Added 20 Aug 2026, on the Payments page. Creates links a customer pays through,
+from a package or a custom amount, and lists and deactivates them.
+
+**This is the first thing in the feature that writes.** Everything before it
+reads a connected account. A link created here can take money from a real
+customer into a real account and keeps working long after whoever made it has
+forgotten — which is why the connect screen stopped saying the app cannot
+charge anyone the moment this shipped.
+
+**It commits the platform to `read_write`.** Payment links cannot be created on
+a read-only connection. If Stripe ever enables `read_only` for this platform
+and someone flips `STRIPE_CONNECT_SCOPE`, links stop working and the create
+call returns the read-only explanation from `links.ts`. Section 10's note about
+requesting read-only is therefore now a decision, not a to-do.
+
+**Built:** `supabase/migrations/20260820000000_package_stripe_prices.sql`,
+`src/lib/payments/links.ts`, `src/lib/payments/money.ts`,
+`src/components/payments/payment-links.tsx`, actions in
+`src/app/(app)/payments/actions.ts`.
+
+**Watch out:**
+
+- **A link is three Stripe objects, not an amount.** Payment links take a
+  Price, which belongs to a Product; there is no inline amount the way Checkout
+  Sessions allow. So a package's Product and Price are created once and cached
+  on the row, and the client's Stripe catalog mirrors this app's rather than
+  filling with a throwaway product per link.
+- **Prices are immutable.** Editing a package's price cannot update one, and
+  reusing the id would produce a link charging the old amount — which Stripe
+  considers entirely correct. `stripe_price_cents` is stored beside the id so
+  the two can be compared and a new Price minted on a mismatch. Go through
+  `ensurePackagePrice`, never read `stripe_price_id` directly.
+- **The cached ids belong to one Stripe account.** Disconnecting clears them
+  (`forgetCachedPrices`). Without that, connecting a *different* account would
+  leave the app building links from the previous account's price ids and
+  failing with an opaque Stripe error instead of quietly setting up again.
+- **`formatMoney` lives in `money.ts`, not `stripe.ts`.** It is needed by a
+  client component, and `stripe.ts` is `server-only` — importing it from the
+  link list dragged the whole server Stripe client into the browser bundle and
+  500'd the page. Typecheck does not catch this; the runtime does.
+- **Currency comes from the connected account**, not from a constant. A package
+  price is a bare integer with no currency, so formatting the picker as dollars
+  while the link charges euros would misstate a price on the screen where
+  someone decides what to send.
+- **Deactivate, not delete.** Stripe has no delete for payment links, which is
+  the honest shape — a link already sent cannot be un-sent. The UI says what it
+  does and does not do: stops future payments, does not refund past ones.
+
+Verified end to end against the connected test account: creating from the
+"website build" package produced a real Stripe checkout page at
+`buy.stripe.com/test_…`, carrying the package name, its description and CAD
+taken from the account.
+
+**Not built:** attaching a link to a contact or sending it from the app, and
+recording payments back against a contact or invoice. Both want the link stored
+locally, which it deliberately is not — Stripe is the single source of truth
+today, so a link deactivated in Stripe shows as deactivated here with nothing
+to reconcile.
+
+---
+
+## 13. Later, not now
 
 - **Google Calendar two-way sync.** The calendar reads its own bookings; an
   external sync is a genuinely separate feature.

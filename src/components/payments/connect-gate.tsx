@@ -47,7 +47,7 @@ export function ConnectGate({
           Link the Stripe account you already take payments into, and your
           payments, payouts and balance show up here — alongside the rest of
           your CRM, so you stop switching tabs to answer &ldquo;did that one go
-          through?&rdquo;
+          through?&rdquo; You can send customers a payment link from here too.
         </p>
       </div>
 
@@ -94,10 +94,10 @@ export function ConnectGate({
           ) : (
             <li>
               Stripe grants this connection <strong>read and write</strong>{" "}
-              access. We use it only to display your payments, and nothing in
-              this app charges or refunds anyone — but the permission Stripe
-              records is the broader one, and you should know that rather than
-              find it later in your Stripe settings.
+              access. This app shows your payments and lets you create payment
+              links customers pay through — money always goes straight into your
+              Stripe account, never through us. It does not issue refunds or
+              charge anyone by itself.
             </li>
           )}
 

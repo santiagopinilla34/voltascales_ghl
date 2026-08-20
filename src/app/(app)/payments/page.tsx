@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 
 import { ConnectGate } from "@/components/payments/connect-gate";
 import { ConnectionBar } from "@/components/payments/connection-bar";
+import { PaymentLinks } from "@/components/payments/payment-links";
 import { PaymentsDashboard } from "@/components/payments/payments-dashboard";
 import {
   connectScope,
   isModeMismatch,
   isStripeConfigured,
 } from "@/lib/payments/connect";
+import { listPaymentLinks } from "@/lib/payments/links";
 import { getPaymentsSnapshot } from "@/lib/payments/stripe";
 import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
@@ -78,7 +80,20 @@ export default async function PaymentsPage({
   // day it goes live.
   const mismatched = isModeMismatch(connection.livemode);
 
-  const snapshot = mismatched ? null : await getPaymentsSnapshot(connection.account_id);
+  // Links and packages are fetched alongside the snapshot rather than after it:
+  // three round trips in series would be visible on a page that already waits
+  // on Stripe once.
+  const [snapshot, linkResult, packageRows] = mismatched
+    ? [null, null, null]
+    : await Promise.all([
+        getPaymentsSnapshot(connection.account_id),
+        listPaymentLinks(connection.account_id),
+        supabase
+          .from("packages")
+          .select("id, name, price_cents")
+          .order("sort_order")
+          .then((result) => result.data ?? []),
+      ]);
 
   return (
     <Shell>
@@ -109,6 +124,30 @@ export default async function PaymentsPage({
         <Notice>{snapshot.message}</Notice>
       ) : (
         snapshot?.kind === "ok" && <PaymentsDashboard snapshot={snapshot.value} />
+      )}
+
+      {/*
+        Rendered even when the dashboard failed to load, as long as the mode
+        matches. The two read different things from Stripe and one being
+        unavailable says nothing about the other — and a page that hides the
+        working half because the other half is down is a page that looks broken
+        when it is mostly fine.
+      */}
+      {!mismatched && (
+        <PaymentLinks
+          links={linkResult?.kind === "ok" ? linkResult.value : []}
+          packages={(packageRows ?? []).map((pkg) => ({
+            id: pkg.id,
+            name: pkg.name,
+            priceCents: pkg.price_cents,
+          }))}
+          currency={
+            snapshot?.kind === "ok"
+              ? (snapshot.value.account.defaultCurrency ?? "CAD")
+              : "CAD"
+          }
+          error={linkResult?.kind === "error" ? linkResult.message : null}
+        />
       )}
     </Shell>
   );

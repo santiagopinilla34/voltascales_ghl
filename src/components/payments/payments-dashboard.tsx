@@ -1,6 +1,7 @@
 import { TriangleAlert } from "lucide-react";
 
-import { formatMoney, type PaymentsSnapshot } from "@/lib/payments/stripe";
+import { formatMoney } from "@/lib/payments/money";
+import type { PaymentsSnapshot } from "@/lib/payments/stripe";
 import { cn } from "@/lib/utils";
 
 /**
