@@ -126,6 +126,17 @@
   }
   html {
     @apply font-sans;
+    /* iOS rubber-bands the document when a touch scroll reaches its end — or
+       when whatever is under the finger cannot scroll at all, which is the
+       case while a conversation is still loading. That is what made dragging
+       a thread drag the whole app instead of the messages. Scroll chaining
+       stops here.
+
+       This disables the bounce, not scrolling: the two pages that genuinely
+       scroll the document — the public booking page and login — still do.
+       `overflow: hidden` on the body would have fixed the app shell and
+       broken both of them. */
+    overscroll-behavior: none;
   }
 }
 

@@ -34,15 +34,23 @@ export default async function ThreadPage({ params }: PageProps) {
   const { contactId } = await params;
   const supabase = await createClient();
 
-  const contact = await getContact(supabase, contactId);
+  // All three at once rather than the contact first and the rest after it.
+  // Nothing here needs the contact row to ask its question — the messages and
+  // the draft are keyed by the same id that came in on the URL — so waiting
+  // for it only added a round trip to the front of every conversation open.
+  //
+  // A conversation that doesn't exist runs two queries that find nothing,
+  // which is the cheap half of a trade against every conversation that does.
+  const [contact, messages, latestDraft] = await Promise.all([
+    getContact(supabase, contactId),
+    listMessages(supabase, contactId),
+    getLatestDraft(supabase, contactId),
+  ]);
+
   if (!contact) {
     notFound();
   }
 
-  const [messages, latestDraft] = await Promise.all([
-    listMessages(supabase, contact.id),
-    getLatestDraft(supabase, contact.id),
-  ]);
   const label = contactLabel(contact);
 
   return (
