@@ -185,21 +185,23 @@
   animation: none;
 }
 
-/* Leaving content lifts away while arriving content comes up from below, so
-   the two read as one movement in a single direction rather than a swap. */
-::view-transition-old(.page) {
-  animation:
-    var(--motion-exit) ease-in both page-fade reverse,
-    var(--motion-exit) ease-in both page-sink;
-}
+/* Leaving content fades where it stands. It deliberately does not move.
 
-@keyframes page-sink {
-  from {
-    transform: none;
-  }
-  to {
-    transform: translateY(calc(var(--motion-distance) * -0.4));
-  }
+   It used to lift away by a few pixels, on the theory that the two halves
+   would read as one movement. What actually happened is that the outgoing
+   page rendered *on top of the top bar* for the length of the exit and then
+   faded off it. During a transition the page is promoted to its own snapshot,
+   and that snapshot paints above the `root` one holding the shell — so any
+   upward travel is drawn over the chrome rather than clipped by it, and it
+   looked like the page was briefly loading in the wrong place.
+
+   Giving `root` a higher z-index does not fix it: root's snapshot includes
+   the background behind the content, so painting it above would hide the
+   animating page completely. Not moving upward at all is the fix. Arriving
+   content still rises, which is the half that carries the motion, and it
+   starts *below* its final position so it can never reach the chrome. */
+::view-transition-old(.page) {
+  animation: var(--motion-exit) ease-in both page-fade reverse;
 }
 
 ::view-transition-new(.page) {
