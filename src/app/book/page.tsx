@@ -55,22 +55,20 @@ export default async function BookPage({
   );
 
   return (
-    <main className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:py-12">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold tracking-tight">
-          Book a {MEETING_NAME}
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          {MEETING_DURATION_MINUTES} minutes, over the phone. Pick a time that
-          works and you&apos;ll get a confirmation straight away.
+    // The card carries its own heading, so the page is only a ground for it to
+    // sit on: `muted/30` reads as a soft tint under a white card in light mode
+    // and as a shade above the near-black background in dark, from one token.
+    // `min-h-dvh` rather than `min-h-full`: the ground has to reach the bottom
+    // of the viewport whatever the card's height, and a percentage height only
+    // resolves against a parent that has one.
+    <main className="bg-muted/30 flex min-h-dvh w-full flex-col items-center px-4 py-6 sm:px-6 sm:py-12">
+      <div className="w-full max-w-5xl">
+        <BookingWidget calendar={calendar} />
+
+        <p className="text-muted-foreground mt-4 px-1 text-xs">
+          All times are Eastern (Montreal).
         </p>
-      </header>
-
-      <BookingWidget calendar={calendar} />
-
-      <p className="text-muted-foreground mt-auto pt-4 text-xs">
-        All times are Eastern (Montreal).
-      </p>
+      </div>
     </main>
   );
 }

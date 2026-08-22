@@ -2,7 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Globe,
+  Loader2,
+  Phone,
+} from "lucide-react";
 
 import { book } from "@/app/book/actions";
 import { Button } from "@/components/ui/button";
@@ -13,17 +23,33 @@ import type { CalendarWeek } from "@/lib/booking/queries";
 import { MEETING_DURATION_MINUTES, MEETING_NAME, type Slot } from "@/lib/booking/slots";
 import { addDays, todayDayKey } from "@/lib/booking/time";
 import { TIME_ZONE } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /**
- * Week view, slot picker and booking form.
+ * The public booking card: pick a day, pick a time, say who you are.
  *
- * One component and one piece of state, because the three are really three
- * views of the same question — which day, which time, who are you — and
- * splitting them across routes would mean a page reload between each.
+ * ## One layout, two shapes
  *
- * Every label here is formatted in TIME_ZONE explicitly. The visitor may be in
- * any zone; there is no picker, and a slot that renders as their local 9am
- * while meaning Eastern 9am is a meeting nobody attends.
+ * On a wide screen the three parts sit side by side — what the meeting is, the
+ * week, and the chosen day's times — so the whole decision is visible at once
+ * and changing day re-fills the times column without anything else moving.
+ *
+ * On a phone there is no room for three columns, so the same parts become
+ * steps: the week, then the times for the day you tapped, then the form. One
+ * `step` value decides which pane shows, and every pane is unhidden again at
+ * `lg` — so the desktop layout is not a second implementation, it is the same
+ * markup with nothing hidden.
+ *
+ * ## Colour
+ *
+ * Every surface is a semantic token — `card`, `muted`, `primary`, `border` —
+ * so the page follows the visitor's system theme through next-themes with no
+ * hardcoded colours and no `dark:` overrides to keep in step. A booking link
+ * opened at night should not be a white flash.
+ *
+ * Every label is formatted in TIME_ZONE explicitly. The visitor may be in any
+ * zone; there is no picker, and a slot that renders as their local 9am while
+ * meaning Eastern 9am is a meeting nobody attends.
  */
 
 const slotTime = new Intl.DateTimeFormat("en-CA", {
@@ -41,6 +67,12 @@ const weekdayShort = new Intl.DateTimeFormat("en-CA", {
 const monthDay = new Intl.DateTimeFormat("en-CA", {
   month: "short",
   day: "numeric",
+  timeZone: "UTC",
+});
+
+const monthYear = new Intl.DateTimeFormat("en-CA", {
+  month: "long",
+  year: "numeric",
   timeZone: "UTC",
 });
 
@@ -64,6 +96,9 @@ type Screen =
   | { name: "form"; slot: Slot }
   | { name: "done"; slot: Slot };
 
+/** Which pane a phone is showing. Ignored at `lg`, where both are visible. */
+type Step = "calendar" | "times";
+
 export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -73,6 +108,7 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
   const [selectedDay, setSelectedDay] = useState<string>(
     firstOpen?.dayKey ?? calendar.days[0].dayKey,
   );
+  const [step, setStep] = useState<Step>("calendar");
   const [screen, setScreen] = useState<Screen>({ name: "picking" });
   const [error, setError] = useState<string | null>(null);
 
@@ -85,6 +121,7 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
 
   function goToWeek(weekStart: string) {
     setScreen({ name: "picking" });
+    setStep("calendar");
     setError(null);
     // A navigation rather than local state: the server owns which slots are
     // free, and paging the calendar in the browser would show a week generated
@@ -108,6 +145,7 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
         // generated week rather than leaving them on a form for a dead time.
         if (result.slotTaken) {
           setScreen({ name: "picking" });
+          setStep("calendar");
           router.refresh();
         }
         return;
@@ -117,237 +155,446 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Confirmed
+  // ---------------------------------------------------------------------------
+
   if (screen.name === "done") {
     return (
-      <section className="flex flex-col items-center gap-3 rounded-lg border px-4 py-10 text-center">
-        <span className="flex size-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-          <Check className="size-5" />
-        </span>
-        <h2 className="text-lg font-semibold tracking-tight">You&apos;re booked</h2>
-        <p className="text-sm">
-          {fullDay.format(dayKeyDate(screen.slot.start.slice(0, 10)))} at{" "}
-          <strong>{slotTime.format(new Date(screen.slot.start))}</strong> Eastern.
-        </p>
-        <p className="text-muted-foreground max-w-sm text-sm">
-          A confirmation is on its way to {email} and {phone}. It has a link to
-          cancel if something changes.
-        </p>
-      </section>
+      <Card>
+        <div className="flex flex-col items-center gap-4 px-6 py-14 text-center sm:py-20">
+          <span className="bg-primary/10 text-primary flex size-14 items-center justify-center rounded-full">
+            <Check className="size-7" />
+          </span>
+
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold tracking-tight">Confirmed</h2>
+            <p className="text-muted-foreground text-sm">
+              You&apos;re booked for a {MEETING_NAME.toLowerCase()}.
+            </p>
+          </div>
+
+          <div className="text-muted-foreground mt-2 grid gap-2.5 text-sm">
+            <Detail icon={Clock}>{MEETING_DURATION_MINUTES} minutes</Detail>
+            <Detail icon={CalendarDays}>
+              <span className="text-foreground font-medium">
+                {slotTime.format(new Date(screen.slot.start))} –{" "}
+                {slotTime.format(new Date(screen.slot.end))}
+              </span>
+              , {fullDay.format(dayKeyDate(screen.slot.start.slice(0, 10)))}
+            </Detail>
+            <Detail icon={Globe}>Eastern Time (Montreal)</Detail>
+          </div>
+
+          <p className="text-muted-foreground mt-4 max-w-sm text-sm">
+            A confirmation is on its way to {email} and {phone}. It has a link to
+            cancel if something changes.
+          </p>
+        </div>
+      </Card>
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Your details
+  // ---------------------------------------------------------------------------
 
   if (screen.name === "form") {
     return (
-      <form onSubmit={submit} className="flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={pending}
-            onClick={() => {
+      <Card>
+        <div className="grid lg:grid-cols-[minmax(0,17rem)_1fr]">
+          <MeetingPanel
+            selected={{
+              day: fullDay.format(dayKeyDate(screen.slot.start.slice(0, 10))),
+              time: `${slotTime.format(new Date(screen.slot.start))} – ${slotTime.format(
+                new Date(screen.slot.end),
+              )}`,
+            }}
+            onBack={() => {
               setScreen({ name: "picking" });
               setError(null);
             }}
-          >
-            <ArrowLeft className="size-4" />
-            Change time
-          </Button>
-        </div>
-
-        <div className="rounded-lg border px-4 py-3">
-          <p className="text-sm font-medium">
-            {fullDay.format(dayKeyDate(screen.slot.start.slice(0, 10)))}
-          </p>
-          <p className="text-muted-foreground text-sm">
-            {slotTime.format(new Date(screen.slot.start))} –{" "}
-            {slotTime.format(new Date(screen.slot.end))} Eastern ·{" "}
-            {MEETING_DURATION_MINUTES} minutes
-          </p>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="booking-name">Your name</Label>
-          <Input
-            id="booking-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoComplete="name"
-            required
-            disabled={pending}
+            backDisabled={pending}
           />
+
+          <form onSubmit={submit} className="flex flex-col gap-4 p-5 sm:p-6">
+            <h2 className="text-base font-semibold tracking-tight">
+              Enter your details
+            </h2>
+
+            <div className="grid gap-2">
+              <Label htmlFor="booking-name">Your name</Label>
+              <Input
+                id="booking-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                autoComplete="name"
+                required
+                disabled={pending}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="booking-email">Email</Label>
+              <Input
+                id="booking-email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                required
+                disabled={pending}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="booking-phone">Phone</Label>
+              <Input
+                id="booking-phone"
+                type="tel"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                autoComplete="tel"
+                placeholder="(514) 555-0134"
+                required
+                disabled={pending}
+              />
+              <p className="text-muted-foreground text-xs">
+                The confirmation and reminders come by text.
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="booking-notes">
+                Anything I should know?{" "}
+                <span className="text-muted-foreground font-normal">(optional)</span>
+              </Label>
+              <Textarea
+                id="booking-notes"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                rows={3}
+                disabled={pending}
+              />
+            </div>
+
+            {error && <ErrorNote>{error}</ErrorNote>}
+
+            <Button
+              type="submit"
+              disabled={pending}
+              size="lg"
+              className="mt-1 w-full rounded-full sm:w-auto sm:self-start sm:px-8"
+            >
+              {pending && <Loader2 className="animate-spin" />}
+              Book the call
+            </Button>
+          </form>
         </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="booking-email">Email</Label>
-          <Input
-            id="booking-email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="email"
-            required
-            disabled={pending}
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="booking-phone">Phone</Label>
-          <Input
-            id="booking-phone"
-            type="tel"
-            value={phone}
-            onChange={(event) => setPhone(event.target.value)}
-            autoComplete="tel"
-            placeholder="(514) 555-0134"
-            required
-            disabled={pending}
-          />
-          <p className="text-muted-foreground text-xs">
-            The confirmation and reminders come by text.
-          </p>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="booking-notes">
-            Anything I should know? <span className="font-normal">(optional)</span>
-          </Label>
-          <Textarea
-            id="booking-notes"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            rows={3}
-            disabled={pending}
-          />
-        </div>
-
-        {error && (
-          <p
-            role="alert"
-            className="text-destructive bg-destructive/10 rounded-md px-3 py-2 text-sm"
-          >
-            {error}
-          </p>
-        )}
-
-        <Button type="submit" disabled={pending} className="self-start">
-          {pending && <Loader2 className="size-4 animate-spin" />}
-          Book the call
-        </Button>
-      </form>
+      </Card>
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Pick a day and a time
+  // ---------------------------------------------------------------------------
+
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label="Previous week"
-          disabled={calendar.weekStart <= calendar.earliestWeek}
-          onClick={() => goToWeek(addDays(calendar.weekStart, -7))}
+    <Card>
+      <div className="grid lg:grid-cols-[minmax(0,17rem)_1fr_minmax(0,15rem)]">
+        <MeetingPanel className={cn(step === "times" && "hidden lg:flex")} />
+
+        {/* The week */}
+        <div
+          className={cn(
+            "border-border p-5 sm:p-6 lg:border-r",
+            step === "times" && "hidden lg:block",
+          )}
         >
-          <ChevronLeft className="size-4" />
-        </Button>
-
-        <p className="text-sm font-medium">
-          {monthDay.format(dayKeyDate(calendar.days[0].dayKey))} –{" "}
-          {monthDay.format(dayKeyDate(calendar.days[6].dayKey))}
-        </p>
-
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label="Next week"
-          disabled={calendar.weekStart >= calendar.latestWeek}
-          onClick={() => goToWeek(addDays(calendar.weekStart, 7))}
-        >
-          <ChevronRight className="size-4" />
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-        {calendar.days.map((entry) => {
-          const open = entry.slots.length;
-          const selected = entry.dayKey === selectedDay;
-
-          return (
-            <button
-              key={entry.dayKey}
-              type="button"
-              disabled={open === 0}
-              aria-pressed={selected}
-              onClick={() => {
-                setSelectedDay(entry.dayKey);
-                setError(null);
-              }}
-              className={[
-                "flex flex-col items-center gap-0.5 rounded-md border px-1 py-2 text-center transition-colors",
-                "disabled:cursor-not-allowed disabled:opacity-40",
-                selected
-                  ? "border-foreground bg-foreground text-background"
-                  : "hover:bg-muted",
-              ].join(" ")}
-            >
-              <span className="text-[11px] uppercase">
-                {weekdayShort.format(dayKeyDate(entry.dayKey))}
-              </span>
-              <span className="text-sm font-semibold tabular-nums">
-                {dayKeyDate(entry.dayKey).getUTCDate()}
-              </span>
-              <span className="text-[11px] tabular-nums">
-                {entry.dayKey === today && open === 0 ? "—" : open || "—"}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {day && day.slots.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium">
-            {fullDay.format(dayKeyDate(day.dayKey))}
+          <h2 className="text-base font-semibold tracking-tight">
+            Select a date &amp; time
           </h2>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {day.slots.map((slot) => (
+
+          <div className="mt-5 flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium">
+                {monthYear.format(dayKeyDate(calendar.weekStart))}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {monthDay.format(dayKeyDate(calendar.days[0].dayKey))} –{" "}
+                {monthDay.format(dayKeyDate(calendar.days[6].dayKey))}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-1">
               <Button
-                key={slot.start}
                 type="button"
-                variant="outline"
-                className="tabular-nums"
-                onClick={() => {
-                  setScreen({ name: "form", slot });
-                  setError(null);
-                }}
+                variant="ghost"
+                size="icon-sm"
+                className="rounded-full"
+                aria-label="Previous week"
+                disabled={calendar.weekStart <= calendar.earliestWeek}
+                onClick={() => goToWeek(addDays(calendar.weekStart, -7))}
               >
-                {slotTime.format(new Date(slot.start))}
+                <ChevronLeft />
               </Button>
-            ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="rounded-full"
+                aria-label="Next week"
+                disabled={calendar.weekStart >= calendar.latestWeek}
+                onClick={() => goToWeek(addDays(calendar.weekStart, 7))}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
           </div>
+
+          <div className="mt-5 grid grid-cols-7 gap-x-1 gap-y-2">
+            {calendar.days.map((entry) => (
+              <span
+                key={`head-${entry.dayKey}`}
+                className="text-muted-foreground text-center text-[11px] font-medium tracking-wide uppercase"
+              >
+                {weekdayShort.format(dayKeyDate(entry.dayKey)).slice(0, 3)}
+              </span>
+            ))}
+
+            {calendar.days.map((entry) => {
+              const open = entry.slots.length > 0;
+              const selected = entry.dayKey === selectedDay;
+
+              return (
+                <div key={entry.dayKey} className="flex flex-col items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={!open}
+                    aria-pressed={selected}
+                    aria-label={`${fullDay.format(dayKeyDate(entry.dayKey))}${
+                      open ? `, ${entry.slots.length} times free` : ", nothing free"
+                    }`}
+                    onClick={() => {
+                      setSelectedDay(entry.dayKey);
+                      setStep("times");
+                      setError(null);
+                    }}
+                    className={cn(
+                      "flex size-10 items-center justify-center rounded-full text-sm font-semibold tabular-nums transition-colors",
+                      "focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none",
+                      selected && open && "bg-primary text-primary-foreground",
+                      !selected &&
+                        open &&
+                        "bg-primary/10 text-primary hover:bg-primary/20",
+                      !open && "text-muted-foreground/50 cursor-not-allowed",
+                    )}
+                  >
+                    {dayKeyDate(entry.dayKey).getUTCDate()}
+                  </button>
+
+                  {/* A dot says "something is free here" the way a calendar
+                      does, without spending a line on a count nobody compares
+                      between days. */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-1 rounded-full",
+                      open && !selected ? "bg-primary/60" : "bg-transparent",
+                    )}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-muted-foreground mt-5 flex items-center gap-2 text-xs">
+            <Globe className="size-3.5 shrink-0" />
+            Eastern Time (Montreal)
+          </p>
         </div>
-      ) : (
-        <p className="text-muted-foreground rounded-md border border-dashed px-3 py-8 text-center text-sm">
-          {day?.closedReason
-            ? `${fullDay.format(dayKeyDate(day.dayKey))} — ${day.closedReason}.`
-            : `Nothing open this week. Try the next one.`}
-        </p>
-      )}
 
-      {error && (
-        <p
-          role="alert"
-          className="text-destructive bg-destructive/10 rounded-md px-3 py-2 text-sm"
+        {/* That day's times */}
+        <div
+          className={cn(
+            "flex min-h-0 flex-col p-5 sm:p-6",
+            step === "calendar" && "hidden lg:flex",
+          )}
         >
-          {error}
-        </p>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="-ml-1 rounded-full lg:hidden"
+              aria-label="Back to the calendar"
+              onClick={() => setStep("calendar")}
+            >
+              <ArrowLeft />
+            </Button>
+            <h2 className="text-sm font-semibold tracking-tight">
+              {day ? fullDay.format(dayKeyDate(day.dayKey)) : "Pick a day"}
+            </h2>
+          </div>
+
+          {day && day.slots.length > 0 ? (
+            <div className="mt-4 flex flex-col gap-2 overflow-y-auto overscroll-contain lg:max-h-[26rem]">
+              {day.slots.map((slot) => (
+                <button
+                  key={slot.start}
+                  type="button"
+                  onClick={() => {
+                    setScreen({ name: "form", slot });
+                    setError(null);
+                  }}
+                  className={cn(
+                    "border-primary/40 text-primary hover:border-primary hover:bg-primary/5",
+                    "focus-visible:ring-ring/50 shrink-0 rounded-lg border py-3 text-sm",
+                    "font-semibold tabular-nums transition-colors focus-visible:ring-2",
+                    "focus-visible:outline-none",
+                  )}
+                >
+                  {slotTime.format(new Date(slot.start))}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground border-border mt-4 rounded-lg border border-dashed px-3 py-10 text-center text-sm">
+              {day?.closedReason
+                ? `${day.closedReason}.`
+                : day?.dayKey === today
+                  ? "Nothing left today."
+                  : "Nothing free this day."}
+            </p>
+          )}
+
+          {error && (
+            <div className="mt-3">
+              <ErrorNote>{error}</ErrorNote>
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Pieces
+// -----------------------------------------------------------------------------
+
+/**
+ * The card itself.
+ *
+ * The shadow does the lifting in light mode and the border does it in dark,
+ * where a shadow against a dark ground is invisible — so both are always
+ * present rather than swapped per theme.
+ */
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-card overflow-hidden rounded-2xl border shadow-sm">
+      {children}
+    </div>
+  );
+}
+
+function Detail({
+  icon: Icon,
+  children,
+}: {
+  icon: typeof Clock;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-center gap-2.5 text-left">
+      <Icon className="mt-0.5 size-4 shrink-0" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function ErrorNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="text-destructive bg-destructive/10 rounded-lg px-3 py-2 text-sm"
+    >
+      {children}
+    </p>
+  );
+}
+
+/**
+ * What the meeting is: the left rail on a wide screen, the header on a phone.
+ *
+ * Takes the chosen slot once there is one, so the details form still says what
+ * is being booked without a second panel to hold it.
+ */
+function MeetingPanel({
+  className,
+  selected,
+  onBack,
+  backDisabled,
+}: {
+  className?: string;
+  selected?: { day: string; time: string };
+  onBack?: () => void;
+  backDisabled?: boolean;
+}) {
+  return (
+    <aside
+      className={cn(
+        "border-border bg-muted/30 flex flex-col gap-4 border-b p-5 sm:p-6 lg:border-r lg:border-b-0",
+        className,
+      )}
+    >
+      {onBack && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={backDisabled}
+          onClick={onBack}
+          className="-ml-2 self-start rounded-full"
+        >
+          <ArrowLeft />
+          Change time
+        </Button>
       )}
 
-      <p className="text-muted-foreground text-xs">
-        Every {MEETING_NAME} runs {MEETING_DURATION_MINUTES} minutes.
+      <div>
+        <p className="text-muted-foreground text-sm">VoltaScales</p>
+        <h1 className="mt-0.5 text-xl font-semibold tracking-tight">
+          {MEETING_NAME}
+        </h1>
+      </div>
+
+      <div className="text-muted-foreground grid gap-2.5 text-sm">
+        <div className="flex items-center gap-2.5">
+          <Clock className="size-4 shrink-0" />
+          <span>{MEETING_DURATION_MINUTES} min</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <Phone className="size-4 shrink-0" />
+          <span>Over the phone</span>
+        </div>
+
+        {selected && (
+          <div className="text-foreground flex items-start gap-2.5 font-medium">
+            <CalendarDays className="mt-0.5 size-4 shrink-0" />
+            <span>
+              {selected.time}
+              <span className="text-muted-foreground block font-normal">
+                {selected.day}
+              </span>
+            </span>
+          </div>
+        )}
+      </div>
+
+      <p className="text-muted-foreground mt-auto hidden text-xs lg:block">
+        Pick a time that works and you&apos;ll get a confirmation straight away.
       </p>
-    </section>
+    </aside>
   );
 }
