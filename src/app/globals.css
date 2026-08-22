@@ -146,16 +146,20 @@
    --------------------------------------------------------------------------- */
 
 :root {
-  --motion-exit: 140ms;
-  --motion-enter: 260ms;
-  --motion-rise: 400ms;
-  /* How far content travels as it arrives. 6px was the first attempt and it
-     was below the threshold of being noticed at all — the animation ran,
-     nobody saw it, which is the same as not having one. 14px is still small
-     enough to read as settling rather than as a slide. */
-  --motion-distance: 14px;
+  --motion-exit: 160ms;
+  --motion-enter: 340ms;
+  --motion-rise: 480ms;
+  /* How far content travels as it arrives, and the dial to turn if this is
+     ever too much or still too little. It went 6px, then 14px, and both were
+     below the threshold of being noticed on a page this wide — the animations
+     ran correctly and nobody could see them. Distance is what makes motion
+     legible; duration alone only makes it slow. */
+  --motion-distance: 32px;
+  /* Content also comes in fractionally small. Two percent is not a zoom — it
+     is what stops a pure vertical slide reading as a scroll jump. */
+  --motion-scale: 0.98;
   /* Decelerating: fast at the start, easing into place. */
-  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* The transition overlay swallows clicks while it runs. 340ms of a dead UI is
@@ -181,8 +185,21 @@
   animation: none;
 }
 
+/* Leaving content lifts away while arriving content comes up from below, so
+   the two read as one movement in a single direction rather than a swap. */
 ::view-transition-old(.page) {
-  animation: var(--motion-exit) ease-in both page-fade reverse;
+  animation:
+    var(--motion-exit) ease-in both page-fade reverse,
+    var(--motion-exit) ease-in both page-sink;
+}
+
+@keyframes page-sink {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(calc(var(--motion-distance) * -0.4));
+  }
 }
 
 ::view-transition-new(.page) {
@@ -202,7 +219,7 @@
 
 @keyframes page-rise {
   from {
-    transform: translateY(var(--motion-distance));
+    transform: translateY(var(--motion-distance)) scale(var(--motion-scale));
   }
   to {
     transform: none;
@@ -227,5 +244,62 @@
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+
+/* ---------------------------------------------------------------------------
+   Popovers grow out of the button that opened them
+   ---------------------------------------------------------------------------
+   The dialler, the notifications and the what's-new panel are all popovers
+   hanging off a small round button in the top bar. They used to fade in on the
+   spot, which said nothing about where they came from — a panel appearing in
+   the corner of the screen is just a panel appearing.
+
+   Radix measures the trigger and hands us `--radix-popover-content-transform-
+   origin`, a point on the panel's own box that lines up with the button. Scale
+   from there and the panel unfolds out of the bubble; reverse it and the panel
+   is pulled back into it.
+
+   Written as explicit keyframes rather than utility classes because the scale
+   has to start small enough to read as *emerging* — 0.4, not the 0.95 the
+   defaults use, which at this size is indistinguishable from a plain fade.
+   Unlayered, so it beats anything Tailwind puts in `@layer utilities`.
+   --------------------------------------------------------------------------- */
+
+[data-slot="popover-content"] {
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+
+[data-slot="popover-content"][data-state="open"] {
+  /* Decelerating hard, so it leaps away from the button and settles. */
+  animation: popover-emerge 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+[data-slot="popover-content"][data-state="closed"] {
+  /* Accelerating, which is what makes it read as being pulled in rather than
+     merely shrinking. Quicker than the way out: leaving needs no admiring. */
+  animation: popover-retract 180ms cubic-bezier(0.5, 0, 0.9, 0.2) both;
+}
+
+@keyframes popover-emerge {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes popover-retract {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.4);
   }
 }
