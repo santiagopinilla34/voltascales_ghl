@@ -5,6 +5,7 @@ import { AccountBadge } from "@/components/orgs/account-badge";
 import { AccountSwitcher } from "@/components/orgs/account-switcher";
 import { OrgBanner } from "@/components/orgs/org-banner";
 import { AppTopbar } from "@/components/topbar/app-topbar";
+import { PageTransition } from "@/components/page-transition";
 import { VendorProvider } from "@/components/vendor";
 import { listSubAccounts } from "@/lib/orgs/queries";
 import { Toaster } from "@/components/ui/sonner";
@@ -125,7 +126,7 @@ export default async function AppLayout({
         <SidebarInset className="h-dvh min-w-0 overflow-hidden">
           <AppTopbar />
           {context.isViewingOther && <OrgBanner orgName={context.orgName} />}
-          {children}
+          <PageTransition>{children}</PageTransition>
         </SidebarInset>
         <Toaster position="top-center" />
       </SidebarProvider>

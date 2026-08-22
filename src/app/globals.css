@@ -128,3 +128,98 @@
     @apply font-sans;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Motion
+   ---------------------------------------------------------------------------
+   Two numbers do most of the work here, and they are deliberately unequal:
+   things leave in 120ms and arrive in 220ms. Old content should get out of the
+   way quickly — it has nothing left to say — while new content wants long
+   enough to be registered as arriving rather than as a flicker. The enter is
+   also delayed until the exit finishes, so the two never overlap into a
+   double-image.
+
+   Everything is opacity and a 6px rise. Nothing slides across the viewport,
+   nothing scales: at this size the motion reads as the page settling rather
+   than as an effect, which is the whole brief.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --motion-exit: 120ms;
+  --motion-enter: 220ms;
+  --motion-rise: 320ms;
+  /* Decelerating: fast at the start, easing into place. */
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* The transition overlay swallows clicks while it runs. 340ms of a dead UI is
+   long enough to lose a click somebody has already decided to make. */
+::view-transition {
+  pointer-events: none;
+}
+
+/* The shell — sidebar, top bar, the account switcher — must not move or fade.
+   Without this the browser cross-fades `root` (everything not promoted to its
+   own snapshot) for 250ms underneath the content animation, so the whole
+   window dips on every navigation and two animations run at once. The shell
+   does not change between pages; it is the fixed point that makes the content
+   read as having moved, rather than the viewport. `display: none` on the old
+   snapshot stops a flash of both shells at once. */
+::view-transition-group(root) {
+  animation: none;
+}
+::view-transition-old(root) {
+  display: none;
+}
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-old(.page) {
+  animation: var(--motion-exit) ease-in both page-fade reverse;
+}
+
+::view-transition-new(.page) {
+  animation:
+    var(--motion-enter) ease-out var(--motion-exit) both page-fade,
+    var(--motion-rise) var(--motion-ease) both page-rise;
+}
+
+@keyframes page-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes page-rise {
+  from {
+    transform: translateY(6px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* Motion sensitivity. Positional movement is the trigger, so the rise goes
+   entirely and the crossfade is cut to something imperceptible rather than
+   removed — an instant swap is harsher than a very fast one. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-delay: 0s !important;
+    animation-duration: 1ms !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
