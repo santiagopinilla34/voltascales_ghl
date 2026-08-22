@@ -132,21 +132,20 @@
 /* ---------------------------------------------------------------------------
    Motion
    ---------------------------------------------------------------------------
-   Two numbers do most of the work here, and they are deliberately unequal:
-   things leave in 140ms and arrive in 260ms. Old content should get out of the
-   way quickly — it has nothing left to say — while new content wants long
-   enough to be registered as arriving rather than as a flicker. The enter is
-   also delayed until the exit finishes, so the two never overlap into a
-   double-image.
+   Only arriving content animates. There is no exit, and that is a decision
+   rather than an omission: animating the outgoing page means both pages exist
+   at once, and every overlap bug here came from the two being composited
+   together. One page on screen at a time cannot overlap anything. The old
+   exit was 160ms of fading that left the content area briefly blank anyway.
 
    Everything is opacity and a short rise. Nothing slides across the viewport
-   and nothing scales: the motion should read as the page settling rather than
-   as an effect. The first pass at this was so restrained it was invisible,
-   which is worth remembering — subtle and absent look identical.
+   and nothing scales beyond a whisker: the motion should read as the page
+   settling rather than as an effect. The first pass at this was so restrained
+   it was invisible, which is worth remembering — subtle and absent look
+   identical, and the fix for that is distance, not duration.
    --------------------------------------------------------------------------- */
 
 :root {
-  --motion-exit: 160ms;
   --motion-enter: 340ms;
   --motion-rise: 480ms;
   /* How far content travels as it arrives, and the dial to turn if this is
@@ -162,51 +161,13 @@
   --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* The transition overlay swallows clicks while it runs. 340ms of a dead UI is
-   long enough to lose a click somebody has already decided to make. */
-::view-transition {
-  pointer-events: none;
-}
-
-/* The shell — sidebar, top bar, the account switcher — must not move or fade.
-   Without this the browser cross-fades `root` (everything not promoted to its
-   own snapshot) for 250ms underneath the content animation, so the whole
-   window dips on every navigation and two animations run at once. The shell
-   does not change between pages; it is the fixed point that makes the content
-   read as having moved, rather than the viewport. `display: none` on the old
-   snapshot stops a flash of both shells at once. */
-::view-transition-group(root) {
-  animation: none;
-}
-::view-transition-old(root) {
-  display: none;
-}
-::view-transition-new(root) {
-  animation: none;
-}
-
-/* Leaving content fades where it stands. It deliberately does not move.
-
-   It used to lift away by a few pixels, on the theory that the two halves
-   would read as one movement. What actually happened is that the outgoing
-   page rendered *on top of the top bar* for the length of the exit and then
-   faded off it. During a transition the page is promoted to its own snapshot,
-   and that snapshot paints above the `root` one holding the shell — so any
-   upward travel is drawn over the chrome rather than clipped by it, and it
-   looked like the page was briefly loading in the wrong place.
-
-   Giving `root` a higher z-index does not fix it: root's snapshot includes
-   the background behind the content, so painting it above would hide the
-   animating page completely. Not moving upward at all is the fix. Arriving
-   content still rises, which is the half that carries the motion, and it
-   starts *below* its final position so it can never reach the chrome. */
-::view-transition-old(.page) {
-  animation: var(--motion-exit) ease-in both page-fade reverse;
-}
-
-::view-transition-new(.page) {
+/* Arriving content rises into place. Only the incoming page animates, and
+   only one page is ever mounted, so nothing is composited over the sidebar,
+   the top bar, or the other page — see page-transition.tsx for why that
+   matters more than an exit animation would. */
+.page-enter {
   animation:
-    var(--motion-enter) ease-out var(--motion-exit) both page-fade,
+    var(--motion-enter) ease-out both page-fade,
     var(--motion-rise) var(--motion-ease) both page-rise;
 }
 
@@ -232,13 +193,6 @@
    entirely and the crossfade is cut to something imperceptible rather than
    removed — an instant swap is harsher than a very fast one. */
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation-delay: 0s !important;
-    animation-duration: 1ms !important;
-  }
-
   *,
   *::before,
   *::after {
