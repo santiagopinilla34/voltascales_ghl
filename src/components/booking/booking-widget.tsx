@@ -11,7 +11,7 @@ import {
   Clock,
   Globe,
   Loader2,
-  Phone,
+  Video,
 } from "lucide-react";
 
 import { book } from "@/app/book/actions";
@@ -678,8 +678,8 @@ function MeetingPanel({
           <span>{MEETING_DURATION_MINUTES} min</span>
         </div>
         <div className="flex items-center gap-2.5">
-          <Phone className="size-4 shrink-0" />
-          <span>Over the phone</span>
+          <Video className="size-4 shrink-0" />
+          <span>Zoom meeting</span>
         </div>
 
         {selected && (

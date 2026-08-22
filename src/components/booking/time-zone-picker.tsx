@@ -28,11 +28,16 @@ import { cn } from "@/lib/utils";
  *
  * ## The list
  *
- * `Intl.supportedValuesOf` gives every IANA zone the browser knows — around
- * four hundred. They are filtered by the raw identifier, so typing "toronto",
- * "america" or "gmt" all narrow it, and only the visible ones have their long
- * name and current time computed: formatting four hundred zones on every
- * keystroke is work nobody sees.
+ * `Intl.supportedValuesOf` gives every IANA identifier the browser knows —
+ * around four hundred, and most of them are two names for the same clock. They
+ * are grouped into the zones they actually resolve to, so the list reads
+ * "Eastern Daylight Time / GMT-04:00" once rather than Toronto, New York,
+ * Detroit and Nassau one after another. Choosing a zone should not be a
+ * geography exam.
+ *
+ * The cities are not thrown away, only folded in: searching still matches
+ * them, so "toronto" finds Eastern, as do "eastern" and "gmt-4". Only the
+ * visible rows have their clock computed.
  */
 
 /** Fallback for a browser without `supportedValuesOf` — enough to be useful. */
@@ -81,10 +86,74 @@ export function zoneCity(zone: string): string {
   return zone.split("/").slice(-1)[0].replace(/_/g, " ");
 }
 
-/** `"America/Toronto"` to `"America"`, and `"UTC"` to `""`. */
-function zoneRegion(zone: string): string {
-  const parts = zone.split("/");
-  return parts.length > 1 ? parts[0].replace(/_/g, " ") : "";
+/** `"GMT-04:00"` for a zone right now, or `""` if the browser refuses it. */
+function offsetLabel(zone: string, now: Date): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      timeZoneName: "longOffset",
+    }).formatToParts(now);
+    return parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** `"GMT-04:00"` to `-240`, for sorting the list west to east. */
+function offsetMinutes(label: string): number {
+  const match = /GMT([+-])(\d{2}):(\d{2})/.exec(label);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  return sign * (Number(match[2]) * 60 + Number(match[3]));
+}
+
+/**
+ * One row in the list: a time zone, not a city.
+ *
+ * The browser knows four hundred–odd IANA identifiers, but most of them are
+ * two names for the same clock — Toronto, New York, Detroit and Nassau are all
+ * Eastern. Listing every one of them turns choosing a zone into choosing a
+ * city, which is a harder question and a longer list.
+ *
+ * So identifiers are grouped by what they actually resolve to: the offset and
+ * the zone's name. `id` is the one that gets stored, `members` is every
+ * identifier that folded into it — kept so searching still works by city, and
+ * so the row can tell whether the current selection is one of its own.
+ */
+type ZoneGroup = {
+  id: string;
+  name: string;
+  offset: string;
+  minutes: number;
+  members: string[];
+};
+
+function buildZoneGroups(now: Date): ZoneGroup[] {
+  const groups = new Map<string, ZoneGroup>();
+
+  for (const zone of allZones()) {
+    const offset = offsetLabel(zone, now);
+    const name = zoneLongName(zone, now);
+    const key = `${offset}|${name}`;
+
+    const existing = groups.get(key);
+    if (existing) {
+      existing.members.push(zone);
+      continue;
+    }
+
+    groups.set(key, {
+      id: zone,
+      name,
+      offset,
+      minutes: offsetMinutes(offset),
+      members: [zone],
+    });
+  }
+
+  return [...groups.values()].sort(
+    (a, b) => a.minutes - b.minutes || a.name.localeCompare(b.name),
+  );
 }
 
 /** The clock time in a zone right now, for the "is that the one I mean" check. */
@@ -142,15 +211,26 @@ export function TimeZonePicker({
 
   // One instant per render, so every row in the list agrees with every other.
   const now = new Date();
-  const zones = useMemo(() => allZones(), []);
+
+  // Built once. Offsets and names only move at a DST boundary, which is months
+  // away and a page reload sooner.
+  const groups = useMemo(() => buildZoneGroups(new Date()), []);
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const filtered = needle
-      ? zones.filter((zone) => zone.toLowerCase().replace(/_/g, " ").includes(needle))
-      : zones;
-    return filtered.slice(0, MAX_RESULTS);
-  }, [zones, query]);
+    if (!needle) return groups.slice(0, MAX_RESULTS);
+
+    // Searchable by what is shown *and* by the cities folded into it, so
+    // "eastern", "gmt-4" and "toronto" all land on the same row.
+    return groups
+      .filter((group) =>
+        `${group.name} ${group.offset} ${group.members.join(" ")}`
+          .toLowerCase()
+          .replace(/_/g, " ")
+          .includes(needle),
+      )
+      .slice(0, MAX_RESULTS);
+  }, [groups, query]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -174,7 +254,7 @@ export function TimeZonePicker({
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-[19rem] p-0">
+      <PopoverContent align="start" className="w-[22rem] max-w-[calc(100vw-2rem)] p-0">
         <div className="border-b p-2">
           <div className="relative">
             <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
@@ -195,16 +275,18 @@ export function TimeZonePicker({
               Nothing matches “{query}”.
             </p>
           ) : (
-            matches.map((zone) => {
-              const selected = zone === value;
-              const region = zoneRegion(zone);
+            matches.map((group) => {
+              // Selected when the stored identifier is any of the ones that
+              // folded into this row — the visitor's detected zone is often a
+              // city that is not the one being shown.
+              const selected = group.members.includes(value);
 
               return (
                 <button
-                  key={zone}
+                  key={`${group.offset}|${group.name}`}
                   type="button"
                   onClick={() => {
-                    onChange(zone);
+                    onChange(group.id);
                     setOpen(false);
                     setQuery("");
                   }}
@@ -218,16 +300,14 @@ export function TimeZonePicker({
                   </span>
 
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm">{zoneCity(zone)}</span>
-                    {region && (
-                      <span className="text-muted-foreground truncate text-[11px]">
-                        {region}
-                      </span>
-                    )}
+                    <span className="truncate text-sm">{group.name}</span>
+                    <span className="text-muted-foreground truncate text-[11px] tabular-nums">
+                      {group.offset}
+                    </span>
                   </span>
 
                   <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
-                    {timeIn(zone, now)}
+                    {timeIn(group.id, now)}
                   </span>
                 </button>
               );
