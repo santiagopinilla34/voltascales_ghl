@@ -263,10 +263,42 @@ them and shows the run log.
 | `booking_cancelled` | A client cancels through the link in their confirmation | none          |
 | `ai_handoff`        | The AI stops replying and hands the conversation over | none            |
 | `email_event`       | An email you sent is delivered, opened, bounced or complained about | `events` |
+| `contact_created`   | A contact row first appears                     | none                  |
+| `contact_tag_added` | A tag is put on a contact                       | `tag` (optional)      |
+| `contact_status_changed` | A contact's status moves                   | `status` (optional)   |
+| `opportunity_stage_changed` | A contact joins the pipeline board, or moves along it | `stage` (optional) |
 
 A trigger type with nothing to configure carries `{}` rather than whatever was
 passed, so a stale config left behind by switching a rule's type can't sit
 there looking meaningful.
+
+**The CRM triggers** — the last four — are the only ones that don't come from
+outside. They are fired from the application, in `lib/automations/dispatch.ts`,
+**not** by a Postgres trigger on `contacts` and `pipeline_entries`, and that is
+deliberate. The engine writes to both those tables itself: `add_tag`,
+`set_status`, `set_ai` and `update_field` update `contacts`, and
+`set_pipeline_stage` and `remove_from_pipeline` write `pipeline_entries`. A
+row-level trigger can't tell those writes from a human's, so a rule that fires
+on a tag and adds another would re-enter the engine and send a real text on
+every pass. Dispatching from the application makes that impossible by
+construction: **the engine's action executors are the one caller that never
+dispatches.** An action that writes a contact or a pipeline entry must not
+dispatch either — that rule is the whole design.
+
+Two consequences worth knowing:
+
+- A row edited straight in the Supabase dashboard, or by raw SQL, fires
+  nothing. Every route the app itself offers is covered.
+- The vCard import fires no `contact_created`. Every other way a contact
+  appears is one person at a time; there it would text a whole address book at
+  once, for real money, with no undo. If that should ever fire, it wants a
+  confirmation step naming the number of messages first.
+
+`contact_tag_added` fires once per tag added, and only for additions —
+removing a tag is not a trigger, because the rules people write are about
+somebody becoming something rather than ceasing to be it.
+`opportunity_stage_changed` treats joining the board as a move into the stage
+joined at, and a card re-saved into the column it is already in is not a move.
 
 **`keyword`** — `keyword` is a string or an array, so one rule can cover
 `["STOP", "UNSUBSCRIBE"]`. `match` picks how it's compared, always
@@ -347,6 +379,10 @@ Templates support `{{name}}`, `{{first_name}}`, `{{phone}}` and
 | `ai_handoff`                           | `{{reply}}`, `{{label}}`, `{{inbox_link}}` |
 | `email_event`                          | `{{email_event}}`, `{{email_to}}`, `{{email_from}}`, `{{email_subject}}`, `{{email_id}}`, `{{bounce_type}}`, `{{bounce_reason}}` |
 | `booking_confirmed`, `booking_cancelled` | The booking's own values, which win over the contact's where they clash — see `src/lib/booking/variables.ts` |
+| `contact_created`                      | —                       |
+| `contact_tag_added`                    | `{{tag}}` (the one just added) |
+| `contact_status_changed`               | `{{status}}`, `{{previous_status}}` |
+| `opportunity_stage_changed`            | `{{stage}}`, `{{previous_stage}}` — both the readable labels, empty when they just joined the board |
 
 Unknown placeholders render as empty string and are named in the run detail.
 Outbound automation SMS is logged to `messages` with `sent_by: 'system'`.

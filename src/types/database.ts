@@ -57,7 +57,11 @@ export type AutomationTriggerType =
   | "booking_confirmed"
   | "booking_cancelled"
   | "ai_handoff"
-  | "email_event";
+  | "email_event"
+  | "contact_created"
+  | "contact_tag_added"
+  | "contact_status_changed"
+  | "opportunity_stage_changed";
 /** Mirrors `automation_runs_status_check`. */
 export type AutomationRunStatus = "success" | "failed" | "skipped";
 /** Mirrors `settings_ai_mode_check`. */

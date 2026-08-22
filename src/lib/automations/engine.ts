@@ -3,12 +3,15 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isOrgSuspended } from "@/lib/orgs/suspension";
+import { pipelineStageLabel } from "@/lib/pipeline-stages";
 import { hasCredit } from "@/lib/billing/credit";
 import type {
   Automation,
   AutomationRunStatus,
   Contact,
+  ContactStatus,
   Database,
+  PipelineStage,
 } from "@/types/database";
 
 import { executeAction, templateVariablesFor } from "./actions";
@@ -23,6 +26,9 @@ import {
   parseEmailEventTriggerConfig,
   parseFormTriggerConfig,
   parseKeywordTriggerConfig,
+  parseStageTriggerConfig,
+  parseStatusTriggerConfig,
+  parseTagTriggerConfig,
 } from "./config";
 import type { TemplateVariables } from "./template";
 
@@ -113,6 +119,25 @@ type AutomationTrigger =
       event: string;
       recipient: EventRecipient;
       variables: TemplateVariables;
+    }
+  | { trigger: "contact_created"; contact: Contact }
+  | { trigger: "contact_tag_added"; contact: Contact; tag: string }
+  | {
+      trigger: "contact_status_changed";
+      contact: Contact;
+      /** Where it moved to. The contact row already carries this; passed
+       *  separately so the matcher never has to trust that the caller
+       *  re-read the row after writing it. */
+      status: ContactStatus;
+      /** Where it came from, for templates. Null for a status set at insert. */
+      previousStatus: ContactStatus | null;
+    }
+  | {
+      trigger: "opportunity_stage_changed";
+      contact: Contact;
+      stage: PipelineStage;
+      /** Null when the contact just joined the board. */
+      previousStage: PipelineStage | null;
     };
 
 /**
@@ -186,6 +211,22 @@ function eventVariables(event: AutomationEvent): TemplateVariables {
     case "ai_handoff":
     case "email_event":
       return event.variables;
+    case "contact_created":
+      return {};
+    case "contact_tag_added":
+      return { tag: event.tag };
+    case "contact_status_changed":
+      return {
+        status: event.status,
+        previous_status: event.previousStatus ?? "",
+      };
+    case "opportunity_stage_changed":
+      return {
+        stage: pipelineStageLabel(event.stage),
+        previous_stage: event.previousStage
+          ? pipelineStageLabel(event.previousStage)
+          : "",
+      };
   }
 }
 
@@ -284,6 +325,62 @@ function matchTrigger(
           reason: `email event is "${event.event}", rule wants ${config.value.events.join(" or ")}`,
         };
       }
+      return { status: "match", variables: {} };
+    }
+
+    // Nothing to narrow: a contact either appeared or it didn't. Which
+    // contacts a rule applies to is what `conditions` is for.
+    case "contact_created":
+      return { status: "match", variables: {} };
+
+    case "contact_tag_added": {
+      const config = parseTagTriggerConfig(trigger.config);
+      if (!config.ok) {
+        return { status: "invalid", reason: config.error };
+      }
+
+      const wanted = config.value.tag;
+      if (wanted && wanted.toLowerCase() !== event.tag.trim().toLowerCase()) {
+        return {
+          status: "no-match",
+          reason: `tag added is "${event.tag}", rule wants "${wanted}"`,
+        };
+      }
+
+      return { status: "match", variables: {} };
+    }
+
+    case "contact_status_changed": {
+      const config = parseStatusTriggerConfig(trigger.config);
+      if (!config.ok) {
+        return { status: "invalid", reason: config.error };
+      }
+
+      const wanted = config.value.status;
+      if (wanted && wanted !== event.status) {
+        return {
+          status: "no-match",
+          reason: `status moved to "${event.status}", rule wants "${wanted}"`,
+        };
+      }
+
+      return { status: "match", variables: {} };
+    }
+
+    case "opportunity_stage_changed": {
+      const config = parseStageTriggerConfig(trigger.config);
+      if (!config.ok) {
+        return { status: "invalid", reason: config.error };
+      }
+
+      const wanted = config.value.stage;
+      if (wanted && wanted !== event.stage) {
+        return {
+          status: "no-match",
+          reason: `moved to "${event.stage}", rule wants "${wanted}"`,
+        };
+      }
+
       return { status: "match", variables: {} };
     }
   }

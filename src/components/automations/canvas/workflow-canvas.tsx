@@ -118,6 +118,20 @@ function triggerSubtitle(trigger: EditorTrigger): string {
       ? trigger.emailEvents.join(", ")
       : "no events chosen";
   }
+  // The CRM triggers all read "any …" unfiltered, rather than falling through
+  // to the type's description — the card should say what this rule watches,
+  // not what the trigger is for.
+  if (trigger.type === "contact_tag_added") {
+    return trigger.tag.trim() ? `tag "${trigger.tag.trim()}"` : "any tag";
+  }
+  if (trigger.type === "contact_status_changed") {
+    return trigger.status ? `into ${trigger.status}` : "any status";
+  }
+  if (trigger.type === "opportunity_stage_changed") {
+    return trigger.stage
+      ? `into ${pipelineStageLabel(trigger.stage)}`
+      : "any stage";
+  }
   return TRIGGER_META[trigger.type as TriggerKey]?.description ?? "";
 }
 

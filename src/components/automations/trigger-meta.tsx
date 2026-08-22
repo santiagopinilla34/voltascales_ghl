@@ -6,6 +6,10 @@ import {
   MailCheck,
   MessageSquareText,
   PhoneMissed,
+  Tag,
+  TrendingUp,
+  UserPlus,
+  UserRoundCog,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +66,36 @@ export const TRIGGER_META = {
       "Fires when Resend reports what happened to an email you sent — delivered, opened, bounced, or marked as spam.",
     className:
       "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
+  },
+  contact_created: {
+    label: "Contact created",
+    Icon: UserPlus,
+    description:
+      "Fires when somebody becomes a contact — a first text or call, a form, a booking, or added by hand.",
+    className:
+      "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300",
+  },
+  contact_tag_added: {
+    label: "Tag added",
+    Icon: Tag,
+    description: "Fires when a tag is put on a contact.",
+    className:
+      "bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300",
+  },
+  contact_status_changed: {
+    label: "Status changed",
+    Icon: UserRoundCog,
+    description: "Fires when a contact moves to another status.",
+    className:
+      "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-950 dark:text-fuchsia-300",
+  },
+  opportunity_stage_changed: {
+    label: "Opportunity stage",
+    Icon: TrendingUp,
+    description:
+      "Fires when a contact joins the pipeline board or moves to another stage.",
+    className:
+      "bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-300",
   },
 } as const;
 

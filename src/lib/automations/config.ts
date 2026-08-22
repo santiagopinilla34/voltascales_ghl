@@ -279,6 +279,118 @@ export function parseEmailEventTriggerConfig(
   return { ok: true, value: { events } };
 }
 
+/**
+ * `contact_tag_added` parameters: which tag, or any.
+ *
+ * Optional rather than required, unlike the email events above, because the
+ * two defaults point opposite ways. Listening to every email event means
+ * firing on every delivery, which is noise; listening for any tag is a
+ * reasonable rule on its own — "somebody was tagged, tell me". Compared
+ * case-insensitively, the way tags are compared everywhere else.
+ */
+export type TagTriggerConfig = { tag?: string };
+
+export function parseTagTriggerConfig(raw: Json): ParseResult<TagTriggerConfig> {
+  if (isEmptyConfig(raw)) return { ok: true, value: {} };
+  if (!isRecord(raw)) {
+    return { ok: false, error: "trigger_config must be a JSON object" };
+  }
+
+  const unknown = Object.keys(raw).filter((key) => key !== "tag");
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      error: `unknown trigger_config key ${unknown.map((key) => `"${key}"`).join(", ")} (supported: tag)`,
+    };
+  }
+
+  if (raw.tag === undefined || raw.tag === null) return { ok: true, value: {} };
+
+  const tag = nonEmptyString(raw.tag);
+  if (tag === null) {
+    return { ok: false, error: "trigger_config.tag must be a non-empty string" };
+  }
+
+  return { ok: true, value: { tag: tag.trim() } };
+}
+
+/**
+ * `contact_status_changed` parameters: which status it moved *into*, or any.
+ *
+ * Only the destination is configurable. A rule that cares where somebody came
+ * from is rarer than one that cares where they arrived, and "from X to Y"
+ * doubles the form for the uncommon case.
+ */
+export type StatusTriggerConfig = { status?: ContactStatus };
+
+export function parseStatusTriggerConfig(
+  raw: Json,
+): ParseResult<StatusTriggerConfig> {
+  if (isEmptyConfig(raw)) return { ok: true, value: {} };
+  if (!isRecord(raw)) {
+    return { ok: false, error: "trigger_config must be a JSON object" };
+  }
+
+  const unknown = Object.keys(raw).filter((key) => key !== "status");
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      error: `unknown trigger_config key ${unknown.map((key) => `"${key}"`).join(", ")} (supported: status)`,
+    };
+  }
+
+  if (raw.status === undefined || raw.status === null) {
+    return { ok: true, value: {} };
+  }
+  if (!isContactStatus(raw.status)) {
+    return {
+      ok: false,
+      error: `trigger_config.status must be one of ${CONTACT_STATUSES.join(", ")}`,
+    };
+  }
+
+  return { ok: true, value: { status: raw.status } };
+}
+
+/**
+ * `opportunity_stage_changed` parameters: which stage it moved into, or any.
+ *
+ * Joining the board counts as moving into the stage joined at, so a rule
+ * watching for `booked` fires whether the contact arrived there or was put
+ * there directly. The distinction the board makes — insert versus update —
+ * isn't one anybody building a rule is thinking about.
+ */
+export type StageTriggerConfig = { stage?: PipelineStage };
+
+export function parseStageTriggerConfig(
+  raw: Json,
+): ParseResult<StageTriggerConfig> {
+  if (isEmptyConfig(raw)) return { ok: true, value: {} };
+  if (!isRecord(raw)) {
+    return { ok: false, error: "trigger_config must be a JSON object" };
+  }
+
+  const unknown = Object.keys(raw).filter((key) => key !== "stage");
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      error: `unknown trigger_config key ${unknown.map((key) => `"${key}"`).join(", ")} (supported: stage)`,
+    };
+  }
+
+  if (raw.stage === undefined || raw.stage === null) {
+    return { ok: true, value: {} };
+  }
+  if (!isPipelineStage(raw.stage)) {
+    return {
+      ok: false,
+      error: `trigger_config.stage must be one of ${PIPELINE_STAGES.map((stage) => stage.value).join(", ")}`,
+    };
+  }
+
+  return { ok: true, value: { stage: raw.stage } };
+}
+
 // ---------------------------------------------------------------------------
 // triggers
 // ---------------------------------------------------------------------------
@@ -303,6 +415,10 @@ export const TRIGGER_TYPES = [
   "booking_cancelled",
   "ai_handoff",
   "email_event",
+  "contact_created",
+  "contact_tag_added",
+  "contact_status_changed",
+  "opportunity_stage_changed",
 ] as const satisfies readonly AutomationTriggerType[];
 
 /**
@@ -327,6 +443,18 @@ export function validateTriggerConfig(
     }
     case "email_event": {
       const parsed = parseEmailEventTriggerConfig(config);
+      return parsed.ok ? { ok: true, value: config } : parsed;
+    }
+    case "contact_tag_added": {
+      const parsed = parseTagTriggerConfig(config);
+      return parsed.ok ? { ok: true, value: config } : parsed;
+    }
+    case "contact_status_changed": {
+      const parsed = parseStatusTriggerConfig(config);
+      return parsed.ok ? { ok: true, value: config } : parsed;
+    }
+    case "opportunity_stage_changed": {
+      const parsed = parseStageTriggerConfig(config);
       return parsed.ok ? { ok: true, value: config } : parsed;
     }
     // Nothing to configure. An empty object rather than whatever was passed,

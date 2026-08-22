@@ -19,7 +19,11 @@ export type TriggerType =
   | "booking_confirmed"
   | "booking_cancelled"
   | "ai_handoff"
-  | "email_event";
+  | "email_event"
+  | "contact_created"
+  | "contact_tag_added"
+  | "contact_status_changed"
+  | "opportunity_stage_changed";
 export type MatchMode = "word" | "exact" | "contains";
 export type AiCondition = "any" | "true" | "false";
 export type MessageTarget = "contact" | "business";
@@ -74,6 +78,12 @@ export type EditorTrigger = {
   formSource: string;
   /** email_event only: which of Resend's events to react to. */
   emailEvents: string[];
+  /** contact_tag_added only. Empty means any tag. */
+  tag: string;
+  /** contact_status_changed only. Empty means any status. */
+  status: string;
+  /** opportunity_stage_changed only. Empty means any stage. */
+  stage: string;
 };
 
 export type EditorState = {
@@ -96,6 +106,12 @@ export function blankTrigger(type: TriggerType): EditorTrigger {
     // two whose absence is otherwise invisible. Delivered and opened are
     // available but off, because a rule on every delivery is mostly noise.
     emailEvents: type === "email_event" ? ["bounced", "complained"] : [],
+    // All three default to empty, which each parser reads as "any". A new
+    // "when a tag is added" rule that fires on every tag is a sensible thing
+    // on its own, unlike email events where the equivalent is a firehose.
+    tag: "",
+    status: "",
+    stage: "",
   };
 }
 
@@ -139,6 +155,9 @@ function readTriggers(raw: Json): EditorTrigger[] {
             : "word",
         formSource: typeof config.source === "string" ? config.source : "",
         emailEvents: asStringArray(config.events),
+        tag: typeof config.tag === "string" ? config.tag : "",
+        status: typeof config.status === "string" ? config.status : "",
+        stage: typeof config.stage === "string" ? config.stage : "",
       },
     ];
   });
@@ -152,6 +171,10 @@ const TRIGGER_TYPE_VALUES: readonly string[] = [
   "booking_cancelled",
   "ai_handoff",
   "email_event",
+  "contact_created",
+  "contact_tag_added",
+  "contact_status_changed",
+  "opportunity_stage_changed",
 ];
 
 function isTriggerType(value: string): value is TriggerType {
@@ -306,6 +329,17 @@ function triggerConfigOf(trigger: EditorTrigger): Json {
   if (trigger.type === "email_event") {
     return { events: trigger.emailEvents };
   }
+  // The three CRM triggers all treat an empty box as "any", so an unset filter
+  // is left out of the config entirely rather than stored as "".
+  if (trigger.type === "contact_tag_added" && trigger.tag.trim()) {
+    return { tag: trigger.tag.trim() };
+  }
+  if (trigger.type === "contact_status_changed" && trigger.status) {
+    return { status: trigger.status };
+  }
+  if (trigger.type === "opportunity_stage_changed" && trigger.stage) {
+    return { stage: trigger.stage };
+  }
   return {};
 }
 
@@ -359,5 +393,13 @@ export function templateVariablesFor(triggerType: TriggerType): string[] {
       // clash — the booking form is where they said to reach them about this
       // meeting. Listed in `src/lib/booking/variables.ts`.
       return BOOKING_VARIABLES.map((variable) => variable.name);
+    case "contact_created":
+      return base;
+    case "contact_tag_added":
+      return [...base, "tag"];
+    case "contact_status_changed":
+      return [...base, "status", "previous_status"];
+    case "opportunity_stage_changed":
+      return [...base, "stage", "previous_stage"];
   }
 }

@@ -13,6 +13,7 @@ import {
   type EditorState,
   type EditorTrigger,
   type MatchMode,
+  type TriggerType,
 } from "@/components/automations/editor-shape";
 import { PIPELINE_STAGES } from "@/lib/pipeline-stages";
 import { TRIGGER_META, type TriggerKey } from "@/components/automations/trigger-meta";
@@ -103,6 +104,38 @@ const CONTACT_FIELD_OPTIONS: { value: ContactField; label: string }[] = [
   { value: "business_name", label: "Business" },
   { value: "email", label: "Email" },
 ];
+
+/**
+ * The "no filter" option on the two trigger dropdowns.
+ *
+ * Radix refuses `value=""` on a SelectItem — it reserves the empty string for
+ * "nothing selected" — so the unfiltered case needs a value of its own, mapped
+ * back to `""` on both sides of the control.
+ */
+const ANY = "__any__";
+
+/**
+ * Whether a trigger type has anything to configure.
+ *
+ * A `Record` over the whole union rather than a list of exceptions, so adding
+ * a trigger type is a compile error here until somebody answers the question.
+ * This started as `type !== "keyword" && type !== "form_submit" && ...`, which
+ * silently told the next three triggers they had nothing to configure while
+ * their own fields were rendered directly above the notice saying so.
+ */
+const TRIGGER_HAS_CONFIG: Record<TriggerType, boolean> = {
+  missed_call: false,
+  keyword: true,
+  form_submit: true,
+  booking_confirmed: false,
+  booking_cancelled: false,
+  ai_handoff: false,
+  email_event: true,
+  contact_created: false,
+  contact_tag_added: true,
+  contact_status_changed: true,
+  opportunity_stage_changed: true,
+};
 
 const MATCH_MODES: { value: MatchMode; label: string; hint: string }[] = [
   {
@@ -210,6 +243,76 @@ function TriggerConfig({
         </Field>
       )}
 
+      {trigger.type === "contact_tag_added" && (
+        <Field
+          label="Only this tag (optional)"
+          hint="Left empty, the rule fires for any tag. Case doesn't matter."
+        >
+          <Input
+            value={trigger.tag}
+            onChange={(event) => onChange({ tag: event.target.value })}
+            placeholder="vip"
+            disabled={disabled}
+          />
+        </Field>
+      )}
+
+      {trigger.type === "contact_status_changed" && (
+        <Field
+          label="Only into this status (optional)"
+          hint="Left empty, the rule fires on any status change."
+        >
+          <Select
+            // The empty string is not a valid SelectItem value, so "any" is a
+            // named option that maps back to "" on the way in and out.
+            value={trigger.status || ANY}
+            onValueChange={(value) =>
+              onChange({ status: value === ANY ? "" : value })
+            }
+            disabled={disabled}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>Any status</SelectItem>
+              {STATUS_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+
+      {trigger.type === "opportunity_stage_changed" && (
+        <Field
+          label="Only into this stage (optional)"
+          hint="Left empty, the rule fires on any move, including joining the board."
+        >
+          <Select
+            value={trigger.stage || ANY}
+            onValueChange={(value) =>
+              onChange({ stage: value === ANY ? "" : value })
+            }
+            disabled={disabled}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>Any stage</SelectItem>
+              {PIPELINE_STAGES.map((stage) => (
+                <SelectItem key={stage.value} value={stage.value}>
+                  {stage.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+
       {trigger.type === "email_event" && (
         <>
           <Field
@@ -264,9 +367,7 @@ function TriggerConfig({
         </>
       )}
 
-      {trigger.type !== "keyword" &&
-        trigger.type !== "form_submit" &&
-        trigger.type !== "email_event" && (
+      {!TRIGGER_HAS_CONFIG[trigger.type] && (
         <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-[11px]">
           This trigger has nothing to configure — it either happened or it
           didn&apos;t. Narrow it with the filters on the rule instead.

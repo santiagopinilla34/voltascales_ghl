@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { dispatchContactCreated } from "@/lib/automations/dispatch";
 import type { Call, Contact, Database } from "@/types/database";
 
 export const UNIQUE_VIOLATION = "23505";
@@ -46,6 +47,14 @@ export async function findOrCreateContactByPhone(
     .single();
 
   if (created) {
+    // Every inbound webhook comes through here, so this is the one place a
+    // contact appears from the outside world — a first text, a first call, a
+    // form from a number nobody had. Firing here rather than in each of the
+    // six routes means none of them can forget to.
+    //
+    // Only on the insert. The `existing` path above returns before this, so a
+    // regular customer texting again fires nothing.
+    await dispatchContactCreated(supabase, created);
     return created;
   }
 

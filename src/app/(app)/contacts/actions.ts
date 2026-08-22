@@ -2,6 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
+import {
+  dispatchContactChanged,
+  dispatchContactCreated,
+} from "@/lib/automations/dispatch";
 import { UNIQUE_VIOLATION } from "@/lib/contacts";
 import { normalizePhone } from "@/lib/phone/normalize";
 import { IMPORT_LIMIT } from "@/lib/vcard";
@@ -119,7 +123,16 @@ export async function updateContact(
   const name = input.name.trim();
   const businessName = input.businessName.trim();
 
-  const { error } = await supabase
+  // Read before writing, because the automations need to know what changed:
+  // the form posts the whole tag list every time, so "vip" being in it says
+  // nothing about whether it was just added. See `dispatchContactChanged`.
+  const { data: before } = await supabase
+    .from("contacts")
+    .select("*")
+    .eq("id", contactId)
+    .maybeSingle();
+
+  const { data: after, error } = await supabase
     .from("contacts")
     .update({
       // Empty means "we don't know this", which is null, not "". Keeps the
@@ -130,9 +143,15 @@ export async function updateContact(
       status: input.status as ContactStatus,
       tags,
     })
-    .eq("id", contactId);
+    .eq("id", contactId)
+    .select("*")
+    .single();
 
   if (error) return { ok: false, error: error.message };
+
+  if (before && after) {
+    await dispatchContactChanged(supabase, before, after);
+  }
 
   revalidateContact(contactId);
   return { ok: true, value: null };
@@ -166,7 +185,7 @@ export async function createContact(input: {
   const { data, error } = await supabase
     .from("contacts")
     .insert({ phone, name: name || null })
-    .select("id")
+    .select("*")
     .single();
 
   if (error) {
@@ -187,6 +206,8 @@ export async function createContact(input: {
     }
     return { ok: false, error: error.message };
   }
+
+  await dispatchContactCreated(supabase, data);
 
   revalidateContact(data.id);
   return { ok: true, value: { id: data.id } };
@@ -272,6 +293,16 @@ export async function importContacts(
 
   if (error) return { ok: false, error: error.message };
 
+  // Deliberately fires no `contact_created` automations.
+  //
+  // Every other way a contact appears is one person at a time, and a welcome
+  // text is the obvious rule to hang on it. Here that rule would text an
+  // entire address book at once — up to IMPORT_LIMIT people — for real money,
+  // with no undo, because somebody loaded a file to get their contacts in.
+  // An import is a data migration, not a stream of new leads.
+  //
+  // If this should fire one day, it wants a confirmation step that says how
+  // many messages it is about to send, not a quiet loop here.
   const created = data?.length ?? 0;
 
   revalidateContact();

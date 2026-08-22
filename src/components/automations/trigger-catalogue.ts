@@ -169,22 +169,32 @@ export const TRIGGER_CATALOGUE: CatalogueEntry[] = [
     label: "Contact created",
     category: "Contact",
     description: "A new contact appears, however they arrived.",
-    status: "unavailable",
-    blockedBy: "needs a database trigger on contacts",
+    status: "available",
+    type: "contact_created",
   },
   {
-    label: "Contact tag",
+    label: "Contact tag added",
     category: "Contact",
-    description: "A tag is added to or removed from a contact.",
-    status: "unavailable",
-    blockedBy: "needs a database trigger on contacts",
+    description: "A tag is put on a contact. Any tag, or one you name.",
+    status: "available",
+    type: "contact_tag_added",
   },
   {
-    label: "Contact changed",
+    label: "Contact status changed",
     category: "Contact",
-    description: "A contact's details or status are edited.",
+    description: "A contact moves to another status. Any status, or one you name.",
+    status: "available",
+    type: "contact_status_changed",
+  },
+  {
+    label: "Contact tag removed",
+    category: "Contact",
+    description: "A tag is taken off a contact.",
     status: "unavailable",
-    blockedBy: "needs a database trigger on contacts",
+    // Kept greyed rather than built alongside its opposite: the rules people
+    // write are about somebody becoming something, and an untag that fires a
+    // sequence is a good way to text a customer you just marked as done.
+    blockedBy: "only tags being added are a trigger, not tags being taken off",
   },
   {
     label: "Birthday reminder",
@@ -198,18 +208,15 @@ export const TRIGGER_CATALOGUE: CatalogueEntry[] = [
   // Opportunities — the pipeline
   // -------------------------------------------------------------------------
   {
-    label: "Pipeline stage changed",
+    label: "Opportunity stage changed",
     category: "Opportunities",
-    description: "A contact moves between columns on the pipeline.",
-    status: "unavailable",
-    blockedBy: "needs a database trigger on pipeline_entries",
-  },
-  {
-    label: "Opportunity created",
-    category: "Opportunities",
-    description: "A contact enters the pipeline for the first time.",
-    status: "unavailable",
-    blockedBy: "needs a database trigger on pipeline_entries",
+    // One entry, not two. Joining the board is a move into the stage joined
+    // at, and somebody writing "when a deal reaches Booked, text them" is not
+    // thinking about whether the row was inserted or updated to get there.
+    description:
+      "A contact joins the pipeline board or moves between columns. Any stage, or one you name.",
+    status: "available",
+    type: "opportunity_stage_changed",
   },
   {
     label: "Stale opportunities",

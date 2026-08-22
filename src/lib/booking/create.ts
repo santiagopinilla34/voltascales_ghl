@@ -2,9 +2,18 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  dispatchContactCreated,
+  dispatchStageChanged,
+} from "@/lib/automations/dispatch";
 import { UNIQUE_VIOLATION } from "@/lib/contacts";
 import { normalizePhone } from "@/lib/phone/normalize";
-import type { Booking, Contact, Database } from "@/types/database";
+import type {
+  Booking,
+  Contact,
+  Database,
+  PipelineStage,
+} from "@/types/database";
 
 import { getDaySlots } from "./queries";
 import { meetingEnd } from "./slots";
@@ -182,6 +191,14 @@ async function attachContact(
       );
     }
 
+    // Where they were, so the automation below can say what the move actually
+    // was — and so booking a second slot from Booked doesn't fire as a move.
+    const { data: priorEntry } = await supabase
+      .from("pipeline_entries")
+      .select("stage")
+      .eq("contact_id", contact.id)
+      .maybeSingle();
+
     // Upsert rather than insert: `pipeline_entries.contact_id` is unique, and
     // someone booking a call may already be sitting in another column. Booking
     // is the freshest signal there is about where they belong, so it wins over
@@ -203,6 +220,13 @@ async function attachContact(
     if (pipelineError) {
       console.error(
         `[booking] contact ${contact.id} booked but not moved on the pipeline: ${pipelineError.message}`,
+      );
+    } else {
+      await dispatchStageChanged(
+        supabase,
+        contact,
+        "booked",
+        (priorEntry?.stage as PipelineStage | undefined) ?? null,
       );
     }
 
@@ -270,7 +294,10 @@ async function findOrCreateBookingContact(
     .select()
     .single();
 
-  if (created) return created;
+  if (created) {
+    await dispatchContactCreated(supabase, created);
+    return created;
+  }
 
   // Two people booking from the same number at once, or an inbound text
   // landing mid-booking. The loser re-reads the row the winner inserted.

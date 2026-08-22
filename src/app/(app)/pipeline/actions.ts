@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { dispatchStageChanged } from "@/lib/automations/dispatch";
 import { UNIQUE_VIOLATION } from "@/lib/contacts";
 import { isPipelineStage } from "@/lib/pipeline-stages";
 import { createClient } from "@/lib/supabase/server";
@@ -32,9 +33,11 @@ export async function addToPipeline(
     return { ok: false, error: `"${stage}" is not a pipeline stage` };
   }
 
-  const { error } = await supabase
+  const { data: entry, error } = await supabase
     .from("pipeline_entries")
-    .insert({ contact_id: contactId, stage });
+    .insert({ contact_id: contactId, stage })
+    .select("contact:contacts(*)")
+    .single();
 
   if (error) {
     // The picker filters out contacts already on the board, so this is a stale
@@ -43,6 +46,11 @@ export async function addToPipeline(
       return { ok: false, error: "That contact is already on the pipeline." };
     }
     return { ok: false, error: error.message };
+  }
+
+  // Joining the board is a stage change from nowhere.
+  if (entry?.contact) {
+    await dispatchStageChanged(supabase, entry.contact, stage, null);
   }
 
   revalidatePath("/pipeline");
@@ -67,12 +75,31 @@ export async function movePipelineEntry(
     return { ok: false, error: `"${stage}" is not a pipeline stage` };
   }
 
-  const { error } = await supabase
+  // The stage it is leaving, for the automation event and for the no-op check
+  // — dragging a card back into the column it came from is not a move.
+  const { data: before } = await supabase
+    .from("pipeline_entries")
+    .select("stage")
+    .eq("id", entryId)
+    .maybeSingle();
+
+  const { data: after, error } = await supabase
     .from("pipeline_entries")
     .update({ stage, stage_changed_at: new Date().toISOString() })
-    .eq("id", entryId);
+    .eq("id", entryId)
+    .select("contact:contacts(*)")
+    .single();
 
   if (error) return { ok: false, error: error.message };
+
+  if (after?.contact) {
+    await dispatchStageChanged(
+      supabase,
+      after.contact,
+      stage,
+      (before?.stage as PipelineStage | undefined) ?? null,
+    );
+  }
 
   revalidatePath("/pipeline");
   return { ok: true, value: null };
