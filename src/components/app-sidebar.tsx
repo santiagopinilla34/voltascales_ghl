@@ -35,6 +35,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 type NavItem = {
@@ -105,6 +106,9 @@ export function AppSidebar({
   accountBadge: React.ReactNode;
 }) {
   const pathname = usePathname();
+  // On a phone the sidebar is a sheet over the page, and tapping a link
+  // navigated without shutting it. See the onClick below.
+  const { setOpenMobile } = useSidebar();
 
   // A client's nav is the agency's minus the agency's own pages — and so is
   // the agency's, while it is working inside a client, because those pages are
@@ -154,7 +158,7 @@ export function AppSidebar({
                       isActive={active}
                       tooltip={item.label}
                     >
-                      <Link href={item.href}>
+                      <Link href={item.href} onClick={() => setOpenMobile(false)}>
                         <item.icon />
                         <span>{item.label}</span>
                       </Link>
