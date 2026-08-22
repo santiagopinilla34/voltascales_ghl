@@ -254,11 +254,19 @@ them and shows the run log.
 
 ### Triggers
 
-| `trigger_type` | Fires on                              | `trigger_config`            |
-| -------------- | ------------------------------------- | --------------------------- |
-| `missed_call`  | Any inbound call that isn't answered  | none                        |
-| `keyword`      | Inbound SMS matching a keyword        | `keyword`, `match`          |
-| `form_submit`  | `POST /api/webhooks/form`             | `source` (optional)         |
+| `trigger_type`      | Fires on                                        | `trigger_config`      |
+| ------------------- | ----------------------------------------------- | --------------------- |
+| `missed_call`       | Any inbound call that isn't answered            | none                  |
+| `keyword`           | Inbound SMS matching a keyword                  | `keyword`, `match`    |
+| `form_submit`       | `POST /api/webhooks/form`                       | `source` (optional)   |
+| `booking_confirmed` | A slot is booked on the booking page            | none                  |
+| `booking_cancelled` | A client cancels through the link in their confirmation | none          |
+| `ai_handoff`        | The AI stops replying and hands the conversation over | none            |
+| `email_event`       | An email you sent is delivered, opened, bounced or complained about | `events` |
+
+A trigger type with nothing to configure carries `{}` rather than whatever was
+passed, so a stale config left behind by switching a rule's type can't sit
+there looking meaningful.
 
 **`keyword`** — `keyword` is a string or an array, so one rule can cover
 `["STOP", "UNSUBSCRIBE"]`. `match` picks how it's compared, always
@@ -303,42 +311,101 @@ Ordered array, executed top to bottom. The whole array is validated before
 anything runs, so a bad action means the rule does nothing at all rather than
 stopping halfway.
 
-| Action       | Shape                                        |
-| ------------ | -------------------------------------------- |
-| `send_sms`   | `{ "type": "send_sms", "template": "..." }`   |
-| `add_tag`    | `{ "type": "add_tag", "tag": "..." }`         |
-| `set_status` | `{ "type": "set_status", "status": "active" }`|
-| `notify_me`  | `{ "type": "notify_me", "note": "..." }` — emails the Settings address; `note` is optional |
+| Action                 | Shape                                                            |
+| ---------------------- | ---------------------------------------------------------------- |
+| `send_sms`             | `{ "type": "send_sms", "to": "contact", "template": "..." }` — `to` is `contact` or `business` |
+| `send_email`           | `{ "type": "send_email", "to": "contact", "subject": "...", "template": "..." }` |
+| `add_tag`              | `{ "type": "add_tag", "tag": "..." }`                            |
+| `remove_tag`           | `{ "type": "remove_tag", "tag": "..." }`                         |
+| `set_status`           | `{ "type": "set_status", "status": "active" }`                   |
+| `set_ai`               | `{ "type": "set_ai", "enabled": false }` — the inbox switch, flipped by the rule |
+| `update_field`         | `{ "type": "update_field", "field": "name", "value": "..." }` — `name`, `business` or `email`, templated |
+| `set_pipeline_stage`   | `{ "type": "set_pipeline_stage", "stage": "interested" }` — joins the board, or moves to that stage |
+| `remove_from_pipeline` | `{ "type": "remove_from_pipeline" }`                             |
+| `notify_me`            | `{ "type": "notify_me", "note": "..." }` — emails the Settings address; `note` is optional |
+| `webhook`              | `{ "type": "webhook", "url": "https://..." }` — POSTs the contact and the trigger's variables |
+
+`update_field` deliberately can't write `phone`: it's how every trigger finds
+the contact in the first place.
+
+`webhook` is https-only and refuses private and loopback addresses at save
+time, so a rule can't be pointed at this server's own network. A reply other
+than 2xx fails the run, and the steps after it don't happen.
 
 `wait` is in PRD 4.5 but not implemented — a rule using it is rejected at parse
 time with that reason in `automation_runs.detail`. It needs the scheduled
-runner.
+runner. There are no branches either: steps run top to bottom, every time.
 
-Templates support `{{name}}`, `{{first_name}}` and `{{phone}}` everywhere, plus
-per-trigger variables:
+Templates support `{{name}}`, `{{first_name}}`, `{{phone}}` and
+`{{phone_formatted}}` everywhere, plus per-trigger variables:
 
-| Trigger       | Extra variables         |
-| ------------- | ----------------------- |
-| `missed_call` | —                       |
-| `keyword`     | `{{message}}`, `{{keyword}}` (the one that matched) |
-| `form_submit` | `{{message}}`, `{{source}}` |
+| Trigger                                | Extra variables         |
+| -------------------------------------- | ----------------------- |
+| `missed_call`                          | —                       |
+| `keyword`                              | `{{message}}`, `{{keyword}}` (the one that matched) |
+| `form_submit`                          | `{{message}}`, `{{source}}` |
+| `ai_handoff`                           | `{{reply}}`, `{{label}}`, `{{inbox_link}}` |
+| `email_event`                          | `{{email_event}}`, `{{email_to}}`, `{{email_from}}`, `{{email_subject}}`, `{{email_id}}`, `{{bounce_type}}`, `{{bounce_reason}}` |
+| `booking_confirmed`, `booking_cancelled` | The booking's own values, which win over the contact's where they clash — see `src/lib/booking/variables.ts` |
 
 Unknown placeholders render as empty string and are named in the run detail.
 Outbound automation SMS is logged to `messages` with `sent_by: 'system'`.
 
+### The builder
+
+`/automations/[id]` is a canvas rather than a stacked form. It holds one pan
+and zoom transform, so two fingers on a trackpad pan and pinch zooms, the way
+they do in every other canvas. Panning is bounded — enough of the rule always
+stays on screen that you can't throw it off the edge and lose it.
+
+Triggers sit side by side, two at most (`MAX_TRIGGERS`). That's a limit on the
+drawing, not on the engine: `parseTriggers` accepts as many distinct types as
+it's given, and a rule saved with more still fires — the canvas says so rather
+than hiding them. A row that grew sideways would push the chain off centre and
+turn the merge into a fan, and a rule needing three unrelated ways in is nearly
+always two rules.
+
+A mouse has one button and has to be told what a drag means, hence the
+select/move toggle above the zoom controls. In select mode, dragging on empty
+canvas draws a marquee that takes every card it *touches* — a band across the
+middle three steps is the gesture people actually make. A finger always pans,
+so the toggle hides itself on touch.
+
+`action-catalogue.ts` and `trigger-catalogue.ts` decide what the pickers offer.
+An entry is either `available` — a real type the engine executes — or greyed
+with the specific thing that would have to exist first. GoHighLevel's own
+action list runs to roughly two hundred entries; reproducing it would be a menu
+where nine rows in ten do nothing, so the greyed ones are only what somebody
+will genuinely look for and not find.
+
+Below `lg` the right-hand panels become a sheet over the bottom of the canvas
+instead of a column beside it — see `panel-shell.ts`.
+
 ### Seeded rules
 
-Three ship as migrations, each with a fixed id and `on conflict do nothing`, so
+Eight ship as migrations, each with a fixed id and `on conflict do nothing`, so
 editing or deleting one sticks:
 
-| Rule                         | Trigger       | Does                                      |
-| ---------------------------- | ------------- | ----------------------------------------- |
-| Missed call auto text-back   | `missed_call` | `send_sms`                                |
-| Keyword: PRICING             | `keyword`     | `add_tag` + `send_sms`                    |
-| Form submission follow-up    | `form_submit` | `add_tag` + `set_status` + `send_sms`     |
+| Rule                              | Trigger             | Does                                     |
+| --------------------------------- | ------------------- | ---------------------------------------- |
+| Missed call auto text-back        | `missed_call`       | `send_sms`                               |
+| Keyword: PRICING                  | `keyword`           | `add_tag` + `send_sms`                   |
+| Form submission follow-up         | `form_submit`       | `add_tag` + `set_status` + `send_sms`    |
+| Booking confirmation to the client| `booking_confirmed` | `send_sms` + `send_email`, both to the contact |
+| New booking alert to you          | `booking_confirmed` | `send_sms` + `send_email`, both to the business |
+| Cancellation notice to the client | `booking_cancelled` | `send_sms` + `send_email`, both to the contact |
+| Cancellation alert to you         | `booking_cancelled` | `send_sms` + `send_email`, both to the business |
+| AI hand-off alert                 | `ai_handoff`        | `send_email` to the business             |
 
-The copy in the last two is generic placeholder text — rewrite it for your
-business.
+The last five carry a `system_key`. They're editable and pausable but not
+deletable, and the builder marks them **Built in** — unpublishing one stops
+something the app otherwise does on its own, so it warns you. The booking flow
+sends nothing without them: they're machinery, not conveniences.
+
+The first three have no `system_key`. They're suggestions, their copy is
+generic placeholder text, and `seed_organization` deliberately doesn't copy
+them to a new client — rewrite them for your business, and let a client build
+their own rather than inherit a keyword you happened to pick.
 
 ### Run log
 
