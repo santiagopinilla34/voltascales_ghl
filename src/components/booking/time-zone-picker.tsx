@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, Globe, Search } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
@@ -194,6 +194,7 @@ export function TimeZonePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Nothing Intl says about a zone can be rendered on the server.
   //
@@ -254,16 +255,38 @@ export function TimeZonePicker({
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-[22rem] max-w-[calc(100vw-2rem)] p-0">
+      <PopoverContent
+        align="start"
+        className="w-[22rem] max-w-[calc(100vw-2rem)] p-0"
+        // Who gets the search box focused, and who just gets the list.
+        //
+        // Radix focuses the first thing inside on open, which on a phone means
+        // the keyboard slides up over the very list you opened this to read.
+        // Someone on a touch screen is going to scroll for their zone far more
+        // often than type it; someone with a keyboard would rather start
+        // typing. So the decision is made by whether the device has a pointer,
+        // not by screen width — a small window on a laptop still has a
+        // keyboard worth using.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          if (window.matchMedia("(hover: hover)").matches) {
+            inputRef.current?.focus();
+          }
+        }}
+      >
         <div className="border-b p-2">
           <div className="relative">
             <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
             <Input
-              autoFocus
+              ref={inputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search time zones"
-              className="h-8 pl-8 text-xs"
+              // No `text-xs` here on purpose. `Input` ships `text-base
+              // md:text-sm` precisely because iOS zooms the whole page in on
+              // any field under 16px, and overriding it down to 12px — which
+              // this did — brings that back on every phone.
+              className="h-9 pl-8 sm:h-8"
               aria-label="Search time zones"
             />
           </div>
