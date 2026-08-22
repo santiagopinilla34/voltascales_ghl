@@ -20,6 +20,7 @@ export function NodeCard({
   Icon,
   tone = "action",
   selected,
+  nodeRef,
   onSelect,
   onRemove,
   removeLabel,
@@ -31,12 +32,23 @@ export function NodeCard({
   Icon: LucideIcon;
   tone?: "trigger" | "action";
   selected?: boolean;
-  onSelect?: () => void;
+  /**
+   * Handed the card's own element, so the canvas can measure it.
+   *
+   * The marquee hit-tests against real boxes rather than against positions it
+   * worked out itself, which is what lets the chain stay a plain flow layout
+   * instead of becoming a set of coordinates to keep in sync.
+   */
+  nodeRef?: (element: HTMLElement | null) => void;
+  /** The event comes through so shift-click can add to a selection. */
+  onSelect?: (event: React.MouseEvent) => void;
   onRemove?: () => void;
   removeLabel?: string;
 }) {
   return (
     <div
+      ref={nodeRef}
+      data-node
       className={cn(
         "bg-card relative w-[260px] rounded-lg border shadow-sm transition-colors",
         selected

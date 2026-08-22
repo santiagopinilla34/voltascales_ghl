@@ -9,6 +9,7 @@ import {
   type CatalogueEntry,
 } from "@/components/automations/trigger-catalogue";
 import type { TriggerType } from "@/components/automations/editor-shape";
+import { PANEL_SHELL } from "@/components/automations/canvas/panel-shell";
 import { TRIGGER_META, type TriggerKey } from "@/components/automations/trigger-meta";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -103,7 +104,7 @@ export function AddTriggerPanel({
   }, [query]);
 
   return (
-    <aside className="bg-card flex w-full min-w-0 flex-col border-l lg:w-[340px] lg:shrink-0">
+    <aside className={PANEL_SHELL}>
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <h2 className="min-w-0 flex-1 text-sm font-semibold tracking-tight">
           Add trigger

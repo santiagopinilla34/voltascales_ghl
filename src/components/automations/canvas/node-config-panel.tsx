@@ -3,15 +3,18 @@
 import { X } from "lucide-react";
 
 import { ACTION_META } from "@/components/automations/action-meta";
-import type { Selection } from "@/components/automations/canvas/workflow-canvas";
+import type { NodeRef } from "@/components/automations/canvas/workflow-canvas";
+import { PANEL_SHELL } from "@/components/automations/canvas/panel-shell";
 import {
   templateVariablesFor,
   type AiCondition,
+  type ContactField,
   type EditorAction,
   type EditorState,
   type EditorTrigger,
   type MatchMode,
 } from "@/components/automations/editor-shape";
+import { PIPELINE_STAGES } from "@/lib/pipeline-stages";
 import { TRIGGER_META, type TriggerKey } from "@/components/automations/trigger-meta";
 import { STATUS_OPTIONS } from "@/components/contacts/status-badge";
 import { TagInput } from "@/components/contacts/tag-input";
@@ -86,6 +89,19 @@ const EMAIL_EVENT_CHOICES: { value: string; label: string; hint: string }[] = [
     label: "Delivered",
     hint: "Fires for every email that lands — usually a lot.",
   },
+];
+
+/**
+ * The contact columns `update_field` may write.
+ *
+ * Kept in step with `ContactField` in `lib/automations/config.ts`, which is
+ * the server-only half that validates the save. Phone is absent from both, on
+ * purpose — see the comment there.
+ */
+const CONTACT_FIELD_OPTIONS: { value: ContactField; label: string }[] = [
+  { value: "name", label: "Name" },
+  { value: "business_name", label: "Business" },
+  { value: "email", label: "Email" },
 ];
 
 const MATCH_MODES: { value: MatchMode; label: string; hint: string }[] = [
@@ -356,8 +372,15 @@ function ActionConfig({
         </>
       )}
 
-      {action.type === "add_tag" && (
-        <Field label="Tag" hint="Added to the contact, if there is one.">
+      {(action.type === "add_tag" || action.type === "remove_tag") && (
+        <Field
+          label="Tag"
+          hint={
+            action.type === "add_tag"
+              ? "Added to the contact, if there is one."
+              : "Taken off the contact. A tag it doesn't have is left alone."
+          }
+        >
           <Input
             value={action.tag}
             onChange={(event) => onChange({ tag: event.target.value })}
@@ -365,6 +388,128 @@ function ActionConfig({
             disabled={disabled}
           />
         </Field>
+      )}
+
+      {action.type === "set_ai" && (
+        <Field
+          label="AI replies"
+          hint={
+            action.enabled
+              ? "The bot answers this contact again."
+              : "The bot stops answering this contact. Use it when the rule is handing them to a person."
+          }
+        >
+          <div className="flex gap-1.5">
+            {([true, false] as const).map((value) => (
+              <Button
+                key={String(value)}
+                type="button"
+                size="sm"
+                variant={action.enabled === value ? "secondary" : "outline"}
+                disabled={disabled}
+                onClick={() => onChange({ enabled: value })}
+              >
+                {value ? "Turn on" : "Turn off"}
+              </Button>
+            ))}
+          </div>
+        </Field>
+      )}
+
+      {action.type === "update_field" && (
+        <>
+          <Field
+            label="Field"
+            hint="The phone number isn't editable here — it's how every text and call finds this contact."
+          >
+            <Select
+              value={action.field}
+              onValueChange={(value) =>
+                onChange({ field: value as ContactField })
+              }
+              disabled={disabled}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONTACT_FIELD_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field
+            label="New value"
+            hint="Renders like a message. If it comes out empty the field is left as it was."
+          >
+            <Input
+              value={action.value}
+              onChange={(event) => onChange({ value: event.target.value })}
+              placeholder="{{first_name}}"
+              disabled={disabled}
+            />
+          </Field>
+
+          <Variables names={variables} />
+        </>
+      )}
+
+      {action.type === "set_pipeline_stage" && (
+        <Field
+          label="Stage"
+          hint="The contact joins the pipeline board here, or moves to it if they're already on."
+        >
+          <Select
+            value={action.stage}
+            onValueChange={(value) => onChange({ stage: value })}
+            disabled={disabled}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PIPELINE_STAGES.map((stage) => (
+                <SelectItem key={stage.value} value={stage.value}>
+                  {stage.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+
+      {action.type === "remove_from_pipeline" && (
+        <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-[11px]">
+          Nothing to configure. The contact comes off the pipeline board; their
+          messages, calls and history are untouched.
+        </p>
+      )}
+
+      {action.type === "webhook" && (
+        <>
+          <Field
+            label="URL"
+            hint="https only, and not an address on this server's own network."
+          >
+            <Input
+              value={action.url}
+              onChange={(event) => onChange({ url: event.target.value })}
+              placeholder="https://hooks.example.com/voltascales"
+              disabled={disabled}
+              inputMode="url"
+            />
+          </Field>
+
+          <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-[11px]">
+            POSTs JSON: the contact, and every variable this trigger carries. A
+            reply other than 2xx fails the run, and the rest of the steps
+            don&apos;t happen.
+          </p>
+        </>
       )}
 
       {action.type === "set_status" && (
@@ -488,7 +633,7 @@ export function NodeConfigPanel({
   onPatchAction,
 }: {
   state: EditorState;
-  selection: Exclude<Selection, null>;
+  selection: NodeRef;
   disabled: boolean;
   onClose: () => void;
   onPatchState: (fields: Partial<EditorState>) => void;
@@ -509,7 +654,7 @@ export function NodeConfigPanel({
   );
 
   return (
-    <aside className="bg-card flex w-full min-w-0 flex-col border-l lg:w-[340px] lg:shrink-0">
+    <aside className={PANEL_SHELL}>
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
           {title}

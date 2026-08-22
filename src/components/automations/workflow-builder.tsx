@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useOptimistic, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { ArrowLeft, Check, Filter, Loader2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,8 +15,9 @@ import { AddActionPanel } from "@/components/automations/canvas/add-action-panel
 import { AddTriggerPanel } from "@/components/automations/canvas/add-trigger-panel";
 import { NodeConfigPanel } from "@/components/automations/canvas/node-config-panel";
 import {
+  MAX_TRIGGERS,
   WorkflowCanvas,
-  type Selection,
+  type NodeRef,
 } from "@/components/automations/canvas/workflow-canvas";
 import { RunLog } from "@/components/automations/run-log";
 import {
@@ -57,18 +58,30 @@ function newAction(type: EditorAction["type"]): EditorAction {
       return { type: "send_email", to: "contact", subject: "", template: "" };
     case "add_tag":
       return { type: "add_tag", tag: "" };
+    case "remove_tag":
+      return { type: "remove_tag", tag: "" };
     case "set_status":
       return { type: "set_status", status: "active" };
+    // Off, because the reason to automate this switch is almost always to stop
+    // the bot talking over a hand-off. Turning it back on is the deliberate
+    // choice and reads better as one.
+    case "set_ai":
+      return { type: "set_ai", enabled: false };
+    case "update_field":
+      return { type: "update_field", field: "name", value: "" };
+    case "set_pipeline_stage":
+      return { type: "set_pipeline_stage", stage: "interested" };
+    case "remove_from_pipeline":
+      return { type: "remove_from_pipeline" };
     case "notify_me":
       return { type: "notify_me", note: "" };
+    case "webhook":
+      return { type: "webhook", url: "" };
   }
 }
 
-type Panel =
-  | { kind: "node"; selection: Exclude<Selection, null> }
-  | { kind: "add-trigger" }
-  | { kind: "add-action"; index: number }
-  | null;
+/** The picker panels. The config panel isn't one — it follows the selection. */
+type Panel = { kind: "add-trigger" } | { kind: "add-action"; index: number } | null;
 
 export function WorkflowBuilder({
   automation,
@@ -89,6 +102,14 @@ export function WorkflowBuilder({
   const [tab, setTab] = useState<"builder" | "logs">("builder");
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
+  /**
+   * What is selected on the canvas.
+   *
+   * A list rather than one node, because the marquee can pick up several at
+   * once. The config panel still only opens for exactly one — a form showing
+   * five steps at the same time is the stacked form the canvas replaced.
+   */
+  const [selection, setSelection] = useState<NodeRef[]>([]);
 
   const [state, setState] = useState<EditorState>(() =>
     automation ? toEditorState(automation) : blankEditorState(),
@@ -118,13 +139,16 @@ export function WorkflowBuilder({
     }));
 
   function addTrigger(type: TriggerType) {
+    if (state.triggers.length >= MAX_TRIGGERS) return;
+
     setState((current) => ({
       ...current,
       triggers: [...current.triggers, blankTrigger(type)],
     }));
     // Straight into configuring what was just added — a keyword trigger with
     // no keywords is the commonest way to save a rule that never fires.
-    setPanel({ kind: "node", selection: { kind: "trigger", index: state.triggers.length } });
+    setPanel(null);
+    setSelection([{ kind: "trigger", index: state.triggers.length }]);
   }
 
   function removeTrigger(index: number) {
@@ -133,6 +157,7 @@ export function WorkflowBuilder({
       triggers: current.triggers.filter((_, i) => i !== index),
     }));
     setPanel(null);
+    setSelection([]);
   }
 
   function addAction(index: number, type: EditorAction["type"]) {
@@ -141,7 +166,8 @@ export function WorkflowBuilder({
       next.splice(index, 0, newAction(type));
       return { ...current, actions: next };
     });
-    setPanel({ kind: "node", selection: { kind: "action", index } });
+    setPanel(null);
+    setSelection([{ kind: "action", index }]);
   }
 
   function removeAction(index: number) {
@@ -150,7 +176,66 @@ export function WorkflowBuilder({
       actions: current.actions.filter((_, i) => i !== index),
     }));
     setPanel(null);
+    setSelection([]);
   }
+
+  /**
+   * Deletes every selected step in one go.
+   *
+   * Triggers are left alone even when the marquee caught them. There are at
+   * most two, each has its own × , and a rule with no trigger cannot be saved —
+   * so sweeping them up with a box drawn round the whole canvas would be a
+   * gesture whose most likely outcome is breaking the rule.
+   */
+  function deleteSelected() {
+    const doomed = new Set(
+      selection.flatMap((ref) => (ref.kind === "action" ? [ref.index] : [])),
+    );
+    if (doomed.size === 0) return;
+
+    setState((current) => ({
+      ...current,
+      actions: current.actions.filter((_, index) => !doomed.has(index)),
+    }));
+    setSelection([]);
+    setPanel(null);
+  }
+
+  /**
+   * Escape clears, Delete removes what is selected.
+   *
+   * Guarded on the focused element: the workflow name at the top is an input,
+   * and backspacing a character out of it must not take a step off the canvas
+   * with it.
+   */
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+      ) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        setSelection([]);
+        setPanel(null);
+        return;
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selection.some((ref) => ref.kind === "action")) {
+          event.preventDefault();
+          deleteSelected();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
 
   function save() {
     setError(null);
@@ -210,7 +295,10 @@ export function WorkflowBuilder({
           </span>
         )}
 
-        <nav className="ml-auto hidden shrink-0 items-center gap-1 sm:flex">
+        {/* Shown at every width: hiding it on a phone left the execution logs
+            with no way in at all, which is the tab you reach for when a rule
+            has misbehaved and you are not at your desk. */}
+        <nav className="ml-auto flex shrink-0 items-center gap-1">
           {(["builder", "logs"] as const).map((value) => (
             <button
               key={value}
@@ -223,7 +311,12 @@ export function WorkflowBuilder({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {value === "builder" ? "Builder" : "Execution logs"}
+              {value === "builder" ? "Builder" : (
+                <>
+                  <span className="sm:hidden">Logs</span>
+                  <span className="hidden sm:inline">Execution logs</span>
+                </>
+              )}
             </button>
           ))}
         </nav>
@@ -232,9 +325,11 @@ export function WorkflowBuilder({
             never been saved has nothing to publish. */}
         {automation && (
           <div className="flex shrink-0 items-center gap-2">
+            {/* The words go on a phone; the switch keeps its aria-label, and
+                a rule's state is on the list page it came from anyway. */}
             <span
               className={cn(
-                "text-xs",
+                "hidden text-xs sm:inline",
                 activeState ? "text-muted-foreground" : "font-medium",
               )}
             >
@@ -268,7 +363,7 @@ export function WorkflowBuilder({
             />
             <span
               className={cn(
-                "text-xs",
+                "hidden text-xs sm:inline",
                 activeState ? "font-medium" : "text-muted-foreground",
               )}
             >
@@ -313,18 +408,22 @@ export function WorkflowBuilder({
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             <WorkflowCanvas
               state={state}
-              selection={panel?.kind === "node" ? panel.selection : null}
-              onSelect={(selection) =>
-                setPanel(selection ? { kind: "node", selection } : null)
-              }
+              selected={selection}
+              onSelect={(next) => {
+                setSelection(next);
+                // Picking something on the canvas answers the question the
+                // picker was asking, so the picker gets out of the way.
+                if (next.length > 0) setPanel(null);
+              }}
               onAddTrigger={() => setPanel({ kind: "add-trigger" })}
               onRemoveTrigger={removeTrigger}
               onAddAction={(index) => setPanel({ kind: "add-action", index })}
               onRemoveAction={removeAction}
+              onDeleteSelected={deleteSelected}
             />
 
             {/* The filters live on the rule rather than on a node, so they get
@@ -332,27 +431,19 @@ export function WorkflowBuilder({
                 where the canvas surfaces them too. */}
             <button
               type="button"
-              onClick={() =>
-                setPanel({ kind: "node", selection: { kind: "conditions" } })
-              }
-              className="bg-card text-muted-foreground hover:text-foreground absolute top-4 right-4 flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-sm transition-colors"
+              onClick={() => {
+                setPanel(null);
+                setSelection([{ kind: "conditions" }]);
+              }}
+              aria-label="Filters"
+              className="bg-card text-muted-foreground hover:text-foreground absolute top-4 right-4 z-10 flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-sm transition-colors"
             >
               <Filter className="size-3.5" />
-              Filters
+              {/* The label goes on a narrow screen, where the corner has to
+                  share the top edge with the selection pill. */}
+              <span className="hidden sm:inline">Filters</span>
             </button>
           </div>
-
-          {panel?.kind === "node" && (
-            <NodeConfigPanel
-              state={state}
-              selection={panel.selection}
-              disabled={pending}
-              onClose={() => setPanel(null)}
-              onPatchState={patchState}
-              onPatchTrigger={patchTrigger}
-              onPatchAction={patchAction}
-            />
-          )}
 
           {panel?.kind === "add-trigger" && (
             <AddTriggerPanel
@@ -366,6 +457,20 @@ export function WorkflowBuilder({
             <AddActionPanel
               onPick={(type) => addAction(panel.index, type)}
               onClose={() => setPanel(null)}
+            />
+          )}
+
+          {/* One node, one panel. Several selected is a bulk action, not a
+              form, so the canvas offers the delete and the panel stays shut. */}
+          {!panel && selection.length === 1 && (
+            <NodeConfigPanel
+              state={state}
+              selection={selection[0]}
+              disabled={pending}
+              onClose={() => setSelection([])}
+              onPatchState={patchState}
+              onPatchTrigger={patchTrigger}
+              onPatchAction={patchAction}
             />
           )}
         </div>

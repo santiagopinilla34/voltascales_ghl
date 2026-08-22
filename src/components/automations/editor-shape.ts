@@ -24,12 +24,28 @@ export type MatchMode = "word" | "exact" | "contains";
 export type AiCondition = "any" | "true" | "false";
 export type MessageTarget = "contact" | "business";
 
+/**
+ * The contact columns a rule may write.
+ *
+ * Mirrors `ContactField` in `lib/automations/config.ts`, which is the
+ * server-only half that validates it. Duplicated rather than imported for the
+ * usual reason: a client component reaching into a `server-only` module fails
+ * in the browser.
+ */
+export type ContactField = "name" | "business_name" | "email";
+
 export type EditorAction =
   | { type: "send_sms"; to: MessageTarget; template: string }
   | { type: "send_email"; to: MessageTarget; subject: string; template: string }
   | { type: "add_tag"; tag: string }
+  | { type: "remove_tag"; tag: string }
   | { type: "set_status"; status: string }
-  | { type: "notify_me"; note: string };
+  | { type: "set_ai"; enabled: boolean }
+  | { type: "update_field"; field: ContactField; value: string }
+  | { type: "set_pipeline_stage"; stage: string }
+  | { type: "remove_from_pipeline" }
+  | { type: "notify_me"; note: string }
+  | { type: "webhook"; url: string };
 
 /**
  * Reads a stored `to`, defaulting to `contact`.
@@ -187,6 +203,40 @@ export function toEditorState(automation: Automation): EditorState {
       case "add_tag":
         return [
           { type: "add_tag", tag: typeof action.tag === "string" ? action.tag : "" },
+        ];
+      case "remove_tag":
+        return [
+          {
+            type: "remove_tag",
+            tag: typeof action.tag === "string" ? action.tag : "",
+          },
+        ];
+      case "set_ai":
+        return [{ type: "set_ai", enabled: action.enabled !== false }];
+      case "update_field":
+        return [
+          {
+            type: "update_field",
+            field:
+              action.field === "business_name" || action.field === "email"
+                ? action.field
+                : "name",
+            value: typeof action.value === "string" ? action.value : "",
+          },
+        ];
+      case "set_pipeline_stage":
+        return [
+          {
+            type: "set_pipeline_stage",
+            stage:
+              typeof action.stage === "string" ? action.stage : "interested",
+          },
+        ];
+      case "remove_from_pipeline":
+        return [{ type: "remove_from_pipeline" }];
+      case "webhook":
+        return [
+          { type: "webhook", url: typeof action.url === "string" ? action.url : "" },
         ];
       case "set_status":
         return [

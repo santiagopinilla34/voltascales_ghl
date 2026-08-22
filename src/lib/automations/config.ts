@@ -1,10 +1,12 @@
 import "server-only";
 
+import { PIPELINE_STAGES, isPipelineStage } from "@/lib/pipeline-stages";
 import type {
   AutomationTriggerType,
   Contact,
   ContactStatus,
   Json,
+  PipelineStage,
 } from "@/types/database";
 
 /**
@@ -549,6 +551,34 @@ export type MessageTarget = "contact" | "business";
 const MESSAGE_TARGETS = ["contact", "business"] as const;
 
 /**
+ * The contact columns a rule may write.
+ *
+ * `phone` is deliberately not one of them. It is how every inbound event finds
+ * its contact — a text, a call and a form all arrive carrying a number and
+ * little else — so a rule that rewrites it doesn't edit a field, it detaches a
+ * person from their own history and starts a second one. `status` and `tags`
+ * have actions of their own because they are an enum and a list rather than
+ * free text, and a picker beats a text box for both.
+ */
+export type ContactField = "name" | "business_name" | "email";
+
+const CONTACT_FIELDS = ["name", "business_name", "email"] as const;
+
+/**
+ * Addresses a rule may not POST to.
+ *
+ * A webhook URL is typed by whoever writes the rule and then fetched by this
+ * server, which sits inside a network the author does not. Without this check,
+ * a URL naming a loopback or link-local address turns a rule into a way to
+ * reach services that were never meant to be reachable from outside — cloud
+ * metadata endpoints being the one that matters. Refused at parse time rather
+ * than at send time, so it is a message in the editor instead of a failed run
+ * nobody reads.
+ */
+const PRIVATE_HOST =
+  /^(?:localhost|\[?::1\]?|127\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.)|\.local$/i;
+
+/**
  * The action types the engine can execute today. PRD 4.5 also lists `wait`;
  * see DEFERRED_ACTION_TYPES.
  */
@@ -556,15 +586,27 @@ export type AutomationAction =
   | { type: "send_sms"; to: MessageTarget; template: string }
   | { type: "send_email"; to: MessageTarget; subject: string; template: string }
   | { type: "add_tag"; tag: string }
+  | { type: "remove_tag"; tag: string }
   | { type: "set_status"; status: ContactStatus }
-  | { type: "notify_me"; note: string };
+  | { type: "set_ai"; enabled: boolean }
+  | { type: "update_field"; field: ContactField; value: string }
+  | { type: "set_pipeline_stage"; stage: PipelineStage }
+  | { type: "remove_from_pipeline" }
+  | { type: "notify_me"; note: string }
+  | { type: "webhook"; url: string };
 
 const SUPPORTED_ACTION_TYPES = [
   "send_sms",
   "send_email",
   "add_tag",
+  "remove_tag",
   "set_status",
+  "set_ai",
+  "update_field",
+  "set_pipeline_stage",
+  "remove_from_pipeline",
   "notify_me",
+  "webhook",
 ] as const;
 
 /**
@@ -593,18 +635,55 @@ function parseTarget(
   return { ok: true, value: raw as MessageTarget };
 }
 
+/** Checks a webhook destination is somewhere this server should be posting. */
+function parseWebhookUrl(raw: string, label: string): ParseResult<string> {
+  let url: URL;
+
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return {
+      ok: false,
+      error: `${label} (webhook) needs a full URL, starting with https://`,
+    };
+  }
+
+  // http is refused rather than quietly upgraded. The payload carries a
+  // contact's name, phone and email; sending that in clear text because
+  // somebody left off an "s" is not a default worth having.
+  if (url.protocol !== "https:") {
+    return {
+      ok: false,
+      error: `${label} (webhook) must use https, not ${url.protocol.replace(":", "")}`,
+    };
+  }
+
+  if (PRIVATE_HOST.test(url.hostname)) {
+    return {
+      ok: false,
+      error: `${label} (webhook) points at ${url.hostname}, which is an address on the server's own network rather than somewhere on the internet`,
+    };
+  }
+
+  return { ok: true, value: url.toString() };
+}
+
 /**
  * In PRD 4.5 but deliberately not implemented yet, with the reason shown to
  * whoever wrote the rule:
  *
  * - `wait` needs the scheduled runner (`/api/automations/run-scheduled`), which
  *   also means persisting a resume point mid-run.
+ * - `if_else` needs a run to carry a branch position through the same
+ *   machinery. Named here rather than left to the unknown-type branch, so a
+ *   hand-written rule fails with the reason instead of a list of alternatives.
  *
  * `notify_me` was here too, waiting on the settings table for somewhere to put
  * a notification address. That landed, and it now sends email through Resend.
  */
 const DEFERRED_ACTION_TYPES: Record<string, string> = {
   wait: "the scheduled runner is not built yet",
+  if_else: "the engine runs every step every time — there are no branches yet",
 };
 
 /**
@@ -685,10 +764,14 @@ export function parseActions(raw: Json): ParseResult<AutomationAction[]> {
         break;
       }
 
-      case "add_tag": {
+      case "add_tag":
+      case "remove_tag": {
         const tag = nonEmptyString(entry.tag);
         if (tag === null) {
-          return { ok: false, error: `${label} (add_tag) needs a non-empty "tag"` };
+          return {
+            ok: false,
+            error: `${label} (${type}) needs a non-empty "tag"`,
+          };
         }
         actions.push({ type, tag: tag.trim() });
         break;
@@ -705,11 +788,74 @@ export function parseActions(raw: Json): ParseResult<AutomationAction[]> {
         break;
       }
 
+      case "set_ai": {
+        if (typeof entry.enabled !== "boolean") {
+          return {
+            ok: false,
+            error: `${label} (set_ai) needs "enabled" to be true or false`,
+          };
+        }
+        actions.push({ type, enabled: entry.enabled });
+        break;
+      }
+
+      case "update_field": {
+        if (
+          typeof entry.field !== "string" ||
+          !(CONTACT_FIELDS as readonly string[]).includes(entry.field)
+        ) {
+          return {
+            ok: false,
+            error: `${label} (update_field) needs "field" to be one of ${CONTACT_FIELDS.join(", ")}`,
+          };
+        }
+        // Required, and a template counts. A rule saved with the box left
+        // empty would blank a name the contact already had, which is a strange
+        // thing to ask for deliberately and an easy one to ask for by accident.
+        const value = nonEmptyString(entry.value);
+        if (value === null) {
+          return {
+            ok: false,
+            error: `${label} (update_field) needs a non-empty "value" — a template like {{first_name}} counts`,
+          };
+        }
+        actions.push({ type, field: entry.field as ContactField, value });
+        break;
+      }
+
+      case "set_pipeline_stage": {
+        if (!isPipelineStage(entry.stage)) {
+          return {
+            ok: false,
+            error: `${label} (set_pipeline_stage) needs "stage" to be one of ${PIPELINE_STAGES.map((stage) => stage.value).join(", ")}`,
+          };
+        }
+        actions.push({ type, stage: entry.stage });
+        break;
+      }
+
+      case "remove_from_pipeline": {
+        actions.push({ type });
+        break;
+      }
+
       case "notify_me": {
         // Optional, unlike send_sms's template: an alert with no note still
         // says which contact tripped which rule, which is most of the value.
         const note = typeof entry.note === "string" ? entry.note.trim() : "";
         actions.push({ type, note });
+        break;
+      }
+
+      case "webhook": {
+        const target = nonEmptyString(entry.url);
+        if (target === null) {
+          return { ok: false, error: `${label} (webhook) needs a "url"` };
+        }
+        const url = parseWebhookUrl(target, label);
+        if (!url.ok) return url;
+
+        actions.push({ type, url: url.value });
         break;
       }
 
