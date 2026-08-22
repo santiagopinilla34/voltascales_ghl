@@ -54,7 +54,10 @@ export default async function ThreadPage({ params }: PageProps) {
   const label = contactLabel(contact);
 
   return (
-    <>
+    // Wrapped, rather than a fragment, so the arriving conversation can fade
+    // over the skeleton it replaces — the same box the fallback holds, in the
+    // same flex column, so nothing moves as one becomes the other.
+    <div className="thread-enter flex min-h-0 flex-1 flex-col">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 md:px-4">
         {/* Only a way back on narrow screens, where the list is hidden. */}
         <Button
@@ -96,6 +99,6 @@ export default async function ThreadPage({ params }: PageProps) {
         contactLabel={label}
         aiEnabled={contact.ai_enabled}
       />
-    </>
+    </div>
   );
 }

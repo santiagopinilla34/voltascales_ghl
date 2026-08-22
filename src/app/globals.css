@@ -270,3 +270,36 @@
     transform: scale(0.4);
   }
 }
+
+
+/* ---------------------------------------------------------------------------
+   Loading a conversation
+   ---------------------------------------------------------------------------
+   The skeleton and the real thread occupy the same pane, one after the other,
+   and the handover between them is where this either feels considered or
+   feels like a stutter.
+
+   Three things, none of them decoration:
+
+   The skeleton waits before showing itself. Most conversations are prefetched
+   and arrive in well under a tenth of a second, and a placeholder that flashes
+   up and vanishes again is worse than no placeholder at all — it reads as the
+   screen glitching. The delay costs a slow load nothing, because at 120ms
+   nobody has decided anything is wrong yet.
+
+   The real thread fades in rather than being cut in. Same reason the skeleton
+   holds the exact heights of the header and the reply box: the eye should see
+   one thing becoming another, not two different screens.
+
+   And the bubbles pulse out of step with each other. In unison they read as a
+   single flashing block; staggered, they read as a surface with something
+   behind it.
+   --------------------------------------------------------------------------- */
+
+.loading-enter {
+  animation: page-fade 200ms ease-out 120ms both;
+}
+
+.thread-enter {
+  animation: page-fade var(--motion-enter) ease-out both;
+}

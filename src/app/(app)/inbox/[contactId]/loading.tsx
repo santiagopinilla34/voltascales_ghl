@@ -43,9 +43,13 @@ const BUBBLES = [
   { fromThem: false, width: "w-24" },
 ];
 
+/** Spacing between each bubble's pulse. Enough to read as a wave down the
+ *  thread rather than as one block flashing on and off together. */
+const PULSE_STAGGER_MS = 90;
+
 export default function ThreadLoading() {
   return (
-    <>
+    <div className="loading-enter flex min-h-0 flex-1 flex-col">
       {/* Same height and border as the real header, so the pane doesn't
           shift by a pixel when the conversation arrives. */}
       <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 md:px-4">
@@ -69,6 +73,7 @@ export default function ThreadLoading() {
             >
               <Skeleton
                 className={`h-9 rounded-2xl ${bubble.width} max-w-[75%]`}
+                style={{ animationDelay: `${index * PULSE_STAGGER_MS}ms` }}
               />
             </div>
           ))}
@@ -91,6 +96,6 @@ export default function ThreadLoading() {
       <div className="shrink-0 border-t p-3">
         <Skeleton className="h-10 w-full rounded-lg" />
       </div>
-    </>
+    </div>
   );
 }
