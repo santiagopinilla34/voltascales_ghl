@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -23,6 +23,7 @@ import type { CalendarMonth } from "@/lib/booking/queries";
 import { MEETING_DURATION_MINUTES, MEETING_NAME, type Slot } from "@/lib/booking/slots";
 import { addMonths, todayDayKey } from "@/lib/booking/time";
 import { TIME_ZONE } from "@/lib/format";
+import { TimeZonePicker, zoneLongName } from "@/components/booking/time-zone-picker";
 import { cn } from "@/lib/utils";
 
 /**
@@ -49,17 +50,57 @@ import { cn } from "@/lib/utils";
  * hardcoded colours and no `dark:` overrides to keep in step. A booking link
  * opened at night should not be a white flash.
  *
- * Every label is formatted in TIME_ZONE explicitly. The visitor may be in any
- * zone; there is no picker, and a slot that renders as their local 9am while
- * meaning Eastern 9am is a meeting nobody attends.
+ * ## Time zones
+ *
+ * Times are shown in the visitor's own zone, detected on mount and changeable
+ * from the picker under the calendar. This used to be pinned to the business's
+ * zone with a line saying so, on the reasoning that a slot reading as the
+ * visitor's local 9am while meaning Eastern 9am is a meeting nobody attends —
+ * which was true, and solved it by making the visitor do the conversion. Now
+ * the page does it and names the zone the answer is in.
+ *
+ * None of this touches what gets booked. A slot is an absolute instant, the
+ * form submits that instant, and the server re-derives what is free from it;
+ * the zone only decides how the instant is spelled on screen.
+ *
+ * The days themselves are still the *business's* days, because that is how the
+ * server groups slots. For anyone within a few hours of Eastern the two agree.
+ * Further out they can disagree at the edges, so a time whose date in the
+ * reader's zone is not the day it is filed under carries that date beside it
+ * rather than quietly reading as the wrong day.
  */
 
-const slotTime = new Intl.DateTimeFormat("en-CA", {
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-  timeZone: TIME_ZONE,
-});
+/**
+ * The formatters that depend on which zone the visitor is reading in.
+ *
+ * Rebuilt when the zone changes rather than created per row — constructing an
+ * `Intl.DateTimeFormat` is not free, and a day can hold a lot of slots.
+ */
+function zonedFormats(zone: string) {
+  return {
+    /** "9:00 a.m." in the reader's zone. */
+    time: new Intl.DateTimeFormat("en-CA", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: zone,
+    }),
+    /** "2026-09-17" — the reader's calendar date for an instant, to compare
+     *  against the business day a slot is filed under. */
+    dayKey: new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      timeZone: zone,
+    }),
+    /** "Sep 17", shown only when those two disagree. */
+    shortDate: new Intl.DateTimeFormat("en-CA", {
+      month: "short",
+      day: "numeric",
+      timeZone: zone,
+    }),
+  };
+}
 
 const weekdayShort = new Intl.DateTimeFormat("en-CA", {
   weekday: "short",
@@ -98,6 +139,11 @@ function dayKeyDate(dayKey: string): Date {
   return new Date(`${dayKey}T00:00:00Z`);
 }
 
+/** The detected zone never changes mid-visit, so there is nothing to subscribe to. */
+function subscribeNever(): () => void {
+  return () => {};
+}
+
 type Screen =
   | { name: "picking" }
   | { name: "form"; slot: Slot }
@@ -115,6 +161,25 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
   const [selectedDay, setSelectedDay] = useState<string>(
     firstOpen?.dayKey ?? calendar.days[0].dayKey,
   );
+  // The visitor's own zone, with the business's as the server-side answer.
+  //
+  // `useSyncExternalStore` rather than reading `resolvedOptions()` during
+  // render: this component is server rendered too, and there that call returns
+  // the *server's* zone, which would hydrate into a mismatch. Giving React
+  // both snapshots lets it render Eastern on the server and swap to theirs on
+  // the client without either a mismatch or a state write from an effect.
+  const detectedZone = useSyncExternalStore(
+    subscribeNever,
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || TIME_ZONE,
+    () => TIME_ZONE,
+  );
+
+  // Null until they choose one, so the detected zone stays live underneath.
+  const [chosenZone, setChosenZone] = useState<string | null>(null);
+  const zone = chosenZone ?? detectedZone;
+
+  const fmt = useMemo(() => zonedFormats(zone), [zone]);
+
   const [step, setStep] = useState<Step>("calendar");
   const [screen, setScreen] = useState<Screen>({ name: "picking" });
   const [error, setError] = useState<string | null>(null);
@@ -195,12 +260,12 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
             <Detail icon={Clock}>{MEETING_DURATION_MINUTES} minutes</Detail>
             <Detail icon={CalendarDays}>
               <span className="text-foreground font-medium">
-                {slotTime.format(new Date(screen.slot.start))} –{" "}
-                {slotTime.format(new Date(screen.slot.end))}
+                {fmt.time.format(new Date(screen.slot.start))} –{" "}
+                {fmt.time.format(new Date(screen.slot.end))}
               </span>
               , {fullDay.format(dayKeyDate(screen.slot.start.slice(0, 10)))}
             </Detail>
-            <Detail icon={Globe}>Eastern Time (Montreal)</Detail>
+            <Detail icon={Globe}>{zoneLongName(zone, new Date())}</Detail>
           </div>
 
           <p className="text-muted-foreground mt-4 max-w-sm text-sm">
@@ -223,7 +288,7 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
           <MeetingPanel
             selected={{
               day: fullDay.format(dayKeyDate(screen.slot.start.slice(0, 10))),
-              time: `${slotTime.format(new Date(screen.slot.start))} – ${slotTime.format(
+              time: `${fmt.time.format(new Date(screen.slot.start))} – ${fmt.time.format(
                 new Date(screen.slot.end),
               )}`,
             }}
@@ -430,10 +495,12 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
             })}
           </div>
 
-          <p className="text-muted-foreground mt-auto flex items-center gap-2 pt-5 text-xs">
-            <Globe className="size-3.5 shrink-0" />
-            Eastern Time (Montreal)
-          </p>
+          <div className="mt-auto pt-5">
+            <p className="text-muted-foreground mb-1.5 text-[11px] font-medium tracking-wide uppercase">
+              Time zone
+            </p>
+            <TimeZonePicker value={zone} onChange={setChosenZone} />
+          </div>
         </div>
 
         {/* That day's times */}
@@ -461,24 +528,38 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
 
           {day && day.slots.length > 0 ? (
             <div className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
-              {day.slots.map((slot) => (
-                <button
-                  key={slot.start}
-                  type="button"
-                  onClick={() => {
-                    setScreen({ name: "form", slot });
-                    setError(null);
-                  }}
-                  className={cn(
-                    "border-primary/40 text-primary hover:border-primary hover:bg-primary/5",
-                    "focus-visible:ring-ring/50 shrink-0 rounded-lg border py-3 text-sm",
-                    "font-semibold tabular-nums transition-colors focus-visible:ring-2",
-                    "focus-visible:outline-none",
-                  )}
-                >
-                  {slotTime.format(new Date(slot.start))}
-                </button>
-              ))}
+              {day.slots.map((slot) => {
+                // Far enough from Eastern and a slot filed under Wednesday is
+                // Thursday where the reader is sitting. Saying so on the one
+                // or two that cross is better than a column of times that
+                // quietly belong to a different date than its heading.
+                const startsOn = fmt.dayKey.format(new Date(slot.start));
+                const spillsOver = startsOn !== day.dayKey;
+
+                return (
+                  <button
+                    key={slot.start}
+                    type="button"
+                    onClick={() => {
+                      setScreen({ name: "form", slot });
+                      setError(null);
+                    }}
+                    className={cn(
+                      "border-primary/40 text-primary hover:border-primary hover:bg-primary/5",
+                      "focus-visible:ring-ring/50 shrink-0 rounded-lg border py-3 text-sm",
+                      "font-semibold tabular-nums transition-colors focus-visible:ring-2",
+                      "focus-visible:outline-none",
+                    )}
+                  >
+                    {fmt.time.format(new Date(slot.start))}
+                    {spillsOver && (
+                      <span className="text-muted-foreground ml-1.5 text-xs font-normal">
+                        {fmt.shortDate.format(new Date(slot.start))}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <p className="text-muted-foreground border-border mt-4 rounded-lg border border-dashed px-3 py-10 text-center text-sm">

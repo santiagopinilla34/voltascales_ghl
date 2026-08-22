@@ -68,11 +68,10 @@ export default async function BookPage({
     // page read as unfinished.
     <main className="bg-muted/30 flex min-h-dvh w-full flex-col items-center justify-center px-4 py-6 sm:px-6 sm:py-10">
       <div className="w-full max-w-6xl">
+        {/* No "all times are Eastern" line any more: the card shows every time
+            in the reader's own zone and names it, so a fixed claim here would
+            simply be wrong for most visitors. */}
         <BookingWidget calendar={calendar} />
-
-        <p className="text-muted-foreground mt-4 px-1 text-xs">
-          All times are Eastern (Montreal).
-        </p>
       </div>
     </main>
   );
