@@ -133,21 +133,27 @@
    Motion
    ---------------------------------------------------------------------------
    Two numbers do most of the work here, and they are deliberately unequal:
-   things leave in 120ms and arrive in 220ms. Old content should get out of the
+   things leave in 140ms and arrive in 260ms. Old content should get out of the
    way quickly — it has nothing left to say — while new content wants long
    enough to be registered as arriving rather than as a flicker. The enter is
    also delayed until the exit finishes, so the two never overlap into a
    double-image.
 
-   Everything is opacity and a 6px rise. Nothing slides across the viewport,
-   nothing scales: at this size the motion reads as the page settling rather
-   than as an effect, which is the whole brief.
+   Everything is opacity and a short rise. Nothing slides across the viewport
+   and nothing scales: the motion should read as the page settling rather than
+   as an effect. The first pass at this was so restrained it was invisible,
+   which is worth remembering — subtle and absent look identical.
    --------------------------------------------------------------------------- */
 
 :root {
-  --motion-exit: 120ms;
-  --motion-enter: 220ms;
-  --motion-rise: 320ms;
+  --motion-exit: 140ms;
+  --motion-enter: 260ms;
+  --motion-rise: 400ms;
+  /* How far content travels as it arrives. 6px was the first attempt and it
+     was below the threshold of being noticed at all — the animation ran,
+     nobody saw it, which is the same as not having one. 14px is still small
+     enough to read as settling rather than as a slide. */
+  --motion-distance: 14px;
   /* Decelerating: fast at the start, easing into place. */
   --motion-ease: cubic-bezier(0.2, 0, 0, 1);
 }
@@ -196,7 +202,7 @@
 
 @keyframes page-rise {
   from {
-    transform: translateY(6px);
+    transform: translateY(var(--motion-distance));
   }
   to {
     transform: none;
