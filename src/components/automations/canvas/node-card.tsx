@@ -99,7 +99,22 @@ export function NodeCard({
           onClick={onRemove}
           aria-label={removeLabel}
           title={removeLabel}
-          className="text-muted-foreground hover:text-destructive absolute -top-2 -right-2 rounded-full border bg-background p-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/node:opacity-100"
+          className={cn(
+            "text-muted-foreground hover:text-destructive absolute -top-2 -right-2 rounded-full border bg-background p-1 transition-opacity",
+            // A fingertip is blunter than the 18px this draws at, and the
+            // canvas is scaled, so at 69% it draws smaller still. The
+            // pseudo-element widens what you can hit without widening what
+            // you can see.
+            "before:absolute before:-inset-2 before:content-['']",
+            // Was hover-only, which on a touch screen means a step can't be
+            // deleted at all — the same argument the `+` below already makes
+            // for itself. Keyed off `hover: hover` rather than a width
+            // breakpoint: a narrow desktop window still has a mouse, and a
+            // large tablet still hasn't.
+            "[@media(hover:hover)]:opacity-0",
+            "[@media(hover:hover)]:group-hover/node:opacity-100",
+            "[@media(hover:hover)]:focus-visible:opacity-100",
+          )}
         >
           <svg viewBox="0 0 12 12" className="size-2.5" aria-hidden>
             <path

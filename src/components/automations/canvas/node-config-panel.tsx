@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 
 import { ACTION_META } from "@/components/automations/action-meta";
 import type { NodeRef } from "@/components/automations/canvas/workflow-canvas";
@@ -631,6 +631,7 @@ export function NodeConfigPanel({
   onPatchState,
   onPatchTrigger,
   onPatchAction,
+  onRemove,
 }: {
   state: EditorState;
   selection: NodeRef;
@@ -639,6 +640,18 @@ export function NodeConfigPanel({
   onPatchState: (fields: Partial<EditorState>) => void;
   onPatchTrigger: (index: number, fields: Partial<EditorTrigger>) => void;
   onPatchAction: (index: number, fields: Partial<EditorAction>) => void;
+  /**
+   * Deletes whatever the panel is open on. Absent when there is nothing to
+   * delete: the filters aren't a node, and the last trigger can't go — a rule
+   * with no way in can't be saved.
+   *
+   * The card's own × is the other way to do this, but it is drawn on the
+   * canvas, and the canvas is scaled: on a phone the whole rule shrinks to fit
+   * and the × goes with it. This one is a full-size control in a sheet that
+   * never scales, which is what makes deleting a step workable on a touch
+   * screen.
+   */
+  onRemove?: () => void;
 }) {
   const title =
     selection.kind === "conditions"
@@ -696,6 +709,22 @@ export function NodeConfigPanel({
           />
         )}
       </div>
+
+      {onRemove && (
+        <div className="shrink-0 border-t p-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={disabled}
+            onClick={onRemove}
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive w-full justify-center"
+          >
+            <Trash2 />
+            {selection.kind === "trigger" ? "Remove this trigger" : "Delete this step"}
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }

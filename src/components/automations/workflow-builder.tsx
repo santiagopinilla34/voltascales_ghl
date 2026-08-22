@@ -180,6 +180,24 @@ export function WorkflowBuilder({
   }
 
   /**
+   * What the config panel's delete button does, or nothing for a node that
+   * can't be deleted.
+   *
+   * The filters are not a node — they belong to the rule — and the last
+   * trigger stays put, because a rule with no way in can't be saved. Returning
+   * `undefined` rather than a disabled button means the panel simply has no
+   * footer in those two cases, which reads as "nothing to do here" instead of
+   * "something you're not allowed to do".
+   */
+  function removalFor(node: NodeRef): (() => void) | undefined {
+    if (node.kind === "action") return () => removeAction(node.index);
+    if (node.kind === "trigger" && state.triggers.length > 1) {
+      return () => removeTrigger(node.index);
+    }
+    return undefined;
+  }
+
+  /**
    * Deletes every selected step in one go.
    *
    * Triggers are left alone even when the marquee caught them. There are at
@@ -471,6 +489,7 @@ export function WorkflowBuilder({
               onPatchState={patchState}
               onPatchTrigger={patchTrigger}
               onPatchAction={patchAction}
+              onRemove={removalFor(selection[0])}
             />
           )}
         </div>
