@@ -142,6 +142,54 @@ export function weekOf(dayKey: string): string[] {
   return Array.from({ length: 7 }, (_, index) => addDays(monday, index));
 }
 
+/** The first day of the month containing `dayKey`. */
+export function startOfMonth(dayKey: string): string {
+  return `${dayKey.slice(0, 7)}-01`;
+}
+
+/**
+ * `months` later, clamped to the last day of the target month.
+ *
+ * The clamp is the whole reason this exists rather than adding 30 days:
+ * stepping forward from the 31st of a 31-day month lands on a date the next
+ * month does not have, and `Date` silently rolls that into the month after —
+ * so "next month" from March 31st would show May.
+ */
+export function addMonths(dayKey: string, months: number): string {
+  const [year, month, day] = dayKey.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(
+    Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+
+  const target = new Date(
+    Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), Math.min(day, lastDay)),
+  );
+  return target.toISOString().slice(0, 10);
+}
+
+/** Every day key in the month containing `dayKey`, 1st to last. */
+export function monthOf(dayKey: string): string[] {
+  const first = startOfMonth(dayKey);
+  const [year, month] = first.split("-").map(Number);
+  const length = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  return Array.from({ length }, (_, index) => addDays(first, index));
+}
+
+/**
+ * How many blank cells precede the 1st in a Monday-first grid.
+ *
+ * The calendar is drawn as seven columns starting on Monday, so a month
+ * beginning on a Thursday needs three empty cells before it — otherwise every
+ * date sits under the wrong weekday, which is worse than useless on a page
+ * whose entire job is telling someone which day they picked.
+ */
+export function leadingBlanks(dayKey: string): number {
+  const dow = dayOfWeekOf(startOfMonth(dayKey));
+  return dow === 0 ? 6 : dow - 1;
+}
+
 /** `"09:00:00"` (Postgres `time`) to minutes since midnight. */
 export function parseTimeOfDay(value: string): number {
   const [hours, minutes] = value.split(":");

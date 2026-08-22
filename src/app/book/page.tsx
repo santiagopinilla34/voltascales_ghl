@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { BookingWidget } from "@/components/booking/booking-widget";
-import { getCalendarWeek } from "@/lib/booking/queries";
+import { getCalendarMonth } from "@/lib/booking/queries";
 import { MEETING_DURATION_MINUTES, MEETING_NAME } from "@/lib/booking/slots";
 import { todayDayKey } from "@/lib/booking/time";
 import { agencyOrgId } from "@/lib/orgs/routing";
@@ -18,22 +18,22 @@ export const metadata: Metadata = {
  * Runs with the service-role client and no session, like the webhooks — `anon`
  * has no RLS policy on any table, so there is no path from a browser to this
  * data except through this server render. What reaches the page is only what
- * `getCalendarWeek` returns: free slots. Who holds the busy ones never leaves
+ * `getCalendarMonth` returns: free slots. Who holds the busy ones never leaves
  * the server.
  */
 export default async function BookPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ month?: string }>;
 }) {
-  const { week } = await searchParams;
+  const { month } = await searchParams;
   const supabase = createAdminClient();
 
   // Explicitly the agency's calendar.
   //
   // This page has no session and no slug, so there is nothing in the request
   // that names a business — and on the service role, an unscoped read would
-  // build the week out of every client's availability at once. Naming the
+  // build the calendar out of every client's availability at once. Naming the
   // agency keeps this link meaning what it has always meant.
   //
   // It is also the reason this URL cannot be handed to a client: they need
@@ -45,11 +45,11 @@ export default async function BookPage({
     throw new Error("No agency organization: the booking page has no calendar to show");
   }
 
-  // `getCalendarWeek` clamps the anchor into the bookable horizon, so a
-  // hand-edited ?week= can page neither into the past nor into 2043.
-  const calendar = await getCalendarWeek(
+  // The bounds `getCalendarMonth` returns are what the arrows obey, so a
+  // hand-edited ?month= can page neither into the past nor into 2043.
+  const calendar = await getCalendarMonth(
     supabase,
-    week ?? todayDayKey(),
+    month ?? todayDayKey(),
     new Date(),
     agency,
   );
@@ -61,8 +61,13 @@ export default async function BookPage({
     // `min-h-dvh` rather than `min-h-full`: the ground has to reach the bottom
     // of the viewport whatever the card's height, and a percentage height only
     // resolves against a parent that has one.
-    <main className="bg-muted/30 flex min-h-dvh w-full flex-col items-center px-4 py-6 sm:px-6 sm:py-12">
-      <div className="w-full max-w-5xl">
+    //
+    // `justify-center` sits the card in the middle of the screen rather than
+    // pinned under the top edge — a month grid is tall enough that hanging it
+    // from the top leaves a pool of empty space beneath it and makes the whole
+    // page read as unfinished.
+    <main className="bg-muted/30 flex min-h-dvh w-full flex-col items-center justify-center px-4 py-6 sm:px-6 sm:py-10">
+      <div className="w-full max-w-6xl">
         <BookingWidget calendar={calendar} />
 
         <p className="text-muted-foreground mt-4 px-1 text-xs">

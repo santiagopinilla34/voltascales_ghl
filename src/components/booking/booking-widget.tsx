@@ -19,9 +19,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { CalendarWeek } from "@/lib/booking/queries";
+import type { CalendarMonth } from "@/lib/booking/queries";
 import { MEETING_DURATION_MINUTES, MEETING_NAME, type Slot } from "@/lib/booking/slots";
-import { addDays, todayDayKey } from "@/lib/booking/time";
+import { addMonths, todayDayKey } from "@/lib/booking/time";
 import { TIME_ZONE } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -31,11 +31,13 @@ import { cn } from "@/lib/utils";
  * ## One layout, two shapes
  *
  * On a wide screen the three parts sit side by side — what the meeting is, the
- * week, and the chosen day's times — so the whole decision is visible at once
- * and changing day re-fills the times column without anything else moving.
+ * month, and the chosen day's times — so the whole decision is visible at once
+ * and changing day re-fills the times column without anything else moving. The
+ * times column scrolls inside a card of fixed height rather than stretching it,
+ * so a day with twenty openings and a day with two are the same shape.
  *
  * On a phone there is no room for three columns, so the same parts become
- * steps: the week, then the times for the day you tapped, then the form. One
+ * steps: the month, then the times for the day you tapped, then the form. One
  * `step` value decides which pane shows, and every pane is unhidden again at
  * `lg` — so the desktop layout is not a second implementation, it is the same
  * markup with nothing hidden.
@@ -64,11 +66,16 @@ const weekdayShort = new Intl.DateTimeFormat("en-CA", {
   timeZone: "UTC",
 });
 
-const monthDay = new Intl.DateTimeFormat("en-CA", {
-  month: "short",
-  day: "numeric",
-  timeZone: "UTC",
-});
+/**
+ * The seven column headings, Monday first.
+ *
+ * Built from a known Monday — 2024-01-01 was one — rather than written out, so
+ * they come from the same formatter as every other date on the page instead of
+ * being a second, hand-maintained spelling of the same seven words.
+ */
+const WEEKDAY_LABELS = Array.from({ length: 7 }, (_, index) =>
+  weekdayShort.format(new Date(Date.UTC(2024, 0, 1 + index))),
+);
 
 const monthYear = new Intl.DateTimeFormat("en-CA", {
   month: "long",
@@ -99,7 +106,7 @@ type Screen =
 /** Which pane a phone is showing. Ignored at `lg`, where both are visible. */
 type Step = "calendar" | "times";
 
-export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
+export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -117,16 +124,26 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
 
-  const day = calendar.days.find((entry) => entry.dayKey === selectedDay);
+  // Paging the month re-renders this component with new props but keeps its
+  // state, so the day chosen in August is still selected when September
+  // arrives — a date this month does not contain. Rather than reach for an
+  // effect to reset it, the selection is derived: out-of-month falls back to
+  // the first day with anything free, which is also what the page opens on.
+  const inThisMonth = calendar.days.some((entry) => entry.dayKey === selectedDay);
+  const activeDay = inThisMonth
+    ? selectedDay
+    : (firstOpen?.dayKey ?? calendar.days[0].dayKey);
 
-  function goToWeek(weekStart: string) {
+  const day = calendar.days.find((entry) => entry.dayKey === activeDay);
+
+  function goToMonth(monthStart: string) {
     setScreen({ name: "picking" });
     setStep("calendar");
     setError(null);
     // A navigation rather than local state: the server owns which slots are
-    // free, and paging the calendar in the browser would show a week generated
-    // against nothing.
-    router.push(`/book?week=${weekStart}`);
+    // free, and paging the calendar in the browser would show a month
+    // generated against nothing.
+    router.push(`/book?month=${monthStart}`);
   }
 
   function submit(event: React.FormEvent) {
@@ -142,7 +159,7 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
       if (!result.ok) {
         setError(result.error);
         // The slot went while they were typing. Send them back to a freshly
-        // generated week rather than leaving them on a form for a dead time.
+        // generated month rather than leaving them on a form for a dead time.
         if (result.slotTaken) {
           setScreen({ name: "picking" });
           setStep("calendar");
@@ -301,14 +318,14 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
 
   return (
     <Card>
-      <div className="grid lg:grid-cols-[minmax(0,17rem)_1fr_minmax(0,15rem)]">
+      <div className="grid lg:h-[36rem] lg:grid-cols-[minmax(0,17rem)_1fr_minmax(0,16rem)]">
         <MeetingPanel className={cn(step === "times" && "hidden lg:flex")} />
 
-        {/* The week */}
+        {/* The month */}
         <div
           className={cn(
-            "border-border p-5 sm:p-6 lg:border-r",
-            step === "times" && "hidden lg:block",
+            "border-border flex flex-col p-5 sm:p-6 lg:border-r",
+            step === "times" && "hidden lg:flex",
           )}
         >
           <h2 className="text-base font-semibold tracking-tight">
@@ -316,15 +333,9 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
           </h2>
 
           <div className="mt-5 flex items-center justify-between gap-2">
-            <div>
-              <p className="text-sm font-medium">
-                {monthYear.format(dayKeyDate(calendar.weekStart))}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {monthDay.format(dayKeyDate(calendar.days[0].dayKey))} –{" "}
-                {monthDay.format(dayKeyDate(calendar.days[6].dayKey))}
-              </p>
-            </div>
+            <p className="text-base font-medium">
+              {monthYear.format(dayKeyDate(calendar.monthStart))}
+            </p>
 
             <div className="flex items-center gap-1">
               <Button
@@ -332,9 +343,9 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
                 variant="ghost"
                 size="icon-sm"
                 className="rounded-full"
-                aria-label="Previous week"
-                disabled={calendar.weekStart <= calendar.earliestWeek}
-                onClick={() => goToWeek(addDays(calendar.weekStart, -7))}
+                aria-label="Previous month"
+                disabled={calendar.monthStart <= calendar.earliestMonth}
+                onClick={() => goToMonth(addMonths(calendar.monthStart, -1))}
               >
                 <ChevronLeft />
               </Button>
@@ -343,72 +354,83 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
                 variant="ghost"
                 size="icon-sm"
                 className="rounded-full"
-                aria-label="Next week"
-                disabled={calendar.weekStart >= calendar.latestWeek}
-                onClick={() => goToWeek(addDays(calendar.weekStart, 7))}
+                aria-label="Next month"
+                disabled={calendar.monthStart >= calendar.latestMonth}
+                onClick={() => goToMonth(addMonths(calendar.monthStart, 1))}
               >
                 <ChevronRight />
               </Button>
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-7 gap-x-1 gap-y-2">
-            {calendar.days.map((entry) => (
+          {/* Seven columns, Monday first, square cells sized by the column so
+              the grid grows with the card rather than sitting small inside it.
+
+              The width is capped and centred because it cannot grow without
+              limit: the cells are square, so a wider column makes them taller
+              too, and six rows of them ran past the bottom of the card. This
+              is the size where a full six-row month still fits. */}
+          <div className="mx-auto mt-4 grid w-full max-w-[26rem] grid-cols-7 gap-1 sm:gap-1.5">
+            {WEEKDAY_LABELS.map((label) => (
               <span
-                key={`head-${entry.dayKey}`}
-                className="text-muted-foreground text-center text-[11px] font-medium tracking-wide uppercase"
+                key={label}
+                className="text-muted-foreground pb-1 text-center text-[11px] font-medium tracking-wide uppercase"
               >
-                {weekdayShort.format(dayKeyDate(entry.dayKey)).slice(0, 3)}
+                {label}
               </span>
+            ))}
+
+            {/* The 1st rarely falls on a Monday; without these every date would
+                sit under the wrong weekday. */}
+            {Array.from({ length: calendar.leadingBlanks }, (_, index) => (
+              <span key={`blank-${index}`} aria-hidden />
             ))}
 
             {calendar.days.map((entry) => {
               const open = entry.slots.length > 0;
-              const selected = entry.dayKey === selectedDay;
+              const selected = entry.dayKey === activeDay;
+              const isToday = entry.dayKey === today;
 
               return (
-                <div key={entry.dayKey} className="flex flex-col items-center gap-1">
-                  <button
-                    type="button"
-                    disabled={!open}
-                    aria-pressed={selected}
-                    aria-label={`${fullDay.format(dayKeyDate(entry.dayKey))}${
-                      open ? `, ${entry.slots.length} times free` : ", nothing free"
-                    }`}
-                    onClick={() => {
-                      setSelectedDay(entry.dayKey);
-                      setStep("times");
-                      setError(null);
-                    }}
-                    className={cn(
-                      "flex size-10 items-center justify-center rounded-full text-sm font-semibold tabular-nums transition-colors",
-                      "focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none",
-                      selected && open && "bg-primary text-primary-foreground",
-                      !selected &&
-                        open &&
-                        "bg-primary/10 text-primary hover:bg-primary/20",
-                      !open && "text-muted-foreground/50 cursor-not-allowed",
-                    )}
-                  >
-                    {dayKeyDate(entry.dayKey).getUTCDate()}
-                  </button>
+                <button
+                  key={entry.dayKey}
+                  type="button"
+                  disabled={!open}
+                  aria-pressed={selected}
+                  aria-label={`${fullDay.format(dayKeyDate(entry.dayKey))}${
+                    open ? `, ${entry.slots.length} times free` : ", nothing free"
+                  }`}
+                  onClick={() => {
+                    setSelectedDay(entry.dayKey);
+                    setStep("times");
+                    setError(null);
+                  }}
+                  className={cn(
+                    "relative flex aspect-square w-full items-center justify-center rounded-full",
+                    "text-sm font-semibold tabular-nums transition-colors",
+                    "focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none",
+                    selected && open && "bg-primary text-primary-foreground",
+                    !selected && open && "bg-primary/10 text-primary hover:bg-primary/20",
+                    !open && "text-muted-foreground/40 cursor-not-allowed",
+                  )}
+                >
+                  {dayKeyDate(entry.dayKey).getUTCDate()}
 
-                  {/* A dot says "something is free here" the way a calendar
-                      does, without spending a line on a count nobody compares
-                      between days. */}
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "size-1 rounded-full",
-                      open && !selected ? "bg-primary/60" : "bg-transparent",
-                    )}
-                  />
-                </div>
+                  {/* Today gets a marker even when it is fully booked, because
+                      "where am I in this month" is a different question from
+                      "what can I book". */}
+                  {isToday && !selected && (
+                    <span
+                      aria-hidden
+                      className="bg-foreground/60 absolute bottom-1 size-1 rounded-full"
+                    />
+                  )}
+                </button>
               );
             })}
           </div>
 
-          <p className="text-muted-foreground mt-5 flex items-center gap-2 text-xs">
+          <p className="text-muted-foreground mt-auto flex items-center gap-2 pt-5 text-xs">
             <Globe className="size-3.5 shrink-0" />
             Eastern Time (Montreal)
           </p>
@@ -438,7 +460,7 @@ export function BookingWidget({ calendar }: { calendar: CalendarWeek }) {
           </div>
 
           {day && day.slots.length > 0 ? (
-            <div className="mt-4 flex flex-col gap-2 overflow-y-auto overscroll-contain lg:max-h-[26rem]">
+            <div className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
               {day.slots.map((slot) => (
                 <button
                   key={slot.start}

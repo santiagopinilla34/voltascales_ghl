@@ -17,7 +17,15 @@ import {
   type BusyInterval,
   type DaySlots,
 } from "./slots";
-import { addDays, todayDayKey, weekOf, zonedTimeToUtc } from "./time";
+import {
+  addDays,
+  leadingBlanks,
+  monthOf,
+  startOfMonth,
+  todayDayKey,
+  weekOf,
+  zonedTimeToUtc,
+} from "./time";
 
 /**
  * Reads for the calendar.
@@ -154,6 +162,93 @@ export async function getCalendarWeek(
     }),
     earliestWeek: weekOf(today)[0],
     latestWeek: weekOf(horizonEnd)[0],
+  };
+}
+
+export type CalendarMonth = {
+  /** The 1st of the month being shown. */
+  monthStart: string;
+  /** Every day of that month, 1st to last. Days outside the bookable horizon
+   *  are present but empty, so the grid stays a real calendar. */
+  days: DaySlots[];
+  /** How many blank cells precede the 1st in a Monday-first grid. */
+  leadingBlanks: number;
+  /** Bounds for the back/forward controls, so they can be disabled at the ends. */
+  earliestMonth: string;
+  latestMonth: string;
+};
+
+/**
+ * Everything `/book` needs for one month, in the same four round trips a week
+ * took.
+ *
+ * Widening the window costs nothing extra in queries — the blocked dates and
+ * the bookings were already range reads, and `generateDays` is pure arithmetic
+ * over the rules — so a month is four reads and about thirty days of slot
+ * generation rather than seven.
+ *
+ * `anchor` is any day in the wanted month. Unlike the week version this does
+ * *not* clamp the anchor into the horizon, because a month is mostly a drawing:
+ * clamping would refuse to render October at all once the horizon ends in
+ * mid-October, when the right answer is to draw the month with its later days
+ * empty. The bounds below are what stop the arrows paging into 2043.
+ */
+export async function getCalendarMonth(
+  supabase: SupabaseClient<Database>,
+  anchorDayKey: string,
+  now: Date = new Date(),
+  orgId?: string,
+): Promise<CalendarMonth> {
+  const today = todayDayKey(now);
+  const horizonEnd = addDays(today, BOOKING_HORIZON_DAYS);
+
+  const clamped =
+    anchorDayKey < startOfMonth(today)
+      ? today
+      : anchorDayKey > horizonEnd
+        ? horizonEnd
+        : anchorDayKey;
+
+  const days = monthOf(clamped);
+  const [first, last] = [days[0], days[days.length - 1]];
+
+  // `orgId` is passed through to every read rather than relied on from RLS,
+  // because the public booking page runs on the service role with no session —
+  // unscoped, it would generate a calendar from every client's availability at
+  // once, showing one business's free slots as another's and treating a third's
+  // meetings as busy time.
+  const [rules, blockedRows, busy, settings] = await Promise.all([
+    listAvailabilityRules(supabase, orgId),
+    listBlockedDates(supabase, first, orgId),
+    listBusyBookings(supabase, first, last, orgId),
+    getSettings(supabase, orgId),
+  ]);
+
+  const blocked = new Map(blockedRows.map((row) => [row.date, row.reason]));
+
+  const generated = generateDays(days, {
+    rules,
+    blocked,
+    busy,
+    now,
+    // Falls back to the column default rather than to zero. A missing settings
+    // row means the migration hasn't run, and "no minimum notice" is the wrong
+    // way to fail — it would let someone book the slot that starts in four
+    // minutes.
+    minNoticeMinutes: settings?.booking_min_notice_minutes ?? 120,
+  });
+
+  return {
+    monthStart: first,
+    // Past the horizon the generator would happily invent slots nobody may
+    // book, so those days are emptied here rather than filtered out — the grid
+    // still needs the cell, it just has nothing in it.
+    days: generated.map((day) =>
+      day.dayKey > horizonEnd ? { ...day, slots: [], closedReason: null } : day,
+    ),
+    leadingBlanks: leadingBlanks(first),
+    earliestMonth: startOfMonth(today),
+    latestMonth: startOfMonth(horizonEnd),
   };
 }
 
