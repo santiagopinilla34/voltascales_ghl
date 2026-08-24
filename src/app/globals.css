@@ -369,3 +369,10 @@
     transform: translateY(-2px);
   }
 }
+
+/* One tip replacing another in the knowledge-base strip. A plain crossfade:
+   the two say unrelated things, so anything that slid would imply an order
+   they do not have. */
+.tip-enter {
+  animation: page-fade 260ms ease-out both;
+}

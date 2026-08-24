@@ -163,3 +163,4 @@ export type Invoice = Tables<"invoices">;
 export type AvailabilityRule = Tables<"availability_rules">;
 export type BlockedDate = Tables<"blocked_dates">;
 export type Booking = Tables<"bookings">;
+export type KnowledgeBase = Tables<"knowledge_bases">;
