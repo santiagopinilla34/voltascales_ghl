@@ -17,6 +17,7 @@ import {
   KanbanSquare,
   PhoneCall,
   Settings,
+  Sparkles,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -63,6 +64,12 @@ const NAV: NavItem[] = [
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/business", label: "My Business", icon: Briefcase },
   { href: "/automations", label: "Automations", icon: Bot },
+  // Beside Automations because they are the same thought — work that happens
+  // without anyone doing it — and apart from it because the difference is
+  // worth seeing in the menu. An automation follows a rule you wrote. An agent
+  // holds the conversation itself, and what it says comes from how it was
+  // trained rather than from a branch on a canvas.
+  { href: "/ai-agents", label: "AI Agents", icon: Sparkles },
   // Infrastructure the CRM runs on, grouped after the day-to-day pages: you
   // buy a number or a domain once and then forget about it.
   { href: "/phone", label: "Phone System", icon: PhoneCall },

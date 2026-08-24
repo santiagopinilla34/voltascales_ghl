@@ -303,3 +303,69 @@
 .thread-enter {
   animation: page-fade var(--motion-enter) ease-out both;
 }
+
+
+/* ---------------------------------------------------------------------------
+   AI Agents
+   ---------------------------------------------------------------------------
+   Two pieces of scenery for the Getting Started screen, kept here rather than
+   inlined as arbitrary Tailwind values because both are long enough that in a
+   class attribute they would be unreadable, and both need to answer the theme.
+
+   The grid is drawn from `--border`, so it is a hairline on white and a faint
+   lift out of near-black without a second rule. It fades out towards the
+   bottom: a grid that runs edge to edge reads as graph paper, one that
+   dissolves reads as depth behind the content. `mask-image` rather than a
+   gradient overlay so it works over whatever the page background happens to
+   be.
+
+   The orb is what a voice agent looks like when it is listening, and it is the
+   one thing on the page that moves on its own. Three rings on a long stagger,
+   slow enough to read as breathing rather than as a loading spinner — the
+   difference is entirely in the duration. The reduced-motion block further up
+   stops all three, which is correct: this is decoration and it is the exact
+   kind that makes some people ill.
+   --------------------------------------------------------------------------- */
+
+.agent-grid {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 44px 44px;
+  opacity: 0.5;
+  mask-image: linear-gradient(to bottom, black, transparent 70%);
+}
+
+.agent-orb-ring {
+  animation: agent-orb 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes agent-orb {
+  from {
+    opacity: 0.55;
+    transform: scale(0.72);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
+/* The three dots under a message that is being written. Staggered by the
+   component, same reasoning as the skeleton bubbles above. */
+.agent-typing-dot {
+  animation: agent-typing 1.4s ease-in-out infinite;
+}
+
+@keyframes agent-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
