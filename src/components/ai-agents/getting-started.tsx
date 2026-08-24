@@ -11,14 +11,12 @@ import {
   Handshake,
   MessageSquare,
   MoonStar,
-  PhoneCall,
   type LucideIcon,
 } from "lucide-react";
 
 import {
   ConversationPhone,
   KnowledgePhone,
-  VoicePhone,
 } from "@/components/ai-agents/agent-mockups";
 import { cn } from "@/lib/utils";
 
@@ -55,23 +53,19 @@ type Slide = {
   mockup: React.ReactNode;
 };
 
+/**
+ * The voice agent used to open this and does not appear at all at the moment.
+ * It is the furthest off of the three, and leading with the thing that is not
+ * being built next made the section a promise rather than a place to start.
+ * `VoicePhone` is still in the mockups file, ready for the day it returns.
+ */
 const SLIDES: Slide[] = [
   {
-    key: "voice",
-    eyebrow: "Voice agent",
-    eyebrowIcon: PhoneCall,
-    headline: ["Never miss a call,", "ever again"],
-    body: "Your Voice Agent picks up every call to your business, day or night — booking appointments, quoting your prices, answering the questions you get asked twenty times a week, and taking down the details of anyone who wants a call back. Nobody reaches a voicemail, and nobody rings the next company on the list while your line is busy.",
-    ctaLabel: "Set up Voice AI",
-    ctaHref: "/ai-agents/voice",
-    mockup: <VoicePhone />,
-  },
-  {
     key: "conversation",
-    eyebrow: "Conversation agent",
+    eyebrow: "AI chatbot",
     eyebrowIcon: MessageSquare,
     headline: ["Reply in seconds,", "not tomorrow morning"],
-    body: "Most leads go to whoever answers first. Your Conversation Agent watches the inbox and replies the moment a message arrives — working out what they need, offering the times you actually have free, and booking the one they pick. The moment you start typing, it steps out of the way.",
+    body: "Most leads go to whoever answers first, and most of them are asking the same handful of questions. Your chatbot picks up every message the moment it lands — what you charge, what you do, whether you cover their area — sorts out who is worth your time, and books the ones who are straight into your calendar. The moment you start typing, it steps out of the way.",
     ctaLabel: "Set up Conversation AI",
     ctaHref: "/ai-agents/conversation",
     mockup: <ConversationPhone />,
@@ -81,7 +75,7 @@ const SLIDES: Slide[] = [
     eyebrow: "Knowledge base",
     eyebrowIcon: BookOpen,
     headline: ["Trained on your business,", "not on the internet"],
-    body: "An agent is only as good as what it knows. This is where you put your prices, your hours, your services and the answers you would give yourself — and every agent you run reads from it. Put your rates up once here and both agents quote the new ones from the next call onwards.",
+    body: "A chatbot is only as good as what it knows. This is where you put your prices, your hours, your services and the answers you would give yourself — and every agent you run reads from it. Put your rates up once here and the chatbot quotes the new ones from the very next message.",
     ctaLabel: "Build the knowledge base",
     ctaHref: "/ai-agents/knowledge-base",
     mockup: <KnowledgePhone />,
@@ -93,7 +87,7 @@ const PROMISES: { icon: LucideIcon; title: string; body: string }[] = [
   {
     icon: MoonStar,
     title: "Nothing waits until Monday",
-    body: "The call at 9pm and the message on Saturday get the same answer as the ones at eleven on a Tuesday.",
+    body: "The message at 9pm and the one on Saturday get the same answer as the ones at eleven on a Tuesday.",
   },
   {
     icon: CalendarCheck,
@@ -136,7 +130,11 @@ export function GettingStarted() {
 
         <div
           key={slide.key}
-          className="page-enter grid flex-1 items-center gap-10 py-10 lg:grid-cols-2 lg:gap-12 lg:py-16"
+          // Less air above and below than there was: the phone grew about a
+          // hundred and thirty pixels taller when it was given real
+          // proportions, and the padding that framed the short one nicely was
+          // pushing the promises row off a laptop screen entirely.
+          className="page-enter grid flex-1 items-center gap-10 py-8 lg:grid-cols-2 lg:gap-12 lg:py-12"
         >
           <div className="flex min-w-0 flex-col items-start">
             <span className="text-muted-foreground flex items-center gap-2 text-[0.6875rem] font-medium tracking-[0.14em] uppercase">

@@ -4,6 +4,7 @@ import {
   Check,
   Clock,
   DollarSign,
+  MessageSquare,
   Mic,
   Phone,
   Signal,
@@ -25,12 +26,20 @@ import {
  * that would otherwise be read out twice.
  */
 
-/** The phone: notch, status bar, and whatever the slide puts on the screen. */
+/**
+ * The phone: notch, status bar, and whatever the slide puts on the screen.
+ *
+ * Sized by aspect ratio rather than a fixed height, and the ratio is the one a
+ * real phone has — 9:19.5, which is what an iPhone from the last several years
+ * measures. The first version was 296x480, near enough 9:14.6, and a phone
+ * that much too short reads as a squashed picture of a phone: the eye knows
+ * this shape well enough to notice a wrong one without being able to say why.
+ */
 function PhoneFrame({ children }: { children: React.ReactNode }) {
   return (
     <div
       aria-hidden
-      className="bg-card relative flex h-[30rem] w-full max-w-[18.5rem] shrink-0 flex-col overflow-hidden rounded-[2.5rem] border p-2.5 shadow-xl shadow-black/5 dark:shadow-black/40"
+      className="bg-card relative flex aspect-[9/19.5] w-full max-w-[17.5rem] shrink-0 flex-col overflow-hidden rounded-[2.75rem] border p-2.5 shadow-xl shadow-black/5 dark:shadow-black/40"
     >
       {/* Status bar. The 9:41 is the one everybody's phone shows in a mockup,
           and picking the real time here would date the screenshot. */}
@@ -51,6 +60,10 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-0 flex-1 flex-col px-1 pt-2 pb-1">
         {children}
       </div>
+
+      {/* The home indicator. Small thing, but it is the bar every phone has
+          along the bottom edge and the shape looks unfinished without it. */}
+      <span className="bg-foreground/25 mx-auto mb-1.5 h-1 w-24 shrink-0 rounded-full" />
     </div>
   );
 }
@@ -81,7 +94,14 @@ function AppBar({
   );
 }
 
-/** Voice AI: the agent waiting to pick up. */
+/**
+ * Voice AI: the agent waiting to pick up.
+ *
+ * Not on Getting Started at the moment — the chatbot leads instead, because it
+ * is the one being built first and the one worth explaining. Kept rather than
+ * deleted because "for now" was the word used, and this comes back the day
+ * voice does.
+ */
 export function VoicePhone() {
   return (
     <PhoneFrame>
@@ -120,11 +140,19 @@ export function VoicePhone() {
 
 /** Conversation AI: a lead answered before anybody in the office saw it. */
 export function ConversationPhone() {
+  // Long enough to fill the frame, and picked to show the two things the
+  // chatbot is actually for: it knows the price without asking anyone, and it
+  // gets to a booked time rather than to "someone will call you back".
   const thread = [
-    { from: "them", text: "Hi — do you have anything free this week?" },
+    { from: "them", text: "Hi — what do you charge for a full service?" },
     {
       from: "us",
-      text: "We do. Thursday 2pm or Friday 10am are both open — which suits you?",
+      text: "$180, and it takes about two hours. Want me to find you a slot?",
+    },
+    { from: "them", text: "Yes please, anything this week?" },
+    {
+      from: "us",
+      text: "Thursday 2pm or Friday 10am are both open — which suits you?",
     },
     { from: "them", text: "Thursday works" },
   ] as const;
@@ -174,7 +202,7 @@ export function KnowledgePhone() {
     { icon: DollarSign, label: "Pricing and packages", meta: "6 items" },
     { icon: Clock, label: "Opening hours", meta: "Mon–Sat" },
     { icon: BookOpen, label: "Services offered", meta: "11 items" },
-    { icon: Phone, label: "Call handling rules", meta: "4 rules" },
+    { icon: MessageSquare, label: "Common questions", meta: "18 saved" },
   ];
 
   return (
