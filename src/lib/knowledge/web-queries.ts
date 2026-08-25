@@ -95,6 +95,29 @@ export async function countWebPages(
   return count ?? 0;
 }
 
+/**
+ * How many crawled pages sit on one base.
+ *
+ * Distinct from `countWebPages` above, which has no base filter because the
+ * limit it feeds is per organization. This one is the number on the All tab's
+ * Web crawler card, and that card is about the base it is on.
+ */
+export async function countWebPagesForBase(
+  supabase: SupabaseClient<Database>,
+  baseId: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("knowledge_web_pages")
+    .select("id", { count: "exact", head: true })
+    .eq("base_id", baseId);
+
+  if (error) {
+    throw new Error(`Failed to count crawled pages: ${error.message}`);
+  }
+
+  return count ?? 0;
+}
+
 /** One page, text included. What the scraped-data dialog opens. */
 export async function getWebPage(
   supabase: SupabaseClient<Database>,

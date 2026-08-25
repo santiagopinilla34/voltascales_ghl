@@ -47,18 +47,29 @@ export type KnowledgeSourceKind = {
   label: string;
   /** What it is, shown on its own empty screen. */
   blurb: string;
+  /**
+   * What one of its rows is called, above the count on the All card.
+   *
+   * Not the label again. A web crawler's card counts *links* and a FAQ's
+   * counts *FAQs*, because "Web crawler: 13" reads as thirteen crawlers. The
+   * plural is the noun a person would use for the things inside, which is the
+   * only word that makes the number mean anything.
+   */
+  metric: string;
 };
 
 export const KNOWLEDGE_SOURCE_KINDS: KnowledgeSourceKind[] = [
   {
     segment: "web-crawler",
     label: "Web crawler",
+    metric: "Links",
     blurb:
       "Point it at your site and it reads the pages, so the agent answers from what you already publish instead of from a copy that goes stale.",
   },
   {
     segment: "faq",
     label: "FAQ",
+    metric: "FAQs",
     blurb:
       "The questions you answer several times a week, written down in the wording you already use — question in, answer out, nothing to crawl.",
   },
