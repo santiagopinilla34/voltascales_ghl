@@ -68,6 +68,18 @@ export const serverEnv = {
   get anthropicApiKey() {
     return required("ANTHROPIC_API_KEY", process.env.ANTHROPIC_API_KEY);
   },
+  /**
+   * Firecrawl, which renders a page's JavaScript before reading it.
+   *
+   * Deliberately not `required`. Half the sites the crawler is pointed at are
+   * server-rendered and never need it, and the ones that do fall back to a
+   * free reader service when it is unset — so an absent key makes the crawler
+   * less reliable rather than broken, and throwing here would take the whole
+   * Web crawler tab down over a page that would have worked anyway.
+   */
+  get firecrawlApiKey(): string | null {
+    return process.env.FIRECRAWL_API_KEY?.trim() || null;
+  },
 };
 
 /**

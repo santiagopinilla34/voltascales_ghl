@@ -1,5 +1,5 @@
 /**
- * Knowledge bases: the rules about them, and the ones worth starting with.
+ * Knowledge bases: the rules about them.
  *
  * A knowledge base is a named set of facts an agent is allowed to answer from.
  * The reason there is more than one per organization is in the migration; the
@@ -9,9 +9,9 @@
  * language model can be trusted to exercise judgement over.
  *
  * Deliberately client-safe -- no `server-only` -- because the create dialog
- * runs in the browser and needs the limit, the field lengths and the starter
- * list. Reading from Postgres lives next door in `queries.ts`, which is
- * server-only; nothing in this file touches the database.
+ * runs in the browser and needs the limit and the field lengths. Reading from
+ * Postgres lives next door in `queries.ts`, which is server-only; nothing in
+ * this file touches the database.
  */
 
 /**
@@ -35,68 +35,31 @@ export const NAME_MAX = 60;
 export const DESCRIPTION_MAX = 200;
 
 /**
- * The bases worth starting with, offered when creating one.
+ * The kinds of thing a base can be filled from.
  *
- * An empty knowledge base screen is a blank page problem: everybody agrees the
- * agent should know things, and nobody knows what the first thing is. These
- * are the subjects that actually come up on a call or in a chat, in the order
- * they come up, so the answer to "what do I make first" is a list rather than
- * a cursor blinking in a text field.
- *
- * They are only prefilled names and descriptions — picking one creates an
- * ordinary base you can rename or delete like any other. Nothing about a base
- * is decided by which of these it started as.
+ * Routes under a base, and the list the empty state offers. Only two so far;
+ * the shape is here so adding a third is a row in this array rather than a
+ * hunt through three files for the places tabs are written out.
  */
-export type StarterBase = {
-  /** Stable key for the picker, not stored. */
-  key: string;
-  name: string;
-  description: string;
-  /** What goes in it, shown under the option. */
-  hint: string;
+export type KnowledgeSourceKind = {
+  /** URL segment under `/ai-agents/knowledge-base/[baseId]`. */
+  segment: string;
+  label: string;
+  /** What it is, shown on its own empty screen. */
+  blurb: string;
 };
 
-export const STARTER_BASES: StarterBase[] = [
+export const KNOWLEDGE_SOURCE_KINDS: KnowledgeSourceKind[] = [
   {
-    key: "pricing",
-    name: "Pricing and packages",
-    description: "What everything costs, and what is included at each price.",
-    hint: "The single most asked question, and the one where a wrong answer is expensive. Include what is not included.",
+    segment: "web-crawler",
+    label: "Web crawler",
+    blurb:
+      "Point it at your site and it reads the pages, so the agent answers from what you already publish instead of from a copy that goes stale.",
   },
   {
-    key: "services",
-    name: "Services",
-    description: "What you do, how long each job takes, and what it involves.",
-    hint: "Written the way a customer would ask for it rather than the way it appears on an invoice.",
-  },
-  {
-    key: "availability",
-    name: "Hours and areas covered",
-    description: "When you are open, how far you travel, and what that costs.",
-    hint: "Stops the agent booking a job two hours outside your area for eight on a Sunday.",
-  },
-  {
-    key: "booking",
-    name: "Booking and cancellation policy",
-    description: "Deposits, notice periods, rescheduling and no-shows.",
-    hint: "The rules the agent has to apply while it is booking, not after somebody complains.",
-  },
-  {
-    key: "faq",
-    name: "Frequently asked questions",
-    description: "The questions you answer several times a week.",
-    hint: "Worth writing down verbatim: the phrasing you already use is the phrasing that works.",
-  },
-  {
-    key: "about",
-    name: "About the business",
-    description: "Who you are, how long you have been going, and what you are known for.",
-    hint: "Gives the agent something to say beyond the price list, which is most of what makes it sound like you.",
-  },
-  {
-    key: "escalation",
-    name: "Escalation and limits",
-    description: "What the agent must not answer, and who it hands over to.",
-    hint: "Keep this one internal. It is the base that stops an agent guessing at a complaint or a legal question.",
+    segment: "faq",
+    label: "FAQ",
+    blurb:
+      "The questions you answer several times a week, written down in the wording you already use — question in, answer out, nothing to crawl.",
   },
 ];

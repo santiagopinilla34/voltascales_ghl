@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import {
@@ -194,8 +195,17 @@ export function KnowledgeBaseList({
               {shown.map((base) => (
                 <TableRow key={base.id}>
                   <TableCell className="max-w-0">
-                    <span className="flex flex-col gap-0.5">
-                      <span className="truncate font-medium">{base.name}</span>
+                    {/* The whole name block is the link, not just the name:
+                        the description under it is part of what you read to
+                        decide this is the row you wanted, so it should be part
+                        of what you can click having decided. */}
+                    <Link
+                      href={`/ai-agents/knowledge-base/${base.id}`}
+                      className="flex flex-col gap-0.5"
+                    >
+                      <span className="truncate font-medium hover:underline">
+                        {base.name}
+                      </span>
                       {base.description && (
                         <span className="text-muted-foreground truncate text-xs">
                           {base.description}
@@ -204,7 +214,7 @@ export function KnowledgeBaseList({
                       <span className="text-muted-foreground truncate text-xs sm:hidden">
                         Updated {formatFullTimestamp(base.updated_at)}
                       </span>
-                    </span>
+                    </Link>
                   </TableCell>
 
                   <TableCell className="text-muted-foreground hidden text-xs sm:table-cell">

@@ -154,3 +154,7 @@ next-env.d.ts
 # cover .env files, including the `!.env.example` exception the CLI would
 # otherwise undo by appending a blanket `.env*` after it.
 .vercel
+
+# Firecrawl onboarding doc. Carries a live API key in its last section, and
+# lives at the repo root where "git add ." would sweep it in.
+SKILL.md

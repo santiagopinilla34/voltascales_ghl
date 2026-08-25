@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Check, Loader2, Plus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -21,32 +21,24 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  DESCRIPTION_MAX,
-  NAME_MAX,
-  STARTER_BASES,
-  type StarterBase,
-} from "@/lib/knowledge/bases";
+import { DESCRIPTION_MAX, NAME_MAX } from "@/lib/knowledge/bases";
 import type { KnowledgeBase } from "@/types/database";
-import { cn } from "@/lib/utils";
 
 /**
- * Making a knowledge base, or renaming one.
+ * Making a knowledge base, or editing what one is called.
  *
  * One component for both because the fields are the same two, and two dialogs
  * that drift apart is how a base ends up renameable to something it could not
  * have been created as.
  *
- * The difference is the list at the top, which only creating gets. An empty
- * knowledge base screen is a blank-page problem — everyone agrees the agent
- * should know things and nobody knows what the first thing is — so the
- * starters answer "what do I make first" with a list rather than a blinking
- * cursor. Picking one only fills the fields in; what gets created is an
- * ordinary base, and nothing about it remembers which starter it came from.
+ * Two fields and nothing else. Naming a base is not the interesting part of
+ * making one — what goes in it is — so this gets out of the way and hands you
+ * over to the base itself, which is why creating navigates rather than
+ * dropping a new row into the list for you to find and click.
  *
- * A starter whose name is already taken is shown as taken rather than hidden.
- * Hiding it invites making it again under a slightly different name, which is
- * the outcome the unique index exists to prevent.
+ * The taken-name check is done here as well as by the unique index. The index
+ * is what makes it true; this is what makes it visible before you have typed a
+ * description you are about to lose.
  */
 
 export function KnowledgeBaseDialog({
@@ -59,17 +51,16 @@ export function KnowledgeBaseDialog({
   onOpenChange: (open: boolean) => void;
   /** Every base already on the account, for the taken-name check. */
   existing: KnowledgeBase[];
-  /** Renaming this one, or creating a new one when absent. */
+  /** Editing this one, or creating a new one when absent. */
   base?: KnowledgeBase;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const renaming = Boolean(base);
+  const editing = Boolean(base);
 
   const [name, setName] = useState(base?.name ?? "");
   const [description, setDescription] = useState(base?.description ?? "");
-  const [starter, setStarter] = useState<string | null>(null);
 
   const takenNames = new Set(
     existing
@@ -77,37 +68,50 @@ export function KnowledgeBaseDialog({
       .map((item) => item.name.trim().toLowerCase()),
   );
 
+  const trimmed = name.trim();
+  const taken = trimmed.length > 0 && takenNames.has(trimmed.toLowerCase());
+
   function reset() {
     setName(base?.name ?? "");
     setDescription(base?.description ?? "");
-    setStarter(null);
-  }
-
-  function choose(option: StarterBase) {
-    setStarter(option.key);
-    setName(option.name);
-    setDescription(option.description);
   }
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
 
     startTransition(async () => {
-      const result = base
-        ? await renameKnowledgeBase(base.id, { name, description })
-        : await createKnowledgeBase({ name, description });
+      if (base) {
+        const result = await renameKnowledgeBase(base.id, {
+          name,
+          description,
+        });
+
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+
+        toast.success("Knowledge base updated");
+        onOpenChange(false);
+        // The action revalidates the path; this is what makes the open page
+        // pick that up without a reload.
+        router.refresh();
+        return;
+      }
+
+      const result = await createKnowledgeBase({ name, description });
 
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
 
-      toast.success(renaming ? "Knowledge base updated" : "Knowledge base created");
       onOpenChange(false);
       reset();
-      // The action revalidates the path; this is what makes the open page pick
-      // that up without a reload.
-      router.refresh();
+      // Straight into the base rather than back to the list. A base you have
+      // just named is empty, and the next thing you want is the screen that
+      // lets you put something in it.
+      router.push(`/ai-agents/knowledge-base/${result.value.id}`);
     });
   }
 
@@ -119,88 +123,37 @@ export function KnowledgeBaseDialog({
         if (!next) reset();
       }}
     >
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {renaming ? "Edit knowledge base" : "New knowledge base"}
+            {editing ? "Edit knowledge base" : "Create knowledge base"}
           </DialogTitle>
           <DialogDescription>
-            {renaming
+            {editing
               ? "What it is called, and what belongs in it."
-              : "A named set of facts your agents are allowed to answer from."}
+              : "Give your knowledge base a name."}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="flex flex-col gap-4">
-          {!renaming && (
-            <div className="flex flex-col gap-2">
-              <Label className="text-xs">Start from</Label>
-
-              <div className="flex flex-col gap-1.5">
-                {STARTER_BASES.map((option) => {
-                  const taken = takenNames.has(option.name.toLowerCase());
-                  const selected = starter === option.key;
-
-                  return (
-                    <button
-                      key={option.key}
-                      type="button"
-                      disabled={taken}
-                      onClick={() => choose(option)}
-                      className={cn(
-                        "flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
-                        taken
-                          ? "cursor-not-allowed opacity-50"
-                          : "hover:bg-accent",
-                        selected && "border-foreground bg-accent",
-                      )}
-                    >
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
-                        {selected && <Check className="size-3.5" />}
-                      </span>
-
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
-                          {option.name}
-                          {taken && (
-                            <span className="text-muted-foreground font-normal">
-                              — already added
-                            </span>
-                          )}
-                        </span>
-                        <span className="text-muted-foreground text-[0.6875rem] leading-relaxed">
-                          {option.hint}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <p className="text-muted-foreground text-[0.6875rem]">
-                Or ignore these and write your own below — a starter only fills
-                in the name and description.
-              </p>
-            </div>
-          )}
-
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="kb-name" className="text-xs">
-              Name
+              Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="kb-name"
               value={name}
               maxLength={NAME_MAX}
-              onChange={(event) => {
-                setName(event.target.value);
-                // Typing over a starter's name means it is no longer that
-                // starter, and the tick should stop claiming otherwise.
-                setStarter(null);
-              }}
-              placeholder="Pricing and packages"
-              autoFocus={renaming}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Enter knowledge base name"
+              aria-invalid={taken || undefined}
+              autoFocus
             />
+            {taken && (
+              <p className="text-destructive text-xs">
+                There&apos;s already a knowledge base with that name.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -216,8 +169,11 @@ export function KnowledgeBaseDialog({
               maxLength={DESCRIPTION_MAX}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="What belongs in here, so the next person knows which base to edit."
-              rows={2}
+              rows={4}
             />
+            <p className="text-muted-foreground self-end text-xs tabular-nums">
+              {description.length} / {DESCRIPTION_MAX}
+            </p>
           </div>
 
           <DialogFooter>
@@ -230,15 +186,13 @@ export function KnowledgeBaseDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" size="sm" disabled={pending || !name.trim()}>
-              {pending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : renaming ? (
-                <Check className="size-4" />
-              ) : (
-                <Plus className="size-4" />
-              )}
-              {renaming ? "Save changes" : "Create knowledge base"}
+            <Button
+              type="submit"
+              size="sm"
+              disabled={pending || !trimmed || taken}
+            >
+              {pending && <Loader2 className="size-4 animate-spin" />}
+              {editing ? "Save changes" : "Add"}
             </Button>
           </DialogFooter>
         </form>

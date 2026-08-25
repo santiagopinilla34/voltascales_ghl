@@ -145,7 +145,10 @@ export async function renameKnowledgeBase(
 
   if (error) return { ok: false, error: describe(error) };
 
-  revalidatePath(PATH);
+  // "layout" rather than the bare path: the name and description are drawn by
+  // the detail screen's layout as well as by the row in the list, and a page
+  // revalidation would leave the header still saying the old name.
+  revalidatePath(PATH, "layout");
   return { ok: true, value: null };
 }
 

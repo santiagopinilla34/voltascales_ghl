@@ -100,6 +100,22 @@ type Override<T, O> = Omit<T, keyof O> & O;
  * writes still accept the unions, while reads — where an unexpected value
  * actually has to be handled — come back narrowed.
  */
+/**
+ * How far a crawl follows links from the URL it was given. See
+ * `lib/knowledge/crawl.ts`, which is where the labels and the scope test live.
+ */
+export type CrawlMode = "exact" | "path" | "domain";
+
+/**
+ * A website's crawl, end to end. There is no `training` state: extraction
+ * happens in the same step as the fetch, so a page is trained the moment it is
+ * crawled.
+ */
+export type WebSourceStatus = "queued" | "crawling" | "trained" | "failed";
+
+/** One URL: found, read, or unreadable. */
+export type WebPageStatus = "pending" | "trained" | "failed";
+
 type RowOverrides = {
   contacts: { status: ContactStatus };
   messages: { direction: MessageDirection; sent_by: MessageSender };
@@ -112,6 +128,8 @@ type RowOverrides = {
   ai_drafts: { source: AiDraftSource };
   pipeline_entries: { stage: PipelineStage };
   bookings: { status: BookingStatus };
+  knowledge_web_sources: { mode: CrawlMode; status: WebSourceStatus };
+  knowledge_web_pages: { status: WebPageStatus };
 };
 
 type GeneratedTablesMap = Generated["public"]["Tables"];
@@ -164,3 +182,5 @@ export type AvailabilityRule = Tables<"availability_rules">;
 export type BlockedDate = Tables<"blocked_dates">;
 export type Booking = Tables<"bookings">;
 export type KnowledgeBase = Tables<"knowledge_bases">;
+export type KnowledgeWebSource = Tables<"knowledge_web_sources">;
+export type KnowledgeWebPage = Tables<"knowledge_web_pages">;

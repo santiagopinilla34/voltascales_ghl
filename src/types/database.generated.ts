@@ -698,6 +698,127 @@ export type Database = {
           },
         ]
       }
+      knowledge_web_pages: {
+        Row: {
+          base_id: string
+          content: string | null
+          created_at: string
+          error: string | null
+          id: string
+          org_id: string
+          source_id: string
+          status: string
+          updated_at: string
+          url: string
+          word_count: number
+        }
+        Insert: {
+          base_id: string
+          content?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          org_id: string
+          source_id: string
+          status?: string
+          updated_at?: string
+          url: string
+          word_count?: number
+        }
+        Update: {
+          base_id?: string
+          content?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          org_id?: string
+          source_id?: string
+          status?: string
+          updated_at?: string
+          url?: string
+          word_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_web_pages_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_web_pages_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_web_pages_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_web_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_web_sources: {
+        Row: {
+          base_id: string
+          created_at: string
+          error: string | null
+          id: string
+          mode: string
+          org_id: string
+          pages_crawled: number
+          pages_found: number
+          status: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          base_id: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          mode?: string
+          org_id: string
+          pages_crawled?: number
+          pages_found?: number
+          status?: string
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          base_id?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          mode?: string
+          org_id?: string
+          pages_crawled?: number
+          pages_found?: number
+          status?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_web_sources_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_web_sources_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           body: string | null

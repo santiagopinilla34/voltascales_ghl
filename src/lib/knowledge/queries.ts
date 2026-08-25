@@ -39,3 +39,28 @@ export async function listKnowledgeBases(
 
   return data ?? [];
 }
+
+/**
+ * One base, or null when there isn't one to see.
+ *
+ * No org filter, for the reason above: RLS answers "is this yours" already, so
+ * a base belonging to another tenant comes back as null here and the detail
+ * page turns that into a 404 — the same thing a made-up id gets, which is the
+ * point.
+ */
+export async function getKnowledgeBase(
+  supabase: SupabaseClient<Database>,
+  baseId: string,
+): Promise<KnowledgeBase | null> {
+  const { data, error } = await supabase
+    .from("knowledge_bases")
+    .select("*")
+    .eq("id", baseId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load knowledge base: ${error.message}`);
+  }
+
+  return data;
+}
