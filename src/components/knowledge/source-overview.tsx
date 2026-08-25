@@ -21,10 +21,24 @@ import { KNOWLEDGE_SOURCE_KINDS } from "@/lib/knowledge/bases";
  * source exists, which is exactly backwards on the screen whose job is to say
  * what a base could be filled with.
  *
- * The whole card is the link, and the plus is drawn inside it rather than
- * being its own button. Two controls that go to the same place is a choice
- * nobody wants to make, and a button nested inside a link is invalid markup
- * that keyboard users hit before anybody else does.
+ * ## The card and the plus are two different destinations
+ *
+ * The card opens the source; the plus opens that source's add dialog. So they
+ * are two links, not one, and they cannot be nested -- a link inside a link is
+ * invalid markup that keyboard users meet before anybody else.
+ *
+ * The card's link is therefore the title, stretched over the whole card with
+ * an `after` pseudo-element, and the plus sits above it on the z axis. That is
+ * the one arrangement where the whole card is clickable, the plus is
+ * separately clickable, and the accessibility tree still contains exactly two
+ * links with names worth reading.
+ *
+ * The plus does not open a dialog from here. It links to the source's tab with
+ * `?add=1`, and that tab opens its own dialog on arrival — see
+ * `useOpenOnArrival`. Reaching across into another screen's state would mean
+ * this component holding a crawler dialog and a FAQ dialog, along with the
+ * base's questions for the taken-question check, on a screen whose whole job
+ * is to show five numbers.
  *
  * The icons live here rather than in `bases.ts` because that module is shared
  * with the server and a Lucide component in it would drag the icon set into
@@ -50,40 +64,43 @@ export function SourceOverview({
         const Icon = ICONS[kind.segment];
         const count = counts[kind.segment] ?? 0;
 
+        const href = `/ai-agents/knowledge-base/${baseId}/${kind.segment}`;
+
         return (
-          <Link
+          <div
             key={kind.segment}
-            href={`/ai-agents/knowledge-base/${baseId}/${kind.segment}`}
-            className="hover:border-primary/40 focus-visible:ring-ring/50 group flex flex-col overflow-hidden rounded-xl border transition-colors focus-visible:ring-3 focus-visible:outline-none"
+            className="hover:border-primary/40 group relative flex flex-col overflow-hidden rounded-xl border transition-colors focus-within:border-primary/40"
           >
-            <span className="flex items-center gap-3 px-4 py-3">
+            <div className="flex items-center gap-3 px-4 py-3">
               <span className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-full">
                 {Icon && <Icon className="size-4" />}
               </span>
 
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
+              <Link
+                href={href}
+                className="after:absolute after:inset-0 focus-visible:ring-ring/50 min-w-0 flex-1 truncate rounded-sm text-sm font-semibold tracking-tight focus-visible:ring-3 focus-visible:outline-none"
+              >
                 {kind.label}
-              </span>
+              </Link>
 
-              {/* Decorative: the card around it is the control. Hidden from
-                  screen readers so the link is announced once, by its name. */}
-              <span
-                aria-hidden
-                className="text-muted-foreground group-hover:text-primary flex size-7 shrink-0 items-center justify-center transition-colors"
+              <Link
+                href={`${href}?add=1`}
+                aria-label={`Add to ${kind.label}`}
+                className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 relative z-10 flex size-7 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:ring-3 focus-visible:outline-none"
               >
                 <Plus className="size-4" />
-              </span>
-            </span>
+              </Link>
+            </div>
 
-            <span className="bg-muted/40 flex flex-col gap-0.5 border-t px-4 py-3">
+            <div className="bg-muted/40 flex flex-col gap-0.5 border-t px-4 py-3">
               <span className="text-muted-foreground text-xs">
                 {kind.metric}
               </span>
               <span className="text-sm tabular-nums">
                 {count.toLocaleString()}
               </span>
-            </span>
-          </Link>
+            </div>
+          </div>
         );
       })}
     </div>

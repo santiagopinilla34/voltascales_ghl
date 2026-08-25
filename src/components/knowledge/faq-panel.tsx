@@ -18,6 +18,7 @@ import {
   deleteFaqs,
 } from "@/app/(app)/ai-agents/knowledge-base/[baseId]/faq/actions";
 import { FaqDialog } from "@/components/knowledge/faq-dialog";
+import { useOpenOnArrival } from "@/hooks/use-open-on-arrival";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -61,7 +62,9 @@ export function FaqPanel({
 
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<KnowledgeFaq | undefined>(undefined);
-  const [adding, setAdding] = useState(false);
+  // Seeded from `?add=1`, which is what the plus on the All tab's FAQ card
+  // links to. Every other way in goes through `startAdd` below.
+  const [adding, setAdding] = useOpenOnArrival();
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);

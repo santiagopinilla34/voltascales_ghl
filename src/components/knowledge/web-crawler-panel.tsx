@@ -26,6 +26,7 @@ import {
 } from "@/app/(app)/ai-agents/knowledge-base/[baseId]/web-crawler/actions";
 import { AddWebsiteDialog } from "@/components/knowledge/add-website-dialog";
 import { ScrapedDataDialog } from "@/components/knowledge/scraped-data-dialog";
+import { useOpenOnArrival } from "@/hooks/use-open-on-arrival";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -87,7 +88,9 @@ export function WebCrawlerPanel({
 }) {
   const router = useRouter();
 
-  const [adding, setAdding] = useState(false);
+  // Seeded from `?add=1`, which is what the plus on the All tab's Web crawler
+  // card links to.
+  const [adding, setAdding] = useOpenOnArrival();
   const [query, setQuery] = useState("");
   const [viewing, setViewing] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
