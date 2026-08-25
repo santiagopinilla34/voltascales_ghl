@@ -39,7 +39,7 @@ export default async function InvoicesPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center gap-3">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center gap-3">
           <h1 className="text-sm font-semibold tracking-tight">Invoices</h1>
         </div>
       </header>
@@ -56,7 +56,7 @@ export default async function InvoicesPage() {
           gives back holds the history you are about to add to, so the two
           things you look at while invoicing are on screen together.
         */}
-        <div className="mx-auto grid w-full min-w-0 max-w-[1140px] gap-8 pb-4 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+        <div className="mx-auto grid w-full min-w-0 max-w-[1400px] gap-8 pb-4 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
           <InvoiceBuilder
             contacts={contactsResult.data ?? []}
             packages={packages}

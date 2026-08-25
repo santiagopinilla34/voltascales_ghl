@@ -59,7 +59,7 @@ export default async function PhonePage() {
         <Header count={null} showBuy={false} />
 
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10">
-          <div className="mx-auto flex w-full min-w-0 max-w-[1140px] flex-col gap-8 pb-6">
+          <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col gap-8 pb-6">
             {scope.error ? (
               // Not the buy-a-number empty state: this account may well have a
               // number and we simply could not find out. Telling someone to
@@ -112,7 +112,7 @@ export default async function PhonePage() {
           in the 3xl the text-heavy pages use — at that width the role badge
           overlapped the number and the A2P cell had no room for its button. */}
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10">
-        <div className="mx-auto flex w-full min-w-0 max-w-[1140px] flex-col gap-8 pb-6">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col gap-8 pb-6">
           {usingPreview && (
             <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
@@ -167,7 +167,7 @@ export default async function PhonePage() {
 function Header({ count, showBuy }: { count: number | null; showBuy: boolean }) {
   return (
     <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center justify-between gap-3">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center justify-between gap-3">
         <div className="flex min-w-0 items-baseline gap-2">
           <h1 className="truncate text-sm font-semibold tracking-tight">
             Phone System

@@ -115,7 +115,7 @@ export function GettingStarted() {
       {/* Scenery, behind everything and out of the accessibility tree. */}
       <div aria-hidden className="agent-grid absolute inset-0 -z-10" />
 
-      <div className="mx-auto flex w-full min-w-0 max-w-[1140px] flex-col px-4 py-5 sm:px-6 lg:px-10">
+      <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col px-4 py-5 sm:px-6 lg:px-10">
         <div className="flex items-center gap-1.5">
           <span className="text-muted-foreground text-xs tabular-nums">
             {index + 1}/{SLIDES.length}

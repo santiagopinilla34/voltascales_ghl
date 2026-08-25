@@ -31,7 +31,7 @@ export default async function SettingsPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center justify-between gap-3">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center justify-between gap-3">
           <h1 className="shrink-0 text-sm font-semibold tracking-tight">
             Settings
           </h1>
@@ -47,7 +47,7 @@ export default async function SettingsPage() {
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 sm:px-6 lg:px-10">
-        <div className="mx-auto w-full min-w-0 max-w-[1140px] py-4">
+        <div className="mx-auto w-full min-w-0 max-w-[1400px] py-4">
           {settings ? (
             /*
               Two columns from `xl` up: how the app behaves on the left, when

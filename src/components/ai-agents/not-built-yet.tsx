@@ -25,7 +25,7 @@ export function NotBuiltYet({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto w-full min-w-0 max-w-[1140px] px-4 py-4 sm:px-6 lg:px-10">
+    <div className="mx-auto w-full min-w-0 max-w-[1400px] px-4 py-4 sm:px-6 lg:px-10">
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 py-16 text-center">
         <span className="bg-muted text-muted-foreground flex size-10 items-center justify-center rounded-lg">
           <Icon className="size-4" />

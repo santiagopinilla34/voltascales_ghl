@@ -29,7 +29,7 @@ export default async function KnowledgeBasePage() {
   const atLimit = bases.length >= KNOWLEDGE_BASE_LIMIT;
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[1140px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-10">
+    <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-10">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold tracking-tight">

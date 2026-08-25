@@ -23,7 +23,7 @@ export default function AiAgentsLayout({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1140px] items-center gap-4 sm:gap-6">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center gap-4 sm:gap-6">
           {/* The sidebar already says which page this is, and on a phone the
               four tabs need every pixel of the row. */}
           <h1 className="hidden shrink-0 text-sm font-semibold tracking-tight sm:block">
