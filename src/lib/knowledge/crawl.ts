@@ -81,11 +81,55 @@ export const ORG_PAGE_LIMIT = 1_000;
 export const FETCH_TIMEOUT_MS = 20_000;
 
 /**
+ * Query parameters that say where a visitor came from, not which page they
+ * arrived at.
+ *
+ * Stripped because a page linked to itself with a campaign tag is the same
+ * page. Left in, `/blog/x?utm_source=newsletter` and `/blog/x` are two URLs:
+ * both get queued, both get fetched, and the base then holds one article twice
+ * -- paid for twice in tokens on every agent reply, and costing two of the
+ * fifty pages a website is allowed. Real sites link to themselves this way,
+ * so it is the ordinary case rather than a pathological one.
+ *
+ * A list rather than dropping the query wholesale, which was the tempting
+ * version and is wrong: plenty of sites paginate or route by query string, and
+ * `?page=2` and `?id=417` are different pages that would collapse into one.
+ *
+ * `ref` is in the list. It is attribution nearly everywhere it appears, and
+ * the sites where it means something are the ones that would be using a path.
+ */
+const TRACKING_PARAMS = new Set([
+  "fbclid",
+  "gclid",
+  "gbraid",
+  "wbraid",
+  "dclid",
+  "msclkid",
+  "twclid",
+  "ttclid",
+  "yclid",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+  "_hsenc",
+  "_hsmi",
+  "ref",
+  "ref_src",
+  "referrer",
+  "source",
+]);
+
+/**
  * The URL as it will be stored, or null when it is not one.
  *
  * Adds a scheme when it is missing -- people type `voltascales.com` -- drops
  * the fragment, which is the same page, and drops a trailing slash so `/about`
- * and `/about/` cannot both be crawled into the same base.
+ * and `/about/` cannot both be crawled into the same base. Campaign tags go
+ * the same way and for the same reason; see `TRACKING_PARAMS` above.
+ *
+ * What survives is sorted, so `?a=1&b=2` and `?b=2&a=1` -- the same page,
+ * linked twice by a template that builds its query in a different order --
+ * come out as one URL rather than two.
  *
  * Only http and https. A `mailto:` or a `javascript:` in a page's markup is a
  * link but not a page, and this is the one place that has to say so, because
@@ -116,6 +160,20 @@ export function normalizeUrl(input: string): string | null {
   if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
     url.pathname = url.pathname.slice(0, -1);
   }
+
+  // `utm_*` by prefix rather than by name: the five documented ones are not
+  // the only five in the wild, and every one of them is a campaign tag.
+  for (const key of [...url.searchParams.keys()]) {
+    const name = key.toLowerCase();
+    if (name.startsWith("utm_") || TRACKING_PARAMS.has(name)) {
+      url.searchParams.delete(key);
+    }
+  }
+  url.searchParams.sort();
+  // Setting `search` to "" rather than leaving it: a URL whose parameters were
+  // all stripped keeps a bare "?" otherwise, which is a third spelling of the
+  // same page.
+  if (![...url.searchParams].length) url.search = "";
 
   return url.toString();
 }

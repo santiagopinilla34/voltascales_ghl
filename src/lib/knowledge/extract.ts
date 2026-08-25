@@ -329,7 +329,13 @@ function extractLinks(html: string, base: string): string[] {
 
 /** A href resolved against the page it was found on, or null if unusable. */
 function toAbsolute(href: string, base: string): string | null {
-  const trimmed = href.trim();
+  // Entities first, because an attribute is escaped HTML before it is a URL.
+  // A link with two query parameters is written `?a=1&amp;b=2` in the markup,
+  // and left undecoded that is not the same address: the second parameter
+  // comes out named `amp;b`, so the URL never matches the same page linked
+  // somewhere else without the escape, and no amount of tidying the query
+  // afterwards can recognise it.
+  const trimmed = decodeEntities(href).trim();
   if (!trimmed || trimmed.startsWith("#")) return null;
 
   let resolved: string;
