@@ -184,3 +184,4 @@ export type Booking = Tables<"bookings">;
 export type KnowledgeBase = Tables<"knowledge_bases">;
 export type KnowledgeWebSource = Tables<"knowledge_web_sources">;
 export type KnowledgeWebPage = Tables<"knowledge_web_pages">;
+export type KnowledgeFaq = Tables<"knowledge_faqs">;

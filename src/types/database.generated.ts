@@ -698,6 +698,51 @@ export type Database = {
           },
         ]
       }
+      knowledge_faqs: {
+        Row: {
+          answer: string
+          base_id: string
+          created_at: string
+          id: string
+          org_id: string
+          question: string
+          updated_at: string
+        }
+        Insert: {
+          answer: string
+          base_id: string
+          created_at?: string
+          id?: string
+          org_id: string
+          question: string
+          updated_at?: string
+        }
+        Update: {
+          answer?: string
+          base_id?: string
+          created_at?: string
+          id?: string
+          org_id?: string
+          question?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_faqs_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_faqs_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       knowledge_web_pages: {
         Row: {
           base_id: string
