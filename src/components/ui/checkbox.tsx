@@ -14,7 +14,15 @@ function Checkbox({
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer size-4 shrink-0 rounded-[4px] border border-input shadow-xs transition-shadow outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 disabled:cursor-not-allowed disabled:opacity-50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground data-indeterminate:border-primary data-indeterminate:bg-primary data-indeterminate:text-primary-foreground dark:bg-input/30 dark:aria-invalid:ring-destructive/40",
+        // The checked styles key off `data-state`, which is the attribute
+        // Radix actually sets. They read `data-checked` until now, which is not
+        // an attribute anything renders, so a ticked box kept the unticked
+        // background and the check mark inside it inherited the unticked
+        // foreground -- selected rows were selected everywhere except on
+        // screen. The `dark:` duplicate is not redundant: `dark:bg-input/30`
+        // below matches with the same specificity, so without it a ticked box
+        // stays grey in dark mode.
+        "peer size-4 shrink-0 rounded-[4px] border border-input shadow-xs transition-shadow outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground dark:data-[state=checked]:bg-primary data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground dark:data-[state=indeterminate]:bg-primary dark:bg-input/30 dark:aria-invalid:ring-destructive/40",
         className
       )}
       {...props}
