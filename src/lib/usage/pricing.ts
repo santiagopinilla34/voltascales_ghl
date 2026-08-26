@@ -31,7 +31,8 @@ const USD_PRECISE = new Intl.NumberFormat("en-CA", {
 
 export function formatUsdCents(cents: number): string {
   const dollars = cents / 100;
-  const formatter = dollars !== 0 && Math.abs(dollars) < 0.01 ? USD_PRECISE : USD;
+  const formatter =
+    dollars !== 0 && Math.abs(dollars) < 0.01 ? USD_PRECISE : USD;
   return `US${formatter.format(dollars)}`;
 }
 
@@ -98,5 +99,54 @@ export function costCentsOf(use: TokenUse): number | null {
 
   // Fractions of a cent are real here — a single short reply costs well under
   // one — so keep them and round only at the end of a sum.
+  return dollars * 100;
+}
+
+/**
+ * The multipliers caching applies to the input rate.
+ *
+ * Anthropic prices cached input off the same per-model rate rather than
+ * publishing separate numbers, so these live here as ratios and stay correct
+ * when a model's input price changes.
+ */
+const CACHE_RATES = {
+  /** A hit, and the reason caching is worth having. */
+  read: 0.1,
+  /** Writing the five-minute entry. */
+  write5m: 1.25,
+  /** The hour-long entry keeps the prefix around longer and costs more to put there. */
+  write1h: 2,
+} as const;
+
+export type CachedTokenUse = TokenUse & {
+  cacheReadTokens: number;
+  cacheWrite5mTokens: number;
+  cacheWrite1hTokens: number;
+};
+
+/**
+ * Cost of a block of usage that involved the prompt cache, in cents.
+ *
+ * Separate from `costCentsOf` rather than folded into it because the two have
+ * different inputs: a stored draft knows only its input and output totals,
+ * while Anthropic's usage report splits input four ways. Pricing cached tokens
+ * at the uncached rate overstates a cache hit by ten times, which is the whole
+ * saving reported as spend.
+ */
+export function cachedCostCentsOf(use: CachedTokenUse): number | null {
+  const price = MODEL_PRICES[use.model];
+  if (!price) return null;
+
+  const promo = price.introductory;
+  const rate =
+    promo && Date.parse(use.at) < Date.parse(promo.endsBefore) ? promo : price;
+
+  const dollars =
+    (use.inputTokens / 1_000_000) * rate.input +
+    (use.cacheReadTokens / 1_000_000) * rate.input * CACHE_RATES.read +
+    (use.cacheWrite5mTokens / 1_000_000) * rate.input * CACHE_RATES.write5m +
+    (use.cacheWrite1hTokens / 1_000_000) * rate.input * CACHE_RATES.write1h +
+    (use.outputTokens / 1_000_000) * rate.output;
+
   return dollars * 100;
 }

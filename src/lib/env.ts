@@ -80,6 +80,22 @@ export const serverEnv = {
   get firecrawlApiKey(): string | null {
     return process.env.FIRECRAWL_API_KEY?.trim() || null;
   },
+  /**
+   * Reads what Anthropic actually billed, for the Usage page.
+   *
+   * A different credential from `anthropicApiKey` and a far more powerful one:
+   * `sk-ant-admin01-…` can manage workspaces, rate limits, members and billing
+   * for the whole organization, where the chat key can only spend money on
+   * messages. Server-side only, always — this must never reach the browser.
+   *
+   * Deliberately not `required`. Without it the Usage page falls back to the
+   * estimate it has always shown, which is a worse number rather than a broken
+   * page — and the key is useless to every other part of the app, so making it
+   * mandatory would stop a working deployment over a figure on one screen.
+   */
+  get anthropicAdminApiKey(): string | null {
+    return process.env.ANTHROPIC_ADMIN_API_KEY?.trim() || null;
+  },
 };
 
 /**

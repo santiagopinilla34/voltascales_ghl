@@ -4,6 +4,7 @@ import { Bot, ExternalLink, Phone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatUsdCents } from "@/lib/usage/pricing";
 import { aiModelLabel } from "@/lib/ai/models";
+import type { LiveUsage } from "@/lib/usage/anthropic-live";
 import type { AnthropicEstimate } from "@/lib/usage/anthropic";
 import type { TwilioUsageResult } from "@/lib/usage/twilio";
 import { cn } from "@/lib/utils";
@@ -65,7 +66,12 @@ function Row({
   return (
     <div className="flex items-baseline justify-between gap-3 text-xs">
       <dt className="text-muted-foreground shrink-0">{label}</dt>
-      <dd className={cn("truncate tabular-nums", muted && "text-muted-foreground")}>
+      <dd
+        className={cn(
+          "truncate tabular-nums",
+          muted && "text-muted-foreground",
+        )}
+      >
         {value}
       </dd>
     </div>
@@ -120,11 +126,17 @@ export function TwilioCard({
             <Row
               label="Spent today"
               value={
-                usage.todayCents === null ? "—" : formatUsdCents(usage.todayCents)
+                usage.todayCents === null
+                  ? "—"
+                  : formatUsdCents(usage.todayCents)
               }
               muted={usage.todayCents === null}
             />
-            <Row label="Warn below" value={formatUsdCents(lowBalanceCents)} muted />
+            <Row
+              label="Warn below"
+              value={formatUsdCents(lowBalanceCents)}
+              muted
+            />
           </dl>
         </>
       )}
@@ -134,32 +146,76 @@ export function TwilioCard({
 
 export function AnthropicCard({
   estimate,
+  live,
+  creditCents,
+  creditAt,
   budgetCents,
 }: {
   estimate: AnthropicEstimate;
+  /** Anthropic's own usage report, when an Admin API key is configured. */
+  live: LiveUsage | null;
+  /** The balance as last recorded from the Console, in cents. */
+  creditCents: number | null;
+  /** When it was recorded, for the caption under it. */
+  creditAt: string | null;
   budgetCents: number | null;
 }) {
+  // Anthropic's own numbers when we can read them, the estimate when we
+  // cannot. The two answer
+  // different questions — the report covers every use of the account and prices
+  // cached tokens correctly, the estimate covers only this app and only what it
+  // logged — so the headline is whichever is closer to true, and the card says
+  // which one it is rather than leaving the reader to guess.
+  const cents = live ? live.monthToDateCents : estimate.monthToDateCents;
+
+  // Only when all three are in hand: a balance, when it was true, and the
+  // usage since. Any one missing and there is no honest remaining figure, so
+  // the card shows spend alone rather than a number with a caveat attached.
+  const remainingCents =
+    creditCents !== null && live?.sinceCreditCents !== null && live
+      ? Math.max(creditCents - live.sinceCreditCents, 0)
+      : null;
+
   const percent =
     budgetCents !== null && budgetCents > 0
-      ? Math.round((estimate.monthToDateCents / budgetCents) * 100)
+      ? Math.round((cents / budgetCents) * 100)
       : null;
 
   return (
     <Card
       icon={Bot}
       title="Anthropic"
-      badge={{ label: "Estimate", live: false }}
+      badge={{ label: live ? "Live" : "Estimate", live: Boolean(live) }}
       href="https://console.anthropic.com/settings/billing"
       linkLabel="Anthropic billing"
     >
-      <div>
-        <p className="text-2xl font-semibold tabular-nums">
-          ~{formatUsdCents(estimate.monthToDateCents)}
-        </p>
-        <p className="text-muted-foreground text-xs">
-          estimated spend this month
-          {percent !== null && ` · ${percent}% of budget`}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+        <div>
+          <p className="text-2xl font-semibold tabular-nums">
+            {live ? "" : "~"}
+            {formatUsdCents(cents)}
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {live ? "used this month" : "estimated spend this month"}
+            {percent !== null && ` · ${percent}% of budget`}
+          </p>
+        </div>
+
+        {remainingCents !== null && creditCents !== null && (
+          <div className="text-right">
+            <p
+              className={cn(
+                "text-2xl font-semibold tabular-nums",
+                remainingCents === 0 && "text-destructive",
+              )}
+            >
+              {formatUsdCents(remainingCents)}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              left of {formatUsdCents(creditCents)}
+            </p>
+          </div>
+        )}
       </div>
 
       {budgetCents !== null && (
@@ -169,7 +225,7 @@ export function AnthropicCard({
           aria-valuenow={Math.min(percent ?? 0, 100)}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label="Estimated Anthropic spend against budget"
+          aria-label="Anthropic spend against budget"
         >
           <div
             className={cn(
@@ -204,6 +260,46 @@ export function AnthropicCard({
           value={`~${formatUsdCents(estimate.allTimeCents)} · ${estimate.totalDrafts.toLocaleString("en-CA")} replies`}
           muted
         />
+
+        {/* Only alongside the bill. On its own the estimate *is* the headline,
+            and repeating it underneath would read as two different figures. */}
+        {live && (
+          <Row
+            label="This app’s share"
+            value={`~${formatUsdCents(estimate.monthToDateCents)} of the above`}
+            muted
+          />
+        )}
+
+        {creditAt && remainingCents !== null && (
+          <Row
+            label="Balance recorded"
+            value={new Date(creditAt).toLocaleString("en-CA", {
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              timeZone: "America/Toronto",
+            })}
+            muted
+          />
+        )}
+
+        {live && (
+          <Row
+            label="Current to"
+            value={
+              live.through
+                ? new Date(live.through).toLocaleString("en-CA", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    timeZone: "America/Toronto",
+                  })
+                : "nothing yet this month"
+            }
+            muted
+          />
+        )}
       </dl>
 
       {estimate.models.length > 0 && (
