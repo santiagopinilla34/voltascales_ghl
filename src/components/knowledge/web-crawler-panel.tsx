@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
   FileText,
   Link2,
   Loader2,
@@ -30,6 +31,12 @@ import { useOpenOnArrival } from "@/hooks/use-open-on-arrival";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -219,6 +226,20 @@ export function WebCrawlerPanel({
     return merged.filter((page) => page.url.toLowerCase().includes(needle));
   }, [merged, query]);
 
+  /**
+   * The ticked rows the current search actually shows.
+   *
+   * Bulk actions run over this rather than over `selected`, and the header
+   * checkbox counts against it. Ticking three rows and then typing in the
+   * search box would otherwise leave the bar offering to delete pages that are
+   * no longer on screen — and the select-every-page box, which only ever ticks
+   * what is shown, could never reach a full state once a filter was on.
+   */
+  const selectedShown = useMemo(
+    () => shown.filter((page) => selected.has(page.id)).map((page) => page.id),
+    [shown, selected],
+  );
+
   const crawling = sources.some(
     (source) => source.status === "queued" || source.status === "crawling",
   );
@@ -242,22 +263,35 @@ export function WebCrawlerPanel({
     });
   }
 
-  async function deleteSelected() {
-    const ids = [...selected];
+  /**
+   * Applies one of the row actions to everything ticked.
+   *
+   * One at a time rather than in parallel: each of these also adjusts its
+   * source's counters, and two of those racing on the same source is how the
+   * bar ends up saying 3 of 5 when there are four pages left.
+   *
+   * Stops at the first failure and keeps the selection, so the bar still holds
+   * what did not get done and the toast is about one page rather than about
+   * forty. The rows that did succeed are already gone from the refresh.
+   */
+  async function runBulk(
+    ids: string[],
+    each: (id: string) => Promise<{ ok: boolean; error?: string }>,
+  ) {
+    if (ids.length === 0) return;
     setBusy("bulk");
 
-    // One at a time rather than in parallel: each delete also adjusts its
-    // source's counters, and two of those racing on the same source is how the
-    // bar ends up saying 3 of 5 when there are four pages left.
+    let failed = false;
     for (const id of ids) {
-      const result = await deleteWebPage(id);
+      const result = await each(id);
       if (!result.ok) {
-        toast.error(result.error);
+        if (result.error) toast.error(result.error);
+        failed = true;
         break;
       }
     }
 
-    setSelected(new Set());
+    if (!failed) setSelected(new Set());
     setBusy(null);
     router.refresh();
   }
@@ -333,152 +367,178 @@ export function WebCrawlerPanel({
           Nothing matches “{query}”.
         </p>
       ) : (
-        <div className="flex flex-col rounded-xl border">
-          {selected.size > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
-              <span className="text-xs tabular-nums">
-                {selected.size} selected
-              </span>
-              <span className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelected(new Set())}
-                >
-                  Clear
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={deleteSelected}
-                  disabled={busy === "bulk"}
-                >
-                  {busy === "bulk" ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
+        <>
+          {selectedShown.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy === "bulk"}
+                  >
+                    {busy === "bulk" && (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    )}
+                    Bulk actions
+                    <ChevronDown className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      void runBulk(selectedShown, (id) => recrawlPage(id))
+                    }
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Crawl again
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() =>
+                      void runBulk(selectedShown, (id) => deleteWebPage(id))
+                    }
+                  >
                     <Trash2 className="size-3.5" />
-                  )}
-                  Delete
-                </Button>
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <span className="text-muted-foreground text-xs tabular-nums">
+                {selectedShown.length} of {shown.length} selected
               </span>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelected(new Set())}
+              >
+                <X className="size-3.5" />
+                Cancel
+              </Button>
             </div>
           )}
 
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="w-10">
-                  <Checkbox
-                    aria-label="Select every page"
-                    checked={
-                      selected.size === 0
-                        ? false
-                        : selected.size === shown.length
-                          ? true
-                          : "indeterminate"
-                    }
-                    onCheckedChange={(next) =>
-                      setSelected(
-                        next === true
-                          ? new Set(shown.map((page) => page.id))
-                          : new Set(),
-                      )
-                    }
-                  />
-                </TableHead>
-                <TableHead>Path</TableHead>
-                <TableHead className="w-28">Status</TableHead>
-                <TableHead className="hidden w-44 sm:table-cell">
-                  Updated at
-                </TableHead>
-                <TableHead className="w-28 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-
-            <TableBody>
-              {shown.map((page) => (
-                <TableRow key={page.id}>
-                  <TableCell>
+          <div className="flex flex-col rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-10">
                     <Checkbox
-                      aria-label={`Select ${page.url}`}
-                      checked={selected.has(page.id)}
-                      onCheckedChange={() => toggle(page.id)}
+                      aria-label="Select every page"
+                      checked={
+                        selectedShown.length === 0
+                          ? false
+                          : selectedShown.length === shown.length
+                            ? true
+                            : "indeterminate"
+                      }
+                      onCheckedChange={(next) =>
+                        setSelected(
+                          next === true
+                            ? new Set(shown.map((page) => page.id))
+                            : new Set(),
+                        )
+                      }
                     />
-                  </TableCell>
-
-                  <TableCell className="max-w-0">
-                    <a
-                      href={page.url}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="text-primary block truncate text-sm hover:underline"
-                      title={page.url}
-                    >
-                      {displayPath(page.url)}
-                    </a>
-                    {page.error && (
-                      <span className="text-destructive block truncate text-xs">
-                        {page.error}
-                      </span>
-                    )}
-                  </TableCell>
-
-                  <TableCell>
-                    <PageStatus status={page.status} words={page.word_count} />
-                  </TableCell>
-
-                  <TableCell className="text-muted-foreground hidden text-xs sm:table-cell">
-                    {formatFullTimestamp(page.updated_at)}
-                  </TableCell>
-
-                  <TableCell>
-                    <span className="flex items-center justify-end gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`View the text scraped from ${page.url}`}
-                        title="View scraped data"
-                        disabled={page.status === "pending"}
-                        onClick={() => setViewing(page.id)}
-                      >
-                        <FileText className="size-3.5" />
-                      </Button>
-
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Crawl ${page.url} again`}
-                        title="Crawl again"
-                        disabled={busy === page.id}
-                        onClick={() =>
-                          run(page.id, () => recrawlPage(page.id))
-                        }
-                      >
-                        {busy === page.id ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <RefreshCw className="size-3.5" />
-                        )}
-                      </Button>
-
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${page.url}`}
-                        title="Delete"
-                        onClick={() =>
-                          run(`del-${page.id}`, () => deleteWebPage(page.id))
-                        }
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </span>
-                  </TableCell>
+                  </TableHead>
+                  <TableHead>Path</TableHead>
+                  <TableHead className="w-28">Status</TableHead>
+                  <TableHead className="hidden w-44 sm:table-cell">
+                    Updated at
+                  </TableHead>
+                  <TableHead className="w-28 text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+  
+              <TableBody>
+                {shown.map((page) => (
+                  <TableRow key={page.id}>
+                    <TableCell>
+                      <Checkbox
+                        aria-label={`Select ${page.url}`}
+                        checked={selected.has(page.id)}
+                        onCheckedChange={() => toggle(page.id)}
+                      />
+                    </TableCell>
+  
+                    <TableCell className="max-w-0">
+                      <a
+                        href={page.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="text-primary block truncate text-sm hover:underline"
+                        title={page.url}
+                      >
+                        {displayPath(page.url)}
+                      </a>
+                      {page.error && (
+                        <span className="text-destructive block truncate text-xs">
+                          {page.error}
+                        </span>
+                      )}
+                    </TableCell>
+  
+                    <TableCell>
+                      <PageStatus status={page.status} words={page.word_count} />
+                    </TableCell>
+  
+                    <TableCell className="text-muted-foreground hidden text-xs sm:table-cell">
+                      {formatFullTimestamp(page.updated_at)}
+                    </TableCell>
+  
+                    <TableCell>
+                      <span className="flex items-center justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`View the text scraped from ${page.url}`}
+                          title="View scraped data"
+                          disabled={page.status === "pending"}
+                          onClick={() => setViewing(page.id)}
+                        >
+                          <FileText className="size-3.5" />
+                        </Button>
+  
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Crawl ${page.url} again`}
+                          title="Crawl again"
+                          disabled={busy === page.id}
+                          onClick={() =>
+                            run(page.id, () => recrawlPage(page.id))
+                          }
+                        >
+                          {busy === page.id ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="size-3.5" />
+                          )}
+                        </Button>
+  
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${page.url}`}
+                          title="Delete"
+                          onClick={() =>
+                            run(`del-${page.id}`, () => deleteWebPage(page.id))
+                          }
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
 
       <AddWebsiteDialog

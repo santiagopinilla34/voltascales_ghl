@@ -12,6 +12,10 @@ import {
   normalizeUrl,
 } from "@/lib/knowledge/crawl";
 import { fetchPage, fetchSitemapUrls } from "@/lib/knowledge/extract";
+import {
+  readFirecrawlUsage,
+  type FirecrawlUsage,
+} from "@/lib/knowledge/firecrawl-usage";
 import { countWebPages, getWebPage } from "@/lib/knowledge/web-queries";
 import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
@@ -84,6 +88,16 @@ export type Discovery = {
   /** The ceiling those count against. */
   limit: number;
   /**
+   * What Firecrawl says is left on the account, or null when there is no key,
+   * or the call failed.
+   *
+   * A separate number from `used`/`limit` rather than a replacement for them —
+   * see `firecrawl-usage.ts` for why the two cannot be collapsed. It informs
+   * the operator; it does not constrain `selectable`, because a credit is
+   * spent per *rendered* page and most pages are never rendered.
+   */
+  firecrawl: FirecrawlUsage | null;
+  /**
    * The most that may be ticked here: what is left of the limit, or the
    * per-website cap, whichever bites first.
    *
@@ -120,10 +134,19 @@ export async function discoverPages(
     isInScope(candidate, url, input.mode) && looksLikeAPage(candidate);
 
   const supabase = await createClient();
-  const used = await countWebPages(supabase);
+
+  // In parallel: the count decides what may be ticked, the usage only decorates
+  // the widget, and making the picker wait for them in turn would put a third
+  // party's latency in front of a screen that does not depend on it.
+  const [used, firecrawl] = await Promise.all([
+    countWebPages(supabase),
+    readFirecrawlUsage(),
+  ]);
+
   const budget = {
     used,
     limit: ORG_PAGE_LIMIT,
+    firecrawl,
     selectable: Math.max(0, Math.min(MAX_PAGES_PER_SOURCE, ORG_PAGE_LIMIT - used)),
   };
 

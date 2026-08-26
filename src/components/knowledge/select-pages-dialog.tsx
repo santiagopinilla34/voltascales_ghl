@@ -186,10 +186,25 @@ export function SelectPagesDialog({
             >
               {selected.size} selected of {selectable} available
             </p>
-            <p className="text-muted-foreground text-xs tabular-nums">
-              {discovery.used.toLocaleString()} of{" "}
-              {discovery.limit.toLocaleString()} page limit already used
-            </p>
+            {discovery.firecrawl ? (
+              <p
+                className="text-muted-foreground text-xs tabular-nums"
+                title="Counted from what Firecrawl has actually billed, so pages you have since deleted still count. Pages that answered with plain HTML were read without Firecrawl and cost nothing, so the real figure is a little higher. The count runs by calendar month; the plan's allowance renews on its own subscription date."
+              >
+                {discovery.firecrawl.pagesCrawled.toLocaleString()} of{" "}
+                {discovery.firecrawl.pagesAllowed.toLocaleString()} pages
+                crawled
+                {renewal(discovery.firecrawl.resetsOn)}
+              </p>
+            ) : (
+              <p
+                className="text-muted-foreground text-xs tabular-nums"
+                title="Firecrawl's usage could not be read, so this counts the pages this organization currently stores instead."
+              >
+                {discovery.used.toLocaleString()} of{" "}
+                {discovery.limit.toLocaleString()} pages stored
+              </p>
+            )}
           </div>
         </div>
 
@@ -394,4 +409,35 @@ export function SelectPagesDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * " · resets 1 Sep", or nothing at all.
+ *
+ * A count without the date it goes back to nought is half a fact — it is the
+ * half that decides whether somebody ticks forty boxes now or waits a week.
+ * Day and month only: the year is either this one or the reader has larger
+ * problems, and this sits in a 12px line under another number.
+ *
+ * Formatted in UTC because the stamp is a UTC month boundary. Rendering it in
+ * Toronto time would move midnight on the 1st back to 8 p.m. on the 31st and
+ * print a reset date a day early.
+ *
+ * Returns an empty string for a missing or unparseable stamp rather than
+ * throwing or printing "Invalid Date" — the count beside it still stands on
+ * its own.
+ */
+function renewal(resetsOn: string | null): string {
+  if (!resetsOn) return "";
+
+  const at = new Date(resetsOn);
+  if (Number.isNaN(at.getTime())) return "";
+
+  const on = new Intl.DateTimeFormat("en-CA", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(at);
+
+  return ` · resets ${on}`;
 }
