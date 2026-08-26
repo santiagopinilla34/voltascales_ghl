@@ -1,6 +1,6 @@
 # VoltaScales
 
-Personal automation & CRM tool. Spec: [PRD.md](./PRD.md).
+Automation & CRM tool, run by an agency for its clients. Spec: [PRD.md](./PRD.md).
 
 Next.js 16 (App Router) · React 19 · TypeScript · Tailwind 4 · shadcn/Radix ·
 Supabase (Postgres + Auth) · Twilio (SMS + Voice) · Anthropic · Resend.
@@ -9,6 +9,12 @@ Supabase (Postgres + Auth) · Twilio (SMS + Voice) · Anthropic · Resend.
 spec** — booking and a calendar, a pipeline board, invoices, a phone system
 that buys and configures Twilio numbers, a browser dialer, domains, usage
 metering, and a top bar with alerts and a changelog.
+
+Since the PRD it has also become **multi-tenant** — an agency organization with
+client sub-accounts, every row scoped by `org_id` — and the AI chatbot has grown
+into **Conversation AI**: named agents with their own prompts, models and
+crawled knowledge bases, replacing the single org-wide prompt that used to live
+in Settings.
 
 What is *not* wired to a real backend yet is tracked in
 [INTEGRATIONS.md](./INTEGRATIONS.md), with what to write and what will bite
@@ -31,10 +37,13 @@ cp .env.example .env.local
 | Supabase | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Everything |
 | Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `TWILIO_FORWARD_TO_NUMBER` | SMS, inbound calls, the Phone System page |
 | Browser calling | `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_TWIML_APP_SID` | The dialer only |
-| Anthropic | `ANTHROPIC_API_KEY` | The AI chatbot and the Usage estimate |
+| Anthropic | `ANTHROPIC_API_KEY` | The agent that answers texts |
+| Anthropic admin | `ANTHROPIC_ADMIN_API_KEY` | Live usage and cost on the Usage page. A *different*, far more powerful credential — see below |
+| Firecrawl | `FIRECRAWL_API_KEY` | Rendering JavaScript-heavy pages for the knowledge crawler. Falls back to a free reader |
+| Stripe | `STRIPE_SECRET_KEY`, `STRIPE_CLIENT_ID`, `STRIPE_CONNECT_SCOPE`, `STRIPE_CONNECT_STATE_SECRET`, `STRIPE_WEBHOOK_SECRET` | Payments and Connect onboarding |
 | Resend | `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL` | Booking and hand-off email |
 | App | `APP_BASE_URL` | Signature verification, and the cancel links in booking messages |
-| Secrets | `FORM_WEBHOOK_SECRET`, `CRON_SECRET` | The two unsigned endpoints; each returns 503 while unset |
+| Secrets | `FORM_WEBHOOK_SECRET`, `CRON_SECRET`, `RESEND_WEBHOOK_SECRET` | The unsigned endpoints; each returns 503 while unset |
 
 Anything missing degrades in one place rather than breaking the app: the
 dialer disables itself and says why, Resend alerts fall back to a log line, the
@@ -60,8 +69,8 @@ npm run db:types
 
 ### 3. Your user account
 
-This is a single-user app and there is no sign-up route. Create the one
-account by hand:
+There is no sign-up route — accounts are created for you, not by you. Make the
+first one by hand:
 
 **Supabase dashboard → Authentication → Users → Add user**, with
 "Auto Confirm User" checked.
@@ -111,10 +120,15 @@ work happens in, with the infrastructure pages grouped after it.
 | **Invoices** | Builds an invoice from your packages and a contact, renders it from `src/lib/invoices/template.html`, and keeps the history |
 | **My Business** | Your own details and the package catalogue the invoice builder draws on |
 | **Automations** | List, editor and run log for the rules engine below |
+| **AI Agents** | Conversation AI agents and their knowledge bases — the crawler, FAQs, and the test panel. Voice AI is coming-soon |
 | **Phone System** | Live Twilio numbers — capabilities, whether their webhooks point here, A2P state. Search, buy, rename, re-point and release |
+| **Email Services** | The Resend sending domain, its DNS records, and the email activity log |
 | **Domains** | Domain search and owned domains (preview data), plus the Resend sending-domain tab (preview records) |
-| **Usage** | Twilio balance read live, Anthropic spend estimated from logged tokens, and the two warning thresholds |
-| **Settings** | AI mode, model and system prompt; forward-to number; booking hours, blocked dates, minimum notice and share link; notification email and alert number; usage thresholds |
+| **Balance** | Client credit, top-ups, and the usage ledger every charge is written to |
+| **Payments** | Stripe Connect onboarding and the payments the account has taken |
+| **Sub Accounts** | The agency's client organizations, and switching which one you are looking at |
+| **Usage** | Twilio balance and Anthropic usage, both read live from the provider, plus the recorded credit balance and the warning thresholds. Agency only |
+| **Settings** | Forward-to number; booking hours, blocked dates, minimum notice and share link; notification email and alert number. The AI prompt used to live here and now belongs to the agent |
 
 The top bar carries three bubbles on every page: **alerts** (the bell),
 **what's new**, and the **dialer**.
@@ -212,38 +226,91 @@ so every row can be traced to a Twilio log. Rows created before these columns
 existed hold null, which is why the indexes are plain rather than partial:
 Postgres treats nulls as distinct.
 
-## AI chatbot
+## Conversation AI
 
-Settings holds three things: the **mode**, the **model**, and the **system
-prompt**.
+An **agent** answers inbound SMS: `chatbots` plus its child tables, edited on
+**AI Agents → Conversation AI**. Exactly one agent per organization is primary,
+and that is the one the runtime asks for. No primary agent means no reply.
 
-| Mode | Does |
+There is no org-wide AI prompt any more. `settings.ai_mode`, `ai_model` and
+`ai_system_prompt` are unread — the columns survive but the Settings screen no
+longer offers them, and `respond.ts` does not fall back to them. That fallback
+was removed on purpose: the columns still hold `ai_mode = "live"` and an old
+prompt, so leaving it in meant deleting an agent would hand the conversation to
+an invisible prompt nobody could read or switch off.
+
+| Agent status | Does |
 | --- | --- |
-| `off` | The AI is never called |
-| `draft` | Generates a reply to every inbound text and shows it in the Inbox. Sends nothing |
-| `live` | Texts the reply back, to contacts with AI handling on |
+| Off | Never called. Costs nothing |
+| Suggestive | Drafts a reply into the Inbox and waits for you |
+| Auto-pilot | Texts the reply back, to contacts with AI handling on |
+
+The editor has three tabs. **Bot settings** is what it is and where it works,
+plus the knowledge bases it may open and whether to reuse the prompt between
+replies. **Training** is knowledge-base triggers — which bases, and when to
+reach for each. **Goals** is the prompt itself in three boxes (personality,
+goal, additional), the model, and the actions.
+
+### What the agent is given
+
+`composeSystemPrompt` builds one prompt from the three boxes, the answer
+length, the routing rules, and the knowledge. Crawled pages go in **whole**,
+under an 8,000-word budget, with the overflow falling back to being named —
+`knowledge_web_pages.content` was populated by the crawler long before anything
+read it. FAQs go in whole, capped at fifty.
+
+Scope resolves in order of how explicit the answer is: the bases chosen on Bot
+settings, else the bases the Training triggers name, else every base on the
+account.
+
+### Cost
+
+Nearly all of a reply is the knowledge in front of it, identical every time, so
+the system prompt carries a cache breakpoint and the conversation — which
+changes every turn — renders after it. A hit costs about a tenth of a fresh
+read, a write about a quarter more. On this account that is roughly 1.6c a
+reply against 0.2c.
+
+The cache is shared across every contact, because the composed prompt contains
+no per-contact field. Putting `{{first_name}}` in a prompt box would split one
+shared entry into one per person. `settings.prompt_caching` turns it off per
+agent; it changes nothing the model sees.
+
+### Tool use is not wired
+
+`generate.ts` makes a plain text call with **no `tools`**. Book an appointment,
+start an automation and collect contact details are configurable and stored and
+**cannot fire**. The composed prompt says so, which stops the agent claiming to
+have booked things. See [AI_AGENTS_WIRING.md](./AI_AGENTS_WIRING.md).
+
+### Drafts, sending, and hand-off
 
 Every generated reply is written to `ai_drafts` first, whatever happens next.
 Sending is a separately-gated second step, so "the model said nothing" is
-always distinguishable from "the model was not allowed to speak" — a held
-reply appears in the Inbox with its reason: a newer inbound message arrived,
-AI handling is off for that contact, the mode is draft-only, or Twilio
-rejected the send.
+always distinguishable from "the model was not allowed to speak" — a held reply
+appears in the Inbox with its reason: a newer inbound arrived, AI handling is
+off for that contact, the agent is Suggestive, or Twilio rejected the send.
 
 Generation runs off the response path, from the tail of the SMS webhook via
 `after()`. Nothing upstream can see it fail, which is why every path there
-returns and logs rather than throwing.
+returns and logs rather than throwing. **Every write on that path passes
+`org_id` explicitly** — it runs on the admin client with no session, where the
+column default raises rather than guessing once a second organization exists.
+That is not hypothetical: it silently stopped every AI reply for nine days.
 
-When the model hands the conversation over, `live` mode sends that last reply
-— the sign-off the lead should get — then switches AI handling off for the
-contact and alerts you by email. A manual reply flips the same switch: once you
-have typed to someone, the AI stops answering for them.
+When the model hands the conversation over, auto-pilot sends that last reply —
+the sign-off the lead should get — then switches AI handling off for the
+contact and fires the `ai_handoff` automation, which emails you. A manual reply
+flips the same switch.
 
 `POST /api/contacts/[id]/ai-preview` exercises the whole chain against a real
 conversation and **cannot send** — it doesn't import the Twilio client. It
-ignores the mode and the per-contact toggle deliberately, reporting what
-*would* have blocked a real send, because it is the tool for deciding whether
-to turn those on.
+composes from the same agent as the live path, and reports what *would* have
+blocked a real send rather than refusing to run.
+
+The **Test panel** inside the editor answers from the *unsaved* draft, so you
+can rewrite a prompt and try it before saving. It writes a `preview` draft and
+reaches no one.
 
 ## Automations
 
@@ -614,6 +681,9 @@ never reuse or reorder one.
 | `POST /api/webhooks/twilio/voice/outbound/status` | Twilio signature | Logs the outbound call                            |
 | `POST /api/contacts/[id]/messages`       | Session cookie     | Sends a manual SMS reply; flips `ai_enabled` to false     |
 | `POST /api/contacts/[id]/ai-preview`     | Session cookie     | Generates a draft against the real thread; cannot send    |
+| `POST /api/ai-agents/test`               | Session cookie     | Answers a test message as the *unsaved* agent draft; cannot send |
+| `POST /api/webhooks/resend`              | `RESEND_WEBHOOK_SECRET` | Email delivery events |
+| `POST /api/webhooks/stripe`              | Stripe signature   | Payment and Connect account events |
 
 Manual reply:
 
@@ -643,6 +713,7 @@ src/
       cron/                  Booking reminders, CRON_SECRET
       twilio/voice-token     Dialer credential
       contacts/[id]/         Manual outbound SMS, AI preview
+      ai-agents/test         Test panel generation for an unsaved agent
   lib/
     env.ts                   Typed env access, fails loudly when unset
     contacts.ts              find-or-create by phone, E.164 normalisation
@@ -667,7 +738,11 @@ src/
       a2p.ts normalize.ts    Compliance form shape; E.164
       dialer-data.ts         Recents and Contacts for the dialer panes
     invoices/                Money maths and the HTML template renderer
-    usage/                   Twilio balance, Anthropic estimate, thresholds
+    usage/
+      twilio.ts              Balance and spend, live
+      anthropic-live.ts      Anthropic's own usage report, priced here
+      anthropic.ts           The fallback estimate from this app's own drafts
+      pricing.ts             List rates, including the cache multipliers
     notify/                  Booking, hand-off and email delivery
     supabase/
       client.ts              Browser client (RLS applies)
@@ -698,12 +773,23 @@ row half the app would read.
 
 ## Auth and access model
 
-- One account. No sign-up route; disable sign-ups in the dashboard (step 3).
-  The Google and Apple buttons on the login page are not wired to a provider
-  yet — see INTEGRATIONS.md §8, including why a Google sign-in would otherwise
-  create a *second*, empty account.
-- RLS is on for every table. The `authenticated` role has full access;
-  `anon` has no policies and is denied.
+- **Multi-tenant.** Every row belongs to an organization. A member sees the
+  organizations they belong to; a platform admin sees whichever one `active_org`
+  says they are looking at, which is how Sub Accounts switches context. The two
+  roles are `platform_admin` (the agency) and `org_owner` (a client).
+- No sign-up route; disable sign-ups in the dashboard (step 3). The Google and
+  Apple buttons on the login page are not wired to a provider yet — see
+  INTEGRATIONS.md §8, including why a Google sign-in would otherwise create a
+  *second*, empty account.
+- RLS is on for every table and every policy filters on `org_id`. `anon` has no
+  policies and is denied.
+- **Service-role writes must set `org_id` themselves.** The `default_org_id()`
+  column default resolves the organization from the session and *raises* when
+  there is no session and more than one organization exists — which describes
+  every webhook. It is a deliberate temporary measure that fails loudly rather
+  than filing one client's data under another's. Every insert on those paths
+  passes `org_id` explicitly; a new one that forgets will break that path the
+  moment a second organization exists, and not before.
 - Webhooks (`/api/webhooks/*`) are excluded from the `proxy.ts` matcher because
   Twilio can't log in — they authenticate by verifying the request signature
   and use the service-role client. `/api/cron/*` is excluded for the same
