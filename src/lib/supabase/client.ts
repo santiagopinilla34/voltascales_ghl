@@ -1,6 +1,7 @@
 import { createBrowserClient } from "@supabase/ssr";
 
 import { publicEnv } from "@/lib/env";
+import { fetchWithClockSkewRetry } from "@/lib/supabase/fetch";
 import type { Database } from "@/types/database";
 
 /**
@@ -11,5 +12,8 @@ export function createClient() {
   return createBrowserClient<Database>(
     publicEnv.supabaseUrl,
     publicEnv.supabaseAnonKey,
+    {
+      global: { fetch: fetchWithClockSkewRetry },
+    },
   );
 }

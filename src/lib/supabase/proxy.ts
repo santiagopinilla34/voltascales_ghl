@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 import { publicEnv } from "@/lib/env";
+import { fetchWithClockSkewRetry } from "@/lib/supabase/fetch";
 import type { Database } from "@/types/database";
 
 /**
@@ -48,6 +49,7 @@ export async function updateSession(request: NextRequest) {
     publicEnv.supabaseUrl,
     publicEnv.supabaseAnonKey,
     {
+      global: { fetch: fetchWithClockSkewRetry },
       cookies: {
         getAll() {
           return request.cookies.getAll();
