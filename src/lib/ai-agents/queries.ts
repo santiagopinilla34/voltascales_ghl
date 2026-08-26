@@ -104,7 +104,8 @@ export async function getPrimaryBot(
     .eq("is_primary", true)
     .maybeSingle();
 
-  if (error) throw new Error(`Failed to load the primary agent: ${error.message}`);
+  if (error)
+    throw new Error(`Failed to load the primary agent: ${error.message}`);
   if (!row) return null;
 
   return assemble(row, await loadChildren(supabase, [row.id]));
@@ -115,7 +116,10 @@ export async function getPrimaryBot(
 // ---------------------------------------------------------------------------
 
 type Children = {
-  triggers: Map<string, { id: string; instructions: string; baseIds: string[] }[]>;
+  triggers: Map<
+    string,
+    { id: string; instructions: string; baseIds: string[] }[]
+  >;
   automations: Map<
     string,
     { id: string; name: string; when: string; automationIds: string[] }[]
@@ -124,6 +128,8 @@ type Children = {
     string,
     { id: string; name: string; field: string; describe: string }[]
   >;
+  /** Base ids per bot. No entry means the bot reads every base. */
+  knowledgeBases: Map<string, string[]>;
 };
 
 /**
@@ -137,7 +143,7 @@ async function loadChildren(
   supabase: SupabaseClient<Database>,
   botIds: string[],
 ): Promise<Children> {
-  const [triggerRows, ruleRows, fieldRows] = await Promise.all([
+  const [triggerRows, ruleRows, fieldRows, baseRows] = await Promise.all([
     supabase
       .from("chatbot_knowledge_triggers")
       .select("*")
@@ -153,11 +159,20 @@ async function loadChildren(
       .select("*")
       .in("chatbot_id", botIds)
       .order("sort_order", { ascending: true }),
+    supabase
+      .from("chatbot_knowledge_bases")
+      .select("chatbot_id, base_id")
+      .in("chatbot_id", botIds),
   ]);
 
   const failed =
-    triggerRows.error ?? ruleRows.error ?? fieldRows.error ?? null;
-  if (failed) throw new Error(`Failed to load agent settings: ${failed.message}`);
+    triggerRows.error ??
+    ruleRows.error ??
+    fieldRows.error ??
+    baseRows.error ??
+    null;
+  if (failed)
+    throw new Error(`Failed to load agent settings: ${failed.message}`);
 
   const triggerIds = (triggerRows.data ?? []).map((row) => row.id);
   const ruleIds = (ruleRows.data ?? []).map((row) => row.id);
@@ -196,6 +211,12 @@ async function loadChildren(
     (link) => link.automation_id,
   );
 
+  const knowledgeBases = group(
+    baseRows.data ?? [],
+    (link) => link.chatbot_id,
+    (link) => link.base_id,
+  );
+
   const triggers: Children["triggers"] = new Map();
   for (const row of triggerRows.data ?? []) {
     push(triggers, row.chatbot_id, {
@@ -225,7 +246,7 @@ async function loadChildren(
     });
   }
 
-  return { triggers, automations, contactFields };
+  return { triggers, automations, contactFields, knowledgeBases };
 }
 
 function group<T, V>(
@@ -258,6 +279,7 @@ function assemble(row: BotRow, children: Children): ConversationBot {
     channels: row.channels as BotChannel[],
     settings: readSettings(row.settings),
     goals: readGoals(row, children),
+    knowledge_base_ids: children.knowledgeBases.get(row.id) ?? [],
     triggers: (children.triggers.get(row.id) ?? []).map((trigger) => ({
       id: trigger.id,
       base_ids: trigger.baseIds,
@@ -327,6 +349,7 @@ function readSettings(value: Json): BotSettings {
       raw.sleep_on_workflow_message,
       DEFAULT_SETTINGS.sleep_on_workflow_message,
     ),
+    prompt_caching: bool(raw.prompt_caching, DEFAULT_SETTINGS.prompt_caching),
     response_style_enabled: bool(
       raw.response_style_enabled,
       DEFAULT_SETTINGS.response_style_enabled,
@@ -403,7 +426,10 @@ function readGoals(row: BotRow, children: Children): BotGoals {
  * can clear it when the automation is deleted. Rejoining it here is what lets
  * the dialog stay unaware that the split exists.
  */
-function readBooking(raw: Record<string, Json>, automationId: string | null): BookingSettings {
+function readBooking(
+  raw: Record<string, Json>,
+  automationId: string | null,
+): BookingSettings {
   return {
     calendar_mode:
       raw.calendar_mode === "multi" ? "multi" : DEFAULT_BOOKING.calendar_mode,

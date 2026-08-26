@@ -111,6 +111,10 @@ export type AiReplyResult =
       model: AiModel;
       inputTokens: number;
       outputTokens: number;
+      /** Prefix served from the cache. Non-zero is a hit. */
+      cachedTokens: number;
+      /** Prefix written to the cache, billed at about 1.25x. */
+      cacheWriteTokens: number;
     }
   | { ok: false; error: string; retryable: boolean };
 
@@ -139,10 +143,16 @@ function describeError(error: unknown): { error: string; retryable: boolean } {
     return { error: "Rate limited by the Anthropic API", retryable: true };
   }
   if (error instanceof Anthropic.AuthenticationError) {
-    return { error: "ANTHROPIC_API_KEY is missing or invalid", retryable: false };
+    return {
+      error: "ANTHROPIC_API_KEY is missing or invalid",
+      retryable: false,
+    };
   }
   if (error instanceof Anthropic.NotFoundError) {
-    return { error: "Model not found — check settings.ai_model", retryable: false };
+    return {
+      error: "Model not found — check settings.ai_model",
+      retryable: false,
+    };
   }
   if (error instanceof Anthropic.BadRequestError) {
     return { error: `Rejected by the API: ${error.message}`, retryable: false };
@@ -151,7 +161,10 @@ function describeError(error: unknown): { error: string; retryable: boolean } {
     return { error: "Could not reach the Anthropic API", retryable: true };
   }
   if (error instanceof Anthropic.APIError) {
-    return { error: `API error ${error.status}: ${error.message}`, retryable: true };
+    return {
+      error: `API error ${error.status}: ${error.message}`,
+      retryable: true,
+    };
   }
   return {
     error: error instanceof Error ? error.message : String(error),
@@ -169,18 +182,37 @@ export async function generateAiReply({
   systemPrompt,
   model,
   conversation,
+  cachePrompt,
 }: {
   systemPrompt: string;
   model: AiModel;
   conversation: ConversationTurn[];
+  /**
+   * Whether to spend a cache breakpoint on the system prompt.
+   *
+   * Off changes nothing the model sees — a cached prefix is the same tokens,
+   * recomputed or not — so this is purely a bill, and the bet is that another
+   * reply lands before the entry expires. A write costs about 1.25x a normal
+   * read and a hit about a tenth, so a thread that carries on is much cheaper
+   * and a single unanswered text is slightly dearer.
+   */
+  cachePrompt: boolean;
 }): Promise<AiReplyResult> {
   if (conversation.length === 0) {
-    return { ok: false, error: "Nothing from the contact to reply to", retryable: false };
+    return {
+      ok: false,
+      error: "Nothing from the contact to reply to",
+      retryable: false,
+    };
   }
   if (!systemPrompt.trim()) {
     // Without the business context the model would answer as a generic
     // assistant, which is worse than not answering.
-    return { ok: false, error: "No AI system prompt is configured", retryable: false };
+    return {
+      ok: false,
+      error: "No AI system prompt is configured",
+      retryable: false,
+    };
   }
 
   // The integrity check below rejects a visibly damaged reply. That failure has
@@ -189,10 +221,17 @@ export async function generateAiReply({
   // are sending a mangled text or going silent on a lead.
   let lastError = "";
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const result = await attemptGeneration({ systemPrompt, model, conversation });
+    const result = await attemptGeneration({
+      systemPrompt,
+      model,
+      conversation,
+      cachePrompt,
+    });
 
     if (result.ok || !result.regenerate) {
-      return result.ok ? result : { ok: false, error: result.error, retryable: result.retryable };
+      return result.ok
+        ? result
+        : { ok: false, error: result.error, retryable: result.retryable };
     }
 
     lastError = result.error;
@@ -210,16 +249,31 @@ async function attemptGeneration({
   systemPrompt,
   model,
   conversation,
+  cachePrompt,
 }: {
   systemPrompt: string;
   model: AiModel;
   conversation: ConversationTurn[];
+  cachePrompt: boolean;
 }): Promise<Attempt> {
   try {
     const response = await client().messages.create({
       model,
       max_tokens: MAX_TOKENS,
-      system: systemPrompt,
+      // A string when caching is off; a single block carrying a cache
+      // breakpoint when it is on. The breakpoint sits at the end of the system
+      // prompt on purpose — everything before it is identical from one reply to
+      // the next, and the conversation, which changes every turn, renders after
+      // it and is never part of the cached prefix.
+      system: cachePrompt
+        ? [
+            {
+              type: "text" as const,
+              text: systemPrompt,
+              cache_control: { type: "ephemeral" as const },
+            },
+          ]
+        : systemPrompt,
       messages: conversation,
       thinking: THINKING,
       output_config: {
@@ -317,6 +371,8 @@ async function attemptGeneration({
       model,
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
+      cachedTokens: response.usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
     };
   } catch (error) {
     const described = describeError(error);

@@ -48,8 +48,7 @@ import { createClient } from "@/lib/supabase/server";
  */
 
 export type ActionResult<T = null> =
-  | { ok: true; value: T }
-  | { ok: false; error: string };
+  { ok: true; value: T } | { ok: false; error: string };
 
 const LIST_PATH = "/ai-agents/conversation";
 
@@ -123,7 +122,10 @@ function validate(bot: ConversationBot): ActionResult<null> {
     };
   }
 
-  const summary = summaryProblem(bot.goals.conversation_summary, bot.goals.summary);
+  const summary = summaryProblem(
+    bot.goals.conversation_summary,
+    bot.goals.summary,
+  );
   if (summary) return { ok: false, error: summary };
 
   for (const trigger of bot.triggers) {
@@ -172,7 +174,8 @@ function validate(bot: ConversationBot): ActionResult<null> {
     ) {
       return {
         ok: false,
-        error: "Those booking behaviours contradict each other. Reopen the action and pick again.",
+        error:
+          "Those booking behaviours contradict each other. Reopen the action and pick again.",
       };
     }
   }
@@ -190,7 +193,9 @@ const BUILT_ACTIONS: BotActionKind[] = ["book", "workflow", "contact_info"];
  * and does not know which it is doing — a bot it was handed and a bot it
  * invented are the same object by the time you press Save.
  */
-export async function saveBot(bot: ConversationBot): Promise<ActionResult<{ id: string }>> {
+export async function saveBot(
+  bot: ConversationBot,
+): Promise<ActionResult<{ id: string }>> {
   const valid = validate(bot);
   if (!valid.ok) return valid;
 
@@ -264,7 +269,9 @@ export async function saveBot(bot: ConversationBot): Promise<ActionResult<{ id: 
       // would give the loader two answers and no rule for which wins.
       booking: { ...booking, workflow_id: null },
     },
-    booking_automation_id: booking.trigger_workflow ? booking.workflow_id : null,
+    booking_automation_id: booking.trigger_workflow
+      ? booking.workflow_id
+      : null,
     updated_at: new Date().toISOString(),
   };
 
@@ -318,13 +325,42 @@ async function replaceChildren(
   actions: BotActionKind[],
 ): Promise<ActionResult<null>> {
   const cleared = await Promise.all([
-    supabase.from("chatbot_knowledge_triggers").delete().eq("chatbot_id", bot.id),
+    supabase
+      .from("chatbot_knowledge_triggers")
+      .delete()
+      .eq("chatbot_id", bot.id),
     supabase.from("chatbot_automation_rules").delete().eq("chatbot_id", bot.id),
     supabase.from("chatbot_contact_fields").delete().eq("chatbot_id", bot.id),
+    supabase.from("chatbot_knowledge_bases").delete().eq("chatbot_id", bot.id),
   ]);
 
   for (const step of cleared) {
     if (step.error) return { ok: false, error: step.error.message };
+  }
+
+  // No rows means every base on the account, so an empty list is written as
+  // nothing rather than as a row saying so.
+  if (bot.knowledge_base_ids.length > 0) {
+    const { error } = await supabase.from("chatbot_knowledge_bases").insert(
+      [...new Set(bot.knowledge_base_ids)].map((baseId) => ({
+        org_id: orgId,
+        chatbot_id: bot.id,
+        base_id: baseId,
+      })),
+    );
+
+    // Same sentence as the trigger links below, for the same reason: a base
+    // deleted while the editor was open is something the person can fix, and
+    // "violates foreign key constraint" does not tell them how.
+    if (error) {
+      return {
+        ok: false,
+        error:
+          error.code === "23503"
+            ? "One of those knowledge bases has been deleted. Pick again under Bot settings."
+            : error.message,
+      };
+    }
   }
 
   if (bot.triggers.length > 0) {
@@ -416,7 +452,9 @@ async function replaceChildren(
     // action was turned off and back on around a half-filled entry — and the
     // column is `not null`, so it has to be one or the other.
     const chosen = bot.goals.contact_fields.filter(
-      (entry): entry is typeof entry & { field: NonNullable<typeof entry.field> } =>
+      (
+        entry,
+      ): entry is typeof entry & { field: NonNullable<typeof entry.field> } =>
         entry.field !== null,
     );
 

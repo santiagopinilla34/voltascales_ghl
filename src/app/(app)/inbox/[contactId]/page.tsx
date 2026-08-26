@@ -9,9 +9,11 @@ import { AiToggle } from "@/components/inbox/ai-toggle";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ReplyBox } from "@/components/inbox/reply-box";
 import { Button } from "@/components/ui/button";
+import { getPrimaryBot } from "@/lib/ai-agents/queries";
 import { getLatestDraft } from "@/lib/ai/drafts";
 import { getContact, listMessages } from "@/lib/conversations";
 import { contactLabel, formatPhone } from "@/lib/format";
+import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
 
 type PageProps = { params: Promise<{ contactId: string }> };
@@ -41,10 +43,15 @@ export default async function ThreadPage({ params }: PageProps) {
   //
   // A conversation that doesn't exist runs two queries that find nothing,
   // which is the cheap half of a trade against every conversation that does.
-  const [contact, messages, latestDraft] = await Promise.all([
+  const context = await requireOrgContext();
+
+  const [contact, messages, latestDraft, agent] = await Promise.all([
     getContact(supabase, contactId),
     listMessages(supabase, contactId),
     getLatestDraft(supabase, contactId),
+    // The banner below promises what the agent will actually do, so it has to
+    // ask the agent rather than assume.
+    getPrimaryBot(supabase, context.orgId),
   ]);
 
   if (!contact) {
@@ -87,7 +94,11 @@ export default async function ThreadPage({ params }: PageProps) {
           )}
         </div>
 
-        <AiToggle contactId={contact.id} enabled={contact.ai_enabled} />
+        <AiToggle
+          contactId={contact.id}
+          enabled={contact.ai_enabled}
+          agent={agent && { name: agent.name, mode: agent.mode }}
+        />
       </header>
 
       <MessageThread messages={messages} />

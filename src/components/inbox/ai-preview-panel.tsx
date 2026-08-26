@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Loader2, Send, Sparkles, TriangleAlert, X } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Loader2,
+  Send,
+  Sparkles,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +25,13 @@ type PreviewResponse = {
   wouldSend: boolean;
   blockedBy: string[];
 };
+
+/** Whichever draft was written last, or the one that exists. */
+function newest(a: AiDraft | null, b: AiDraft | null): AiDraft | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a.created_at >= b.created_at ? a : b;
+}
 
 /**
  * Shows the newest AI reply for a contact, and generates one on demand.
@@ -40,12 +55,23 @@ export function AiPreviewPanel({
 }) {
   const [result, setResult] = useState<PreviewResponse | null>(null);
   const [pending, setPending] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  // The draft that was dismissed, not a flag. A boolean hid this panel for the
+  // rest of the visit: dismiss the card for one reply and every later one —
+  // including a reply the AI has just texted the contact — was suppressed too.
+  const [dismissedId, setDismissedId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // A fresh generation wins; otherwise fall back to whatever was stored.
-  const draft = result?.draft ?? latestDraft;
-  const visible = draft && !dismissed;
+  // The newer of the two, rather than "a local generation always wins". The
+  // local one used to win outright, which was right while nothing else could
+  // change underneath it — but the live path writes a draft of its own the
+  // moment a text is answered, so preferring the local copy meant an answered
+  // conversation kept showing the preview you happened to run beforehand.
+  const draft = newest(result?.draft ?? null, latestDraft);
+  const visible = draft && draft.id !== dismissedId;
+
+  // The blocked-by note belongs to the generation it came back with, so it is
+  // only shown while that generation is still the draft on screen.
+  const preview = result && draft?.id === result.draft.id ? result : null;
 
   // Set only by the Live-mode send path. A generation made here is never sent,
   // so a fresh `result` is always unsent — the two cases stay distinct without
@@ -54,7 +80,7 @@ export function AiPreviewPanel({
 
   async function generate() {
     setPending(true);
-    setDismissed(false);
+    setDismissedId(null);
 
     try {
       const response = await fetch(`/api/contacts/${contactId}/ai-preview`, {
@@ -65,7 +91,9 @@ export function AiPreviewPanel({
       >;
 
       if (!response.ok) {
-        toast.error("Could not generate a reply", { description: payload.error });
+        toast.error("Could not generate a reply", {
+          description: payload.error,
+        });
         return;
       }
 
@@ -124,7 +152,7 @@ export function AiPreviewPanel({
               size="icon"
               variant="ghost"
               className="ml-auto size-6"
-              onClick={() => setDismissed(true)}
+              onClick={() => setDismissedId(draft.id)}
               aria-label="Dismiss draft"
             >
               <X className="size-3.5" />
@@ -138,12 +166,12 @@ export function AiPreviewPanel({
             {draft.body}
           </p>
 
-          {result && !result.wouldSend && (
+          {preview && !preview.wouldSend && (
             <p className="text-muted-foreground mt-2 flex items-start gap-1.5 text-[11px]">
               <TriangleAlert className="mt-0.5 size-3 shrink-0" />
               <span>
                 In live mode this would not have been sent:{" "}
-                {result.blockedBy.join("; ")}.
+                {preview.blockedBy.join("; ")}.
               </span>
             </p>
           )}
@@ -170,7 +198,11 @@ export function AiPreviewPanel({
               className="ml-auto h-6 gap-1 px-2 text-[11px]"
               onClick={copy}
             >
-              {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+              {copied ? (
+                <Check className="size-3" />
+              ) : (
+                <Copy className="size-3" />
+              )}
               {copied ? "Copied" : "Copy"}
             </Button>
           </div>

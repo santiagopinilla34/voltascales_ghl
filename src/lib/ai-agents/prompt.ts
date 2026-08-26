@@ -39,7 +39,7 @@ import type { Contact, Database } from "@/types/database";
  * cannot do it yet.
  */
 
-/** The knowledge a bot may answer from, already narrowed to its triggers. */
+/** The knowledge a bot may answer from, already narrowed to its scope. */
 export type BotKnowledge = {
   faqs: { question: string; answer: string; base: string }[];
   /**
@@ -68,12 +68,13 @@ export type BotKnowledge = {
 };
 
 /**
- * Read the FAQs and pages the bot's triggers point at.
+ * Read the FAQs and pages this bot is allowed to answer from.
  *
- * No triggers means every base on the account, which is the honest reading of
- * "the agent decides for itself" — the alternative is a bot with a knowledge
- * base configured and nothing in its prompt, which looks like the feature is
- * broken rather than unconfigured.
+ * Scope comes from the bot's chosen knowledge bases, or failing that from the
+ * bases its triggers name. Neither means every base on the account, which is
+ * the honest reading of "nobody has narrowed it" — the alternative is a bot
+ * with a knowledge base configured and nothing in its prompt, which looks like
+ * the feature is broken rather than unconfigured.
  *
  * `orgId` is required, and this is the function where it matters most. The
  * live path calls this from the Twilio webhook, which runs on the **admin
@@ -86,9 +87,17 @@ export async function readBotKnowledge(
   bot: ConversationBot,
   orgId: string,
 ): Promise<BotKnowledge> {
-  const baseIds = [
-    ...new Set(bot.triggers.flatMap((trigger) => trigger.base_ids)),
-  ];
+  // Which bases this bot may open, in order of how explicit the answer is.
+  //
+  // The setting is a decision someone made on purpose, so it wins outright.
+  // Falling back to the triggers keeps every bot that predates the setting
+  // answering exactly as it did — a trigger has always narrowed the load as a
+  // side effect of naming bases — and an account that has done neither still
+  // gets everything, which is the honest reading of "nobody has narrowed it".
+  const chosen = bot.knowledge_base_ids;
+  const baseIds = chosen.length
+    ? [...new Set(chosen)]
+    : [...new Set(bot.triggers.flatMap((trigger) => trigger.base_ids))];
 
   const faqQuery = supabase
     .from("knowledge_faqs")
@@ -323,7 +332,9 @@ export function composeSystemPrompt({
       // The overflow, and pages the crawler stored with no body. Named on the
       // old reasoning, which still holds for exactly this case: knowing the
       // page exists stops the bot claiming the subject is not covered.
-      const titles = named.map((page) => `- ${page.label} (${page.url})`).join("\n");
+      const titles = named
+        .map((page) => `- ${page.label} (${page.url})`)
+        .join("\n");
 
       sections.push(
         "Other pages in this agent's knowledge. You do not have their text, " +

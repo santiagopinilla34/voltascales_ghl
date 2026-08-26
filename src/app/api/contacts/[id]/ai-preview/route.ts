@@ -104,6 +104,7 @@ export async function POST(
     }),
     model: bot.goals.model,
     conversation,
+    cachePrompt: bot.settings.prompt_caching,
   });
 
   if (!result.ok) {

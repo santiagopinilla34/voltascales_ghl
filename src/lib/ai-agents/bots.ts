@@ -138,12 +138,7 @@ export const BOT_MODE_LABELS: Record<BotMode, string> = {
  * channel no conversation will ever arrive on.
  */
 export type BotChannel =
-  | "sms"
-  | "email"
-  | "webchat"
-  | "facebook"
-  | "instagram"
-  | "whatsapp";
+  "sms" | "email" | "webchat" | "facebook" | "instagram" | "whatsapp";
 
 export const BOT_CHANNELS: { value: BotChannel; label: string }[] = [
   { value: "sms", label: "SMS" },
@@ -200,6 +195,23 @@ export type BotSettings = {
   sleep_on_manual_message: boolean;
   /** And when an automation does. */
   sleep_on_workflow_message: boolean;
+  /**
+   * Cache the stable front of the prompt between replies.
+   *
+   * Changes nothing about the answer — a cached prefix is the same tokens,
+   * recomputed or not — so this is a bill, not a behaviour. Nearly all the cost
+   * of a reply is the knowledge riding along in front of it, unchanged every
+   * time, and a cache read costs about a tenth of a fresh one.
+   *
+   * The bet it makes: a write costs about 1.25x, so a thread that carries on
+   * within the cache window is much cheaper and a single text nobody follows up
+   * is slightly dearer. On by default because conversations are the point.
+   *
+   * Keep the prompt boxes free of per-contact fields to get the most from it —
+   * {{first_name}} in the prompt renders a different prefix for every person
+   * and splits one shared cache entry into one per contact.
+   */
+  prompt_caching: boolean;
   response_style_enabled: boolean;
   /**
    * How long an answer should run.
@@ -259,6 +271,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   // bot should stop talking over them.
   sleep_on_manual_message: true,
   sleep_on_workflow_message: false,
+  prompt_caching: true,
   response_style_enabled: false,
   // The middle option, which is also what the bot does when the switch is off.
   // Starting anywhere else would make turning the switch on change the answers
@@ -312,12 +325,7 @@ export const TRIGGER_INSTRUCTIONS_MAX = 300;
  * handover — and a bot cannot be given an ability nobody has written.
  */
 export type BotActionKind =
-  | "book"
-  | "workflow"
-  | "contact_info"
-  | "stop"
-  | "handover"
-  | "followup";
+  "book" | "workflow" | "contact_info" | "stop" | "handover" | "followup";
 
 export const BOT_ACTIONS: {
   value: BotActionKind;
@@ -476,7 +484,9 @@ export function summaryProblem(
   // Deliberately loose. This catches a missing @ and a typo'd domain, which is
   // what people actually get wrong; anything stricter starts rejecting real
   // addresses, and the send is what finds out for certain.
-  const bad = addresses.filter((address) => !/^[^@\s]+@[^@\s.]+\.\S+$/.test(address));
+  const bad = addresses.filter(
+    (address) => !/^[^@\s]+@[^@\s.]+\.\S+$/.test(address),
+  );
 
   return bad.length ? `That does not look like an email: ${bad[0]}` : null;
 }
@@ -590,7 +600,9 @@ export const BOOKING_PAUSE_MAX = 365;
  */
 export function bookingDisabled(
   booking: BookingSettings,
-): Set<"link_only" | "pause_bot" | "trigger_workflow" | "transfer_bot" | "cancel"> {
+): Set<
+  "link_only" | "pause_bot" | "trigger_workflow" | "transfer_bot" | "cancel"
+> {
   const off = new Set<
     "link_only" | "pause_bot" | "trigger_workflow" | "transfer_bot" | "cancel"
   >();
@@ -806,7 +818,9 @@ export function contactFieldLabel(update: ContactFieldUpdate): string {
 
 /** True when nothing has been typed or chosen on this entry. */
 export function contactFieldIsBlank(update: ContactFieldUpdate): boolean {
-  return !update.name.trim() && update.field === null && !update.describe.trim();
+  return (
+    !update.name.trim() && update.field === null && !update.describe.trim()
+  );
 }
 
 /**
@@ -970,6 +984,16 @@ export type ConversationBot = {
   settings: BotSettings;
   /** The prompt, the model, and what the bot may do besides talk. */
   goals: BotGoals;
+  /**
+   * Which knowledge bases this bot may answer from. Empty means every base on
+   * the account, which is what a bot did before this existed.
+   *
+   * Beside `triggers` rather than inside `settings`, because it is the same
+   * kind of thing: ids of other rows, stored in their own table with a foreign
+   * key so that deleting a base removes it here rather than leaving a string
+   * nothing resolves.
+   */
+  knowledge_base_ids: string[];
   /** When each knowledge base gets used. Empty leaves the choice to the agent. */
   triggers: KnowledgeTrigger[];
   /**
@@ -1063,6 +1087,7 @@ export function newBot(kind: BotKind, taken: string[]): ConversationBot {
       contact_fields: [],
       summary: { ...DEFAULT_SUMMARY },
     },
+    knowledge_base_ids: [],
     triggers: [],
     is_primary: false,
     created_at: now,

@@ -10,6 +10,29 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 /**
+ * What having the switch on actually means, given the agent behind it.
+ *
+ * Only reached when the contact's own flag is on, so every line here is about
+ * the agent rather than about this conversation.
+ */
+function agentSubtitle(
+  agent: { name: string; mode: "off" | "suggest" | "autopilot" } | null,
+): string {
+  if (!agent) return "No agent yet — nothing will reply";
+
+  switch (agent.mode) {
+    case "autopilot":
+      return "Replies sent automatically";
+    case "suggest":
+      // Drafts still appear in the panel below, so this is a real state rather
+      // than a broken one — it just is not the state the old copy claimed.
+      return `${agent.name} drafts only — you send`;
+    case "off":
+      return `${agent.name} is off — nothing will reply`;
+  }
+}
+
+/**
  * Per-conversation AI handling control.
  *
  * Deliberately loud: which of the two of you is answering this person is the
@@ -20,9 +43,22 @@ import { cn } from "@/lib/utils";
 export function AiToggle({
   contactId,
   enabled,
+  agent,
 }: {
   contactId: string;
   enabled: boolean;
+  /**
+   * The organization's primary agent, or null when it has none.
+   *
+   * This switch only ever meant "may the AI answer *this person*". Whether the
+   * AI answers at all is the agent's business, and the banner used to promise
+   * "replies sent automatically" on the strength of the per-contact flag alone
+   * — so a thread with the switch on read exactly the same whether the agent
+   * was on auto-pilot, drafting quietly, switched off, or had never been
+   * created. The one case it described was the one case nobody needed telling
+   * about.
+   */
+  agent: { name: string; mode: "off" | "suggest" | "autopilot" } | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -40,12 +76,16 @@ export function AiToggle({
       const result = await setAiEnabled(contactId, next);
 
       if (!result.ok) {
-        toast.error("Could not change AI handling", { description: result.error });
+        toast.error("Could not change AI handling", {
+          description: result.error,
+        });
         return;
       }
 
       toast.success(
-        next ? "AI is now replying to this contact" : "You are now replying manually",
+        next
+          ? "AI is now replying to this contact"
+          : "You are now replying manually",
       );
       router.refresh();
     });
@@ -77,7 +117,7 @@ export function AiToggle({
           {optimistic ? "AI handling on" : "AI handling off"}
         </span>
         <span className="text-muted-foreground hidden text-[11px] sm:block">
-          {optimistic ? "Replies sent automatically" : "You reply manually"}
+          {optimistic ? agentSubtitle(agent) : "You reply manually"}
         </span>
       </span>
 

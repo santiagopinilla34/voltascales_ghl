@@ -654,6 +654,46 @@ export type Database = {
           },
         ]
       }
+      chatbot_knowledge_bases: {
+        Row: {
+          base_id: string
+          chatbot_id: string
+          org_id: string
+        }
+        Insert: {
+          base_id: string
+          chatbot_id: string
+          org_id: string
+        }
+        Update: {
+          base_id?: string
+          chatbot_id?: string
+          org_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_knowledge_bases_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_knowledge_bases_chatbot_id_fkey"
+            columns: ["chatbot_id"]
+            isOneToOne: false
+            referencedRelation: "chatbots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_knowledge_bases_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chatbot_knowledge_trigger_bases: {
         Row: {
           base_id: string

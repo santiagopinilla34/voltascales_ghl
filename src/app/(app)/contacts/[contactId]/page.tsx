@@ -12,14 +12,18 @@ import { ReplyBox } from "@/components/inbox/reply-box";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { getPrimaryBot } from "@/lib/ai-agents/queries";
 import { getContact, listMessages } from "@/lib/conversations";
 import { listCalls } from "@/lib/contacts";
 import { contactLabel, formatFullTimestamp, formatPhone } from "@/lib/format";
+import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
 
 type PageProps = { params: Promise<{ contactId: string }> };
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: PageProps): Promise<Metadata> {
   const { contactId } = await params;
   const supabase = await createClient();
   const contact = await getContact(supabase, contactId);
@@ -41,9 +45,13 @@ export default async function ContactDetailPage({ params }: PageProps) {
   }
 
   // Independent of each other, so overlap the round trips.
-  const [messages, calls] = await Promise.all([
+  const context = await requireOrgContext();
+
+  const [messages, calls, agent] = await Promise.all([
     listMessages(supabase, contact.id),
     listCalls(supabase, contact.id),
+    // Same reason as the Inbox: the banner states what the agent will do.
+    getPrimaryBot(supabase, context.orgId),
   ]);
 
   const label = contactLabel(contact);
@@ -81,7 +89,11 @@ export default async function ContactDetailPage({ params }: PageProps) {
           )}
         </div>
 
-        <AiToggle contactId={contact.id} enabled={contact.ai_enabled} />
+        <AiToggle
+          contactId={contact.id}
+          enabled={contact.ai_enabled}
+          agent={agent && { name: agent.name, mode: agent.mode }}
+        />
       </header>
 
       {/* Thread on the left, record on the right. Stacks below `lg`, where two

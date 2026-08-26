@@ -124,6 +124,7 @@ export async function POST(request: Request) {
     systemPrompt,
     model: bot.goals.model,
     conversation: turns,
+    cachePrompt: bot.settings.prompt_caching,
   });
 
   if (!result.ok) {

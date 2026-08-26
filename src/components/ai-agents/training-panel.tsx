@@ -316,9 +316,19 @@ const STORAGE_EVENT = "voltascales:test-conversation-changed";
 const STORED_TURNS = 40;
 
 /** What one agent's panel is holding. */
-type StoredConversation = { turns: Turn[]; draft: string };
+/**
+ * The transcript, and only the transcript.
+ *
+ * The half-typed message deliberately does not live here. It did, and storing
+ * it meant a write and a synchronous store notification on every keystroke —
+ * fired from inside the input's own change handler, which cost the input its
+ * focus and left Enter doing nothing while the send button still worked.
+ * Keeping the box in ordinary React state costs a draft that does not survive
+ * a navigation, which is worth far less than a working Enter key.
+ */
+type StoredConversation = { turns: Turn[] };
 
-const EMPTY: StoredConversation = { turns: [], draft: "" };
+const EMPTY: StoredConversation = { turns: [] };
 
 /**
  * Where the thread goes when the browser refuses storage.
@@ -358,10 +368,7 @@ function parse(raw: string | null): StoredConversation {
 
   try {
     const value = JSON.parse(raw) as Partial<StoredConversation>;
-    return {
-      turns: Array.isArray(value.turns) ? value.turns : [],
-      draft: typeof value.draft === "string" ? value.draft : "",
-    };
+    return { turns: Array.isArray(value.turns) ? value.turns : [] };
   } catch {
     // Written by an older shape, or truncated. An empty panel beats a crash.
     return EMPTY;
@@ -369,10 +376,7 @@ function parse(raw: string | null): StoredConversation {
 }
 
 function write(botId: string, value: StoredConversation) {
-  const raw = JSON.stringify({
-    turns: value.turns.slice(-STORED_TURNS),
-    draft: value.draft,
-  });
+  const raw = JSON.stringify({ turns: value.turns.slice(-STORED_TURNS) });
 
   memory.set(botId, raw);
 
@@ -426,15 +430,26 @@ export function TestConversationProvider({
   botId: string;
   children: React.ReactNode;
 }) {
+  // Memoised, both of them. An inline `getSnapshot` is a new function on every
+  // render, which makes React tear down and re-establish the subscription each
+  // time — on a component that re-renders on every keystroke, that is a lot of
+  // churn for a value that has not changed.
+  const getSnapshot = useCallback(() => readRaw(botId), [botId]);
+  const getServerSnapshot = useCallback(() => null, []);
+
   const raw = useSyncExternalStore(
     subscribeToStorage,
-    () => readRaw(botId),
-    () => null,
+    getSnapshot,
+    getServerSnapshot,
   );
 
   const stored = useMemo(() => parse(raw), [raw]);
 
-  // Not stored, and deliberately: a request that was in flight when you
+  // Ordinary state, not the store. See StoredConversation for why the input is
+  // the one thing that must not round-trip through storage on every keystroke.
+  const [draft, setDraft] = useState("");
+
+  // Not stored either, and deliberately: a request that was in flight when you
   // navigated away is not in flight any more, and a spinner nothing will ever
   // stop is worse than no spinner.
   const [thinking, setThinking] = useState(false);
@@ -442,17 +457,7 @@ export function TestConversationProvider({
   const setTurns = useCallback<Dispatch<SetStateAction<Turn[]>>>(
     (action) =>
       update(botId, (current) => ({
-        ...current,
         turns: typeof action === "function" ? action(current.turns) : action,
-      })),
-    [botId],
-  );
-
-  const setDraft = useCallback<Dispatch<SetStateAction<string>>>(
-    (action) =>
-      update(botId, (current) => ({
-        ...current,
-        draft: typeof action === "function" ? action(current.draft) : action,
       })),
     [botId],
   );
@@ -461,12 +466,12 @@ export function TestConversationProvider({
     () => ({
       turns: stored.turns,
       setTurns,
-      draft: stored.draft,
+      draft,
       setDraft,
       thinking,
       setThinking,
     }),
-    [stored, setTurns, setDraft, thinking],
+    [stored, setTurns, draft, thinking],
   );
 
   return (

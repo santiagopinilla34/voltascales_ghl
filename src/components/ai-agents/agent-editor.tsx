@@ -18,6 +18,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -324,6 +325,19 @@ export function AgentEditor({
                     />
                   </Field>
 
+                  <Field
+                    label="Knowledge bases"
+                    hint="What this bot may answer from. None picked means every base on the account — narrow it when a bot should not be reading the others."
+                  >
+                    <KnowledgeBasePicker
+                      value={draft.knowledge_base_ids}
+                      bases={bases}
+                      onChange={(knowledge_base_ids) =>
+                        patch({ knowledge_base_ids })
+                      }
+                    />
+                  </Field>
+
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-3 py-2.5">
                     <p className="text-muted-foreground flex items-center gap-2 text-xs">
                       <Sparkles className="size-3.5 shrink-0" />
@@ -507,6 +521,20 @@ export function AgentEditor({
                       />
                     </Field>
                   )}
+                </Section>
+
+                <Section
+                  title="Cost"
+                  hint="What each reply costs to produce. None of it changes what the bot says."
+                >
+                  <Toggle
+                    label="Reuse the prompt between replies"
+                    hint="Almost all of a reply's cost is the prompt and knowledge in front of it, identical every time. Reusing it makes a follow-up in the same conversation far cheaper, and a single text nobody replies to slightly dearer. Answers are unchanged either way."
+                    checked={draft.settings.prompt_caching}
+                    onChange={(prompt_caching) =>
+                      patchSettings({ prompt_caching })
+                    }
+                  />
                 </Section>
               </TabsContent>
 
@@ -862,6 +890,113 @@ function ChannelPicker({
               {BOT_CHANNEL_LABELS[channel.value]}
             </DropdownMenuCheckboxItem>
           ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+/**
+ * Which bases the bot may open, as chips over a checkbox menu.
+ *
+ * Same shape as the channel picker above, because it answers the same kind of
+ * question — a short list you mostly read rather than edit.
+ *
+ * Empty is a real and common answer, so it says what empty *means* rather than
+ * "none selected". A bot with nothing ticked reads every base on the account,
+ * and a picker that only said "none" would read as the opposite.
+ */
+function KnowledgeBasePicker({
+  value,
+  bases,
+  onChange,
+}: {
+  value: string[];
+  bases: KnowledgeBase[];
+  onChange: (ids: string[]) => void;
+}) {
+  function toggle(id: string, on: boolean) {
+    onChange(on ? [...value, id] : value.filter((item) => item !== id));
+  }
+
+  // A base can be deleted from under a bot that named it. The id stays in the
+  // settings — it is jsonb, not a foreign key — so this is where that shows up
+  // as something you can remove rather than as a chip that says nothing.
+  const missing = value.filter((id) => !bases.some((base) => base.id === id));
+
+  return (
+    <div className="flex max-w-xl flex-wrap items-center gap-1.5 rounded-lg border p-1.5">
+      {value.length === 0 && (
+        <span className="text-muted-foreground px-1.5 text-xs">
+          Every knowledge base
+        </span>
+      )}
+
+      {/* Ordered by the account's list rather than by when each was ticked, so
+          the chips do not reshuffle as you use the menu. */}
+      {bases
+        .filter((base) => value.includes(base.id))
+        .map((base) => (
+          <Badge
+            key={base.id}
+            variant="outline"
+            className="max-w-56 gap-1 pr-1"
+          >
+            <span className="truncate">{base.name}</span>
+            <button
+              type="button"
+              aria-label={`Remove ${base.name}`}
+              onClick={() => toggle(base.id, false)}
+              className="hover:text-foreground text-muted-foreground shrink-0"
+            >
+              <X className="size-3" />
+            </button>
+          </Badge>
+        ))}
+
+      {missing.map((id) => (
+        <Badge
+          key={id}
+          variant="ghost"
+          className="text-muted-foreground gap-1 pr-1"
+        >
+          Deleted base
+          <button
+            type="button"
+            aria-label="Remove the deleted base"
+            onClick={() => toggle(id, false)}
+            className="hover:text-foreground"
+          >
+            <X className="size-3" />
+          </button>
+        </Badge>
+      ))}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="xs" className="ml-auto">
+            Knowledge
+            <ChevronDown className="size-3" />
+          </Button>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent align="end" className="w-56">
+          {bases.length === 0 ? (
+            <DropdownMenuItem disabled>No knowledge bases yet</DropdownMenuItem>
+          ) : (
+            bases.map((base) => (
+              <DropdownMenuCheckboxItem
+                key={base.id}
+                checked={value.includes(base.id)}
+                // Radix closes on select by default, which for a multi-select
+                // is one base per trip to the menu.
+                onSelect={(event) => event.preventDefault()}
+                onCheckedChange={(checked) => toggle(base.id, checked)}
+              >
+                <span className="truncate">{base.name}</span>
+              </DropdownMenuCheckboxItem>
+            ))
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

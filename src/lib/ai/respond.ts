@@ -170,6 +170,7 @@ export async function respondToInbound(
       systemPrompt,
       model: bot.goals.model,
       conversation,
+      cachePrompt: bot.settings.prompt_caching,
     });
 
     if (!result.ok) {
@@ -193,7 +194,16 @@ export async function respondToInbound(
       outputTokens: result.outputTokens,
     });
 
-    const usage = `${result.inputTokens} in / ${result.outputTokens} out`;
+    // The cache counters are in here because a cache that silently stopped
+    // working looks exactly like one that never worked: the replies are fine
+    // and the bill is quietly four times what it should be.
+    const cache =
+      result.cachedTokens > 0
+        ? `, ${result.cachedTokens} cached`
+        : result.cacheWriteTokens > 0
+          ? `, ${result.cacheWriteTokens} cache write`
+          : "";
+    const usage = `${result.inputTokens} in / ${result.outputTokens} out${cache}`;
     const held = await deliver(supabase, {
       contact,
       messageId,
