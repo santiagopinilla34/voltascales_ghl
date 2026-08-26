@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.17"
   }
   graphql_public: {
     Tables: {
@@ -514,6 +514,284 @@ export type Database = {
           },
           {
             foreignKeyName: "calls_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_automation_rules: {
+        Row: {
+          chatbot_id: string
+          created_at: string
+          id: string
+          name: string
+          org_id: string
+          sort_order: number
+          when_text: string
+        }
+        Insert: {
+          chatbot_id: string
+          created_at?: string
+          id?: string
+          name?: string
+          org_id: string
+          sort_order?: number
+          when_text: string
+        }
+        Update: {
+          chatbot_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          org_id?: string
+          sort_order?: number
+          when_text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_automation_rules_chatbot_id_fkey"
+            columns: ["chatbot_id"]
+            isOneToOne: false
+            referencedRelation: "chatbots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_automation_rules_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_automation_targets: {
+        Row: {
+          automation_id: string
+          org_id: string
+          rule_id: string
+        }
+        Insert: {
+          automation_id: string
+          org_id: string
+          rule_id: string
+        }
+        Update: {
+          automation_id?: string
+          org_id?: string
+          rule_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_automation_targets_automation_id_fkey"
+            columns: ["automation_id"]
+            isOneToOne: false
+            referencedRelation: "automations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_automation_targets_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_automation_targets_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "chatbot_automation_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_contact_fields: {
+        Row: {
+          chatbot_id: string
+          created_at: string
+          describe: string
+          field: string
+          id: string
+          name: string
+          org_id: string
+          sort_order: number
+        }
+        Insert: {
+          chatbot_id: string
+          created_at?: string
+          describe: string
+          field: string
+          id?: string
+          name?: string
+          org_id: string
+          sort_order?: number
+        }
+        Update: {
+          chatbot_id?: string
+          created_at?: string
+          describe?: string
+          field?: string
+          id?: string
+          name?: string
+          org_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_contact_fields_chatbot_id_fkey"
+            columns: ["chatbot_id"]
+            isOneToOne: false
+            referencedRelation: "chatbots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_contact_fields_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_knowledge_trigger_bases: {
+        Row: {
+          base_id: string
+          org_id: string
+          trigger_id: string
+        }
+        Insert: {
+          base_id: string
+          org_id: string
+          trigger_id: string
+        }
+        Update: {
+          base_id?: string
+          org_id?: string
+          trigger_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_knowledge_trigger_bases_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_knowledge_trigger_bases_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_knowledge_trigger_bases_trigger_id_fkey"
+            columns: ["trigger_id"]
+            isOneToOne: false
+            referencedRelation: "chatbot_knowledge_triggers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_knowledge_triggers: {
+        Row: {
+          chatbot_id: string
+          created_at: string
+          id: string
+          instructions: string
+          org_id: string
+          sort_order: number
+        }
+        Insert: {
+          chatbot_id: string
+          created_at?: string
+          id?: string
+          instructions?: string
+          org_id: string
+          sort_order?: number
+        }
+        Update: {
+          chatbot_id?: string
+          created_at?: string
+          id?: string
+          instructions?: string
+          org_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_knowledge_triggers_chatbot_id_fkey"
+            columns: ["chatbot_id"]
+            isOneToOne: false
+            referencedRelation: "chatbots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_knowledge_triggers_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbots: {
+        Row: {
+          booking_automation_id: string | null
+          channels: string[]
+          created_at: string
+          description: string | null
+          goals: Json
+          id: string
+          is_primary: boolean
+          kind: string
+          mode: string
+          name: string
+          org_id: string
+          settings: Json
+          updated_at: string
+        }
+        Insert: {
+          booking_automation_id?: string | null
+          channels?: string[]
+          created_at?: string
+          description?: string | null
+          goals?: Json
+          id?: string
+          is_primary?: boolean
+          kind?: string
+          mode?: string
+          name: string
+          org_id: string
+          settings?: Json
+          updated_at?: string
+        }
+        Update: {
+          booking_automation_id?: string | null
+          channels?: string[]
+          created_at?: string
+          description?: string | null
+          goals?: Json
+          id?: string
+          is_primary?: boolean
+          kind?: string
+          mode?: string
+          name?: string
+          org_id?: string
+          settings?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbots_booking_automation_id_fkey"
+            columns: ["booking_automation_id"]
+            isOneToOne: false
+            referencedRelation: "automations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbots_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"

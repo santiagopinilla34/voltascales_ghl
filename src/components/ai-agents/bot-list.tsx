@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   BookOpen,
@@ -16,7 +17,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { BotDialog, type BotDraft } from "@/components/ai-agents/bot-dialog";
+import {
+  deleteBot,
+  saveBot,
+  setPrimaryBot,
+} from "@/app/(app)/ai-agents/conversation/actions";
 import { BotKindDialog } from "@/components/ai-agents/bot-kind-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,8 +56,6 @@ import {
   BOT_LIMIT,
   BOT_MODE_LABELS,
   availableName,
-  withPrimary,
-  type BotKind,
   type ConversationBot,
 } from "@/lib/ai-agents/bots";
 import { cn } from "@/lib/utils";
@@ -60,37 +63,36 @@ import { cn } from "@/lib/utils";
 /**
  * The list of chatbots, with everything you can do to one.
  *
- * The bots live in this component's state, and that is the whole story for
- * now: there is no `chatbots` table, no action and no fetch. This is the
- * screen built ahead of its backend so the shape can be argued with before it
- * is migrated — every button does what it will do, to a list that lasts until
- * the page reloads. The note under the header says so, because a list that
- * silently forgets is worse than one that admits it.
+ * The rows come from the provider in the Conversation AI layout, not from
+ * this component and not from Postgres — there is no `chatbots` table yet.
+ * Every button does what it will do, to a list that lasts until the page
+ * reloads, and the note under the header says so: a list that silently forgets
+ * is worse than one that admits it.
  *
- * When the table lands, this component keeps its markup and loses its
- * `useState`: `bots` becomes a prop off a server component, and each handler
- * becomes an action plus `router.refresh()` — the same swap the knowledge base
- * list already made.
+ * Creating and editing both leave this screen for the agent editor. A bot has
+ * fifteen settings now, which is a screen rather than a dialog, and the one
+ * form for both is what keeps a bot from being editable into something it
+ * could not have been created as.
  *
- * Search is done here rather than in a query for the same reason it is there:
- * ten rows is a list, not a data set, and a round trip to filter ten strings
- * would be slower than the keystroke that asked for it.
+ * Search is done here rather than in a query: ten rows is a list, not a data
+ * set, and a round trip to filter ten strings would be slower than the
+ * keystroke that asked for it.
  */
 
 /** How many channel chips fit a row before the rest become "+3". */
 const CHANNELS_SHOWN = 2;
 
-export function BotList() {
-  const [bots, setBots] = useState<ConversationBot[]>([]);
+export function BotList({ bots }: { bots: ConversationBot[] }) {
+  const router = useRouter();
+
+  // Every mutation here is a server action followed by a refresh, so the rows
+  // this renders always came from Postgres. No optimistic copy in state: the
+  // list is short, the actions are fast, and a local copy is how a failed
+  // delete leaves a row missing from a screen it is still present in.
+  const [busy, setBusy] = useState(false);
+
   const [query, setQuery] = useState("");
-
-  // Creating is two steps: pick a kind, then fill the form. Two pieces of
-  // state rather than one union because Back has to put the chooser up with
-  // the form gone, which a single "which dialog is open" value would fumble.
   const [choosingKind, setChoosingKind] = useState(false);
-  const [creatingKind, setCreatingKind] = useState<BotKind | null>(null);
-
-  const [editing, setEditing] = useState<ConversationBot | null>(null);
   const [deleting, setDeleting] = useState<ConversationBot | null>(null);
 
   const atLimit = bots.length >= BOT_LIMIT;
@@ -112,53 +114,7 @@ export function BotList() {
     });
   }, [bots, query]);
 
-  function create(draft: BotDraft) {
-    if (!creatingKind) return;
-
-    const now = new Date().toISOString();
-
-    const bot: ConversationBot = {
-      id: crypto.randomUUID(),
-      name: draft.name,
-      description: draft.description || null,
-      kind: creatingKind,
-      mode: draft.mode,
-      channels: draft.channels,
-      // The first bot made is primary, because a list of bots where none
-      // answers anything is a list that does nothing and does not say why.
-      is_primary: bots.length === 0,
-      created_at: now,
-      updated_at: now,
-    };
-
-    setBots((current) => [...current, bot]);
-    setCreatingKind(null);
-    toast.success(`Created “${bot.name}”`);
-  }
-
-  function save(draft: BotDraft) {
-    if (!editing) return;
-
-    setBots((current) =>
-      current.map((bot) =>
-        bot.id === editing.id
-          ? {
-              ...bot,
-              name: draft.name,
-              description: draft.description || null,
-              mode: draft.mode,
-              channels: draft.channels,
-              updated_at: new Date().toISOString(),
-            }
-          : bot,
-      ),
-    );
-
-    setEditing(null);
-    toast.success("Bot updated");
-  }
-
-  function duplicate(bot: ConversationBot) {
+  async function duplicate(bot: ConversationBot) {
     if (atLimit) {
       toast.error(`You already have the maximum of ${BOT_LIMIT} bots.`);
       return;
@@ -170,47 +126,81 @@ export function BotList() {
       bot.name,
     );
 
-    setBots((current) => [
-      ...current,
-      {
-        ...bot,
+    setBusy(true);
+
+    const result = await saveBot({
+      ...bot,
+      id: crypto.randomUUID(),
+      name,
+      // A copy never inherits primary: two bots answering the same thread is
+      // the one outcome duplicating must not be able to cause.
+      is_primary: false,
+      // Copied rather than shared, or editing the copy would rewrite the
+      // original's settings through the same object.
+      settings: { ...bot.settings },
+      channels: [...bot.channels],
+      // New ids for the children too. They are the primary keys of their own
+      // rows, and reusing them would have the copy's insert collide with the
+      // original's.
+      triggers: bot.triggers.map((trigger) => ({
+        ...trigger,
         id: crypto.randomUUID(),
-        name,
-        // A copy never inherits primary: two bots answering the same thread is
-        // the one outcome duplicating must not be able to cause.
-        is_primary: false,
-        created_at: now,
-        updated_at: now,
+      })),
+      goals: {
+        ...bot.goals,
+        automations: bot.goals.automations.map((rule) => ({
+          ...rule,
+          id: crypto.randomUUID(),
+        })),
+        contact_fields: bot.goals.contact_fields.map((field) => ({
+          ...field,
+          id: crypto.randomUUID(),
+        })),
       },
-    ]);
+      created_at: now,
+      updated_at: now,
+    });
+
+    setBusy(false);
+
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
 
     toast.success(`Created “${name}”`);
+    router.refresh();
   }
 
-  function makePrimary(bot: ConversationBot) {
-    setBots((current) => withPrimary(current, bot.id));
-    toast.success(`“${bot.name}” now answers inbound messages`);
-  }
-
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!deleting) return;
 
-    setBots((current) => {
-      const left = current.filter((bot) => bot.id !== deleting.id);
+    setBusy(true);
+    const result = await deleteBot(deleting.id);
+    setBusy(false);
 
-      // Deleting the primary would otherwise leave every remaining bot idle
-      // with nothing on screen explaining it. The oldest survivor inherits.
-      if (!deleting.is_primary || left.length === 0) return left;
-
-      const oldest = [...left].sort((a, b) =>
-        a.created_at.localeCompare(b.created_at),
-      )[0];
-
-      return withPrimary(left, oldest.id);
-    });
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
 
     toast.success(`Deleted “${deleting.name}”`);
     setDeleting(null);
+    router.refresh();
+  }
+
+  async function promote(bot: ConversationBot) {
+    setBusy(true);
+    const result = await setPrimaryBot(bot.id);
+    setBusy(false);
+
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+
+    toast.success(`“${bot.name}” now answers inbound messages`);
+    router.refresh();
   }
 
   return (
@@ -221,8 +211,7 @@ export function BotList() {
             Conversation AI agents
           </h2>
           <p className="text-muted-foreground text-xs">
-            The bots that read your inbox and reply. Nothing here is saved yet —
-            this screen is ahead of its database.
+            The bots that read your inbox and reply.
           </p>
         </div>
 
@@ -231,11 +220,11 @@ export function BotList() {
             {bots.length} of {BOT_LIMIT}
           </span>
 
-          {/* Next to Create rather than tucked inside the bot form, because
-              it is not part of making a bot — it is the other half of the
-              job. A bot is a voice and a set of channels; what it is allowed
-              to say lives in a knowledge base, and you move between the two
-              all afternoon. */}
+          {/* Next to Create rather than tucked inside the agent editor,
+              because it is not part of making a bot — it is the other half of
+              the job. A bot is a voice and a set of channels; what it is
+              allowed to say lives in a knowledge base, and you move between
+              the two all afternoon. */}
           <Button asChild variant="outline" size="sm">
             <Link href="/ai-agents/knowledge-base">
               <BookOpen className="size-4" />
@@ -315,9 +304,17 @@ export function BotList() {
               {shown.map((bot) => (
                 <TableRow key={bot.id}>
                   <TableCell className="max-w-0">
-                    <div className="flex flex-col gap-0.5">
+                    {/* The whole name block is the link: the description and
+                        the kind under it are part of what you read to decide
+                        this is the row you wanted. */}
+                    <Link
+                      href={`/ai-agents/conversation/${bot.id}`}
+                      className="flex flex-col gap-0.5"
+                    >
                       <span className="flex items-center gap-2">
-                        <span className="truncate font-medium">{bot.name}</span>
+                        <span className="truncate font-medium hover:underline">
+                          {bot.name}
+                        </span>
                         {bot.is_primary && (
                           <Badge variant="outline" className="shrink-0">
                             Primary
@@ -331,10 +328,6 @@ export function BotList() {
                         </span>
                       )}
 
-                      {/* Under the name rather than beside it: how a bot is
-                          authored decides which editor opens, not whether
-                          this is the row you wanted, so it does not belong in
-                          the line you scan. */}
                       <span className="text-muted-foreground truncate text-xs">
                         {BOT_KIND_LABELS[bot.kind]}
                       </span>
@@ -350,14 +343,14 @@ export function BotList() {
                       <span className="text-muted-foreground truncate text-xs lg:hidden">
                         Updated {formatFullTimestamp(bot.updated_at)}
                       </span>
-                    </div>
+                    </Link>
                   </TableCell>
 
                   <TableCell>
                     <Badge
-                      variant={bot.mode === "paused" ? "ghost" : "secondary"}
+                      variant={bot.mode === "off" ? "ghost" : "secondary"}
                       className={cn(
-                        bot.mode === "paused" && "text-muted-foreground",
+                        bot.mode === "off" && "text-muted-foreground",
                       )}
                     >
                       {BOT_MODE_LABELS[bot.mode]}
@@ -388,14 +381,18 @@ export function BotList() {
                         {/* Wide enough that "Set as primary" stays on one
                             line; wrapped, it reads as two menu items. */}
                         <DropdownMenuContent align="end" className="w-44">
-                          <DropdownMenuItem onClick={() => setEditing(bot)}>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              router.push(`/ai-agents/conversation/${bot.id}`)
+                            }
+                          >
                             <Pencil className="size-3.5" />
                             Edit
                           </DropdownMenuItem>
 
                           <DropdownMenuItem
                             onClick={() => duplicate(bot)}
-                            disabled={atLimit}
+                            disabled={atLimit || busy}
                           >
                             <Copy className="size-3.5" />
                             Duplicate
@@ -406,8 +403,8 @@ export function BotList() {
                               depending on the row is a menu you have to read
                               every time. */}
                           <DropdownMenuItem
-                            onClick={() => makePrimary(bot)}
-                            disabled={bot.is_primary}
+                            onClick={() => promote(bot)}
+                            disabled={bot.is_primary || busy}
                           >
                             <Star className="size-3.5" />
                             Set as primary
@@ -436,40 +433,14 @@ export function BotList() {
       <BotKindDialog
         open={choosingKind}
         onOpenChange={setChoosingKind}
+        // Straight into the editor rather than a create form here. A bot has
+        // fifteen settings, and the screen that owns them is the one that
+        // should be making it.
         onPick={(kind) => {
           setChoosingKind(false);
-          setCreatingKind(kind);
+          router.push(`/ai-agents/conversation/new?kind=${kind}`);
         }}
       />
-
-      {creatingKind && (
-        <BotDialog
-          open
-          onOpenChange={(next) => !next && setCreatingKind(null)}
-          onSubmit={create}
-          existing={bots}
-          kind={creatingKind}
-          // Back rather than a second Cancel: the kind is a decision, and
-          // having to close the form and press Create bot again to change it
-          // is how you end up keeping the one you picked by accident.
-          onBack={() => {
-            setCreatingKind(null);
-            setChoosingKind(true);
-          }}
-        />
-      )}
-
-      {/* Mounted only while open, so it starts from the row it was opened on
-          rather than from whatever it held last time. */}
-      {editing && (
-        <BotDialog
-          open
-          onOpenChange={(next) => !next && setEditing(null)}
-          onSubmit={save}
-          existing={bots}
-          bot={editing}
-        />
-      )}
 
       <Dialog
         open={Boolean(deleting)}

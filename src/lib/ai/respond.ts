@@ -2,6 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { composeSystemPrompt, readBotKnowledge } from "@/lib/ai-agents/prompt";
+import { getPrimaryBot } from "@/lib/ai-agents/queries";
 import { listMessages } from "@/lib/conversations";
 import { isOrgSuspended } from "@/lib/orgs/suspension";
 import { debit, hasCredit } from "@/lib/billing/credit";
@@ -72,12 +74,37 @@ export async function respondToInbound(
       return;
     }
 
+    // The account's primary Conversation AI agent, if it has one. Everything
+    // below prefers it and falls back to `settings` when it is absent, so an
+    // account that has not built an agent keeps answering exactly as it did
+    // before this feature existed.
+    const bot = await getPrimaryBot(supabase, contact.org_id);
+
     // `off` means the engine never calls Claude — checked before anything else
-    // so that switching the feature off is also a guarantee about spend.
-    if (settings.ai_mode === "off") {
-      console.log(`[ai] no reply for message ${messageId}: ai_mode is off`);
+    // so that switching the feature off is also a guarantee about spend. The
+    // bot's own switch is read the same way and for the same reason: a bot set
+    // to Off must cost nothing, not generate a reply nobody sends.
+    if (bot ? bot.mode === "off" : settings.ai_mode === "off") {
+      console.log(
+        `[ai] no reply for message ${messageId}: ${bot ? `agent “${bot.name}” is off` : "ai_mode is off"}`,
+      );
       return;
     }
+
+    // Auto-pilot sends, suggestive drafts. Mapped rather than stored as the
+    // same enum because `ai_mode` predates agents and other screens read it,
+    // and because three states against two is exactly the sort of mismatch
+    // that gets resolved differently in two places if it is resolved inline.
+    //
+    // `off` cannot reach here — both branches returned above — so the fallback
+    // to "draft" is unreachable rather than a decision about what off means.
+    const sendMode: "draft" | "live" = bot
+      ? bot.mode === "autopilot"
+        ? "live"
+        : "draft"
+      : settings.ai_mode === "live"
+        ? "live"
+        : "draft";
 
     // Not gated on `contacts.ai_enabled`. That flag decides what goes *out*
     // (checked in `deliver` below); a draft is still worth having for a contact
@@ -101,9 +128,22 @@ export async function respondToInbound(
     // The integrity guard and the single regeneration both live in here. A
     // discarded reply comes back as `ok: false`, so a corrupted generation
     // returns before a draft is written, let alone sent.
+    // Composed from the agent when there is one — its three prompt boxes, its
+    // answer length, and the knowledge its triggers point at. `settings` still
+    // supplies the business name behind `{{business_name}}`, which is a fact
+    // about the account rather than about any one agent.
+    const systemPrompt = bot
+      ? composeSystemPrompt({
+          bot,
+          knowledge: await readBotKnowledge(supabase, bot, contact.org_id),
+          businessName: settings.business_name ?? "",
+          contact,
+        })
+      : settings.ai_system_prompt;
+
     const result = await generateAiReply({
-      systemPrompt: settings.ai_system_prompt,
-      model: settings.ai_model,
+      systemPrompt,
+      model: bot ? bot.goals.model : settings.ai_model,
       conversation,
     });
 
@@ -131,7 +171,7 @@ export async function respondToInbound(
     const held = await deliver(supabase, {
       contact,
       messageId,
-      mode: settings.ai_mode,
+      mode: sendMode,
       reply: result.reply,
       needsHuman: result.needsHuman,
     });

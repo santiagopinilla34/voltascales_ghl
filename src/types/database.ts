@@ -116,6 +116,17 @@ export type WebSourceStatus = "queued" | "crawling" | "trained" | "failed";
 /** One URL: found, read, or unreadable. */
 export type WebPageStatus = "pending" | "trained" | "failed";
 
+/**
+ * The chatbot columns that are `text` plus a CHECK constraint.
+ *
+ * Same reason as `ContactStatus` above: the generator can only see `string`,
+ * and a typo'd mode should be a compile error rather than a row Postgres
+ * refuses.
+ */
+export type BotKindColumn = "prompt" | "flow";
+export type BotModeColumn = "off" | "suggest" | "autopilot";
+export type ContactFieldColumn = "business_name" | "tags";
+
 type RowOverrides = {
   contacts: { status: ContactStatus };
   messages: { direction: MessageDirection; sent_by: MessageSender };
@@ -185,3 +196,7 @@ export type KnowledgeBase = Tables<"knowledge_bases">;
 export type KnowledgeWebSource = Tables<"knowledge_web_sources">;
 export type KnowledgeWebPage = Tables<"knowledge_web_pages">;
 export type KnowledgeFaq = Tables<"knowledge_faqs">;
+export type ChatbotRecord = Tables<"chatbots">;
+export type ChatbotKnowledgeTriggerRecord = Tables<"chatbot_knowledge_triggers">;
+export type ChatbotAutomationRuleRecord = Tables<"chatbot_automation_rules">;
+export type ChatbotContactFieldRecord = Tables<"chatbot_contact_fields">;
