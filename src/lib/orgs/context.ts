@@ -70,8 +70,16 @@ export async function getOrgContext(): Promise<OrgContext | null> {
     .eq("user_id", user.id);
 
   if (error) {
+    // Deliberately not null. Null is the answer for a user who *has* no
+    // membership, and the layout turns that into a sign-out — but a lookup
+    // that failed established nothing about their membership, and reading
+    // "I could not ask" as "you are not a member" signs people out over a
+    // transient database error. That is what turned the last second of clock
+    // skew into a bounce through /login: the query was refused, this returned
+    // null, and the app concluded the operator had no account. Throwing keeps
+    // the two apart.
     console.error("[orgs] membership lookup failed", error);
-    return null;
+    throw new Error(`Membership lookup failed: ${error.message}`);
   }
 
   const membership = memberships?.[0];

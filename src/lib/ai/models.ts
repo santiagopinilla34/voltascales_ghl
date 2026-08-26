@@ -1,40 +1,13 @@
-import type { AiMode, AiModel } from "@/types/database";
+import type { AiModel } from "@/types/database";
 
 /**
- * Options for the Settings dropdowns.
+ * Options for the model pickers.
  *
- * Client-safe on purpose — no `server-only` import — because the Settings form
- * is a Client Component. Keep request-shaping details (which models accept an
+ * Client-safe on purpose — no `server-only` import — because the Goals tab is
+ * a Client Component. Keep request-shaping details (which models accept an
  * effort parameter, thinking configuration) out of here; those live in
  * `generate.ts`, which never reaches the browser.
  */
-
-export const AI_MODE_OPTIONS: {
-  value: AiMode;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "off",
-    label: "Off",
-    description: "The AI is never called. Inbound texts wait for you.",
-  },
-  {
-    value: "draft",
-    label: "Draft only",
-    description:
-      "Generates a reply for every inbound text and shows it in the Inbox. Sends nothing.",
-  },
-  {
-    value: "live",
-    label: "Live",
-    description:
-      "Texts the reply back automatically, to contacts with AI handling on. " +
-      "When the model hands the conversation over, it sends that reply too — " +
-      "the sign-off the lead should get — and then switches AI handling off " +
-      "for that contact.",
-  },
-];
 
 export const AI_MODEL_OPTIONS: {
   value: AiModel;
@@ -59,5 +32,7 @@ export const AI_MODEL_OPTIONS: {
 ];
 
 export function aiModelLabel(model: string): string {
-  return AI_MODEL_OPTIONS.find((option) => option.value === model)?.label ?? model;
+  return (
+    AI_MODEL_OPTIONS.find((option) => option.value === model)?.label ?? model
+  );
 }

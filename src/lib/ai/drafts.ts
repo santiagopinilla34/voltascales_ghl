@@ -7,6 +7,23 @@ import type { AiDraft, AiDraftSource, Database } from "@/types/database";
 
 /** A reply the AI produced. Storing one never sends anything. */
 export type DraftInput = {
+  /**
+   * Whose draft this is. Required, and the reason is worth the paragraph.
+   *
+   * `ai_drafts.org_id` defaults to `default_org_id()`, which resolves the
+   * organization from the session — and *raises* rather than guessing when
+   * there is no session and more than one organization exists. The Twilio
+   * webhook is exactly that case: it runs on the admin client with RLS
+   * bypassed and no session at all.
+   *
+   * So this insert worked for as long as the platform had a single tenant and
+   * broke the moment it had two, silently and everywhere at once: the reply was
+   * generated and paid for, the insert threw, and `respondToInbound` caught it
+   * and logged. From the outside the bot had simply stopped answering texts.
+   * Passing the organization explicitly is what makes it not depend on how many
+   * customers happen to exist.
+   */
+  orgId: string;
   contactId: string;
   /** The inbound message being answered; null for a manual preview. */
   messageId: string | null;
@@ -25,6 +42,7 @@ export async function saveDraft(
   const { data, error } = await supabase
     .from("ai_drafts")
     .insert({
+      org_id: input.orgId,
       contact_id: input.contactId,
       message_id: input.messageId,
       body: input.body,

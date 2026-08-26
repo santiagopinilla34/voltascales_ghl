@@ -249,6 +249,10 @@ async function sendSmsAction(
   // Logged after Twilio accepts it, so the thread never shows a message that
   // was never sent (same ordering as the manual reply route).
   const { error } = await supabase.from("messages").insert({
+    // Explicit, like every other write on this path: automations run from the
+    // Twilio webhook on the admin client, where the column default raises
+    // rather than guessing once a second organization exists.
+    org_id: context.orgId,
     contact_id: contact.id,
     direction: "out",
     body: text,

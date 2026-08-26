@@ -1,7 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import {
   BookOpen,
   ExternalLink,
@@ -15,6 +26,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { TriggerDialog } from "@/components/ai-agents/trigger-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -27,10 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import type {
-  ConversationBot,
-  KnowledgeTrigger,
-} from "@/lib/ai-agents/bots";
+import type { ConversationBot, KnowledgeTrigger } from "@/lib/ai-agents/bots";
 import { cn } from "@/lib/utils";
 import type { KnowledgeBase } from "@/types/database";
 
@@ -250,6 +259,224 @@ function TriggerCard({
 }
 
 /**
+ * The test conversation, held above the tabs.
+ *
+ * The panel is rendered twice — once on Training, once on Goals — so its state
+ * cannot live inside it. Two mounts means two `useState`s, and switching tabs
+ * unmounts one and mounts the other, which threw away the transcript every
+ * time. That is worst exactly when the panel is most useful: the loop this
+ * screen is for is *ask, read the answer, change the goal, ask again*, and it
+ * crossed a tab boundary in the middle.
+ *
+ * The in-flight request survives the switch too. `send` closes over these
+ * setters rather than the mounted component's own, so an answer that arrives
+ * after you have moved tabs still lands in the transcript instead of being
+ * dropped on an unmounted component.
+ */
+type TestConversationState = {
+  turns: Turn[];
+  setTurns: Dispatch<SetStateAction<Turn[]>>;
+  draft: string;
+  setDraft: Dispatch<SetStateAction<string>>;
+  thinking: boolean;
+  setThinking: Dispatch<SetStateAction<boolean>>;
+};
+
+const TestConversation = createContext<TestConversationState | null>(null);
+
+/**
+ * Where a thread is kept between visits.
+ *
+ * React state gets the conversation across the tabs; it does not get it across
+ * a *route*. Opening Contacts unmounts the editor and everything in it, so
+ * coming back to the agent used to mean starting the conversation again — and
+ * going to look something up mid-test is the ordinary thing to do, not an edge
+ * case.
+ *
+ * `sessionStorage` rather than a provider higher up the tree: it survives a
+ * reload as well as a navigation, it costs nothing on the screens that never
+ * read it, and the browser throws it away when the tab closes, which is the
+ * right lifetime for a scratch conversation nobody asked to keep.
+ *
+ * The store is read through `useSyncExternalStore`, the same way the What's New
+ * bubble reads its marker: the server has no session storage, so its snapshot
+ * is null and the client's is the saved thread, and React reconciles the two
+ * itself rather than us restoring from an effect and flashing an empty panel
+ * on the way past.
+ */
+const STORAGE_PREFIX = "voltascales:test-conversation:";
+
+/** Session storage does not notify the tab that wrote it. */
+const STORAGE_EVENT = "voltascales:test-conversation-changed";
+
+/**
+ * How much of a thread is kept. The route refuses more than forty turns
+ * anyway, so keeping more would only be storing something unsendable.
+ */
+const STORED_TURNS = 40;
+
+/** What one agent's panel is holding. */
+type StoredConversation = { turns: Turn[]; draft: string };
+
+const EMPTY: StoredConversation = { turns: [], draft: "" };
+
+/**
+ * Where the thread goes when the browser refuses storage.
+ *
+ * Private windows and locked-down webviews can throw on both read and write,
+ * and the panel losing its memory is a smaller problem than the panel losing
+ * its state — without this the conversation would have nowhere to live at all.
+ * Browser-only: the server never reaches these functions, because
+ * `getServerSnapshot` answers before they are called.
+ */
+const memory = new Map<string, string>();
+
+function storageKey(botId: string) {
+  return `${STORAGE_PREFIX}${botId}`;
+}
+
+/**
+ * The raw JSON, not the parsed object.
+ *
+ * `useSyncExternalStore` compares snapshots by identity, so this has to hand
+ * back something stable — parsing here would mint a new object on every read
+ * and spin React in a loop.
+ */
+function readRaw(botId: string): string | null {
+  try {
+    const raw = window.sessionStorage.getItem(storageKey(botId));
+    if (raw !== null) return raw;
+  } catch {
+    // Fall through to the in-memory copy.
+  }
+
+  return memory.get(botId) ?? null;
+}
+
+function parse(raw: string | null): StoredConversation {
+  if (!raw) return EMPTY;
+
+  try {
+    const value = JSON.parse(raw) as Partial<StoredConversation>;
+    return {
+      turns: Array.isArray(value.turns) ? value.turns : [],
+      draft: typeof value.draft === "string" ? value.draft : "",
+    };
+  } catch {
+    // Written by an older shape, or truncated. An empty panel beats a crash.
+    return EMPTY;
+  }
+}
+
+function write(botId: string, value: StoredConversation) {
+  const raw = JSON.stringify({
+    turns: value.turns.slice(-STORED_TURNS),
+    draft: value.draft,
+  });
+
+  memory.set(botId, raw);
+
+  try {
+    window.sessionStorage.setItem(storageKey(botId), raw);
+  } catch {
+    // Quota, or storage refused. The in-memory copy above still holds it.
+  }
+
+  window.dispatchEvent(new Event(STORAGE_EVENT));
+}
+
+/**
+ * Applies a change to whatever is stored *now*.
+ *
+ * Reads before it writes rather than working from the values captured at
+ * render. Sending a message sets the turns and clears the input in the same
+ * tick, and a second write built on the render's stale copy would put the
+ * turns back as they were before the first.
+ */
+function update(
+  botId: string,
+  change: (current: StoredConversation) => StoredConversation,
+) {
+  write(botId, change(parse(readRaw(botId))));
+}
+
+function subscribeToStorage(onChange: () => void) {
+  window.addEventListener(STORAGE_EVENT, onChange);
+  // Another tab writing the key fires `storage` rather than our own event.
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(STORAGE_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+/**
+ * Wraps the editor, so both copies of the panel read the same thread — and so
+ * that thread outlives the editor.
+ */
+export function TestConversationProvider({
+  botId,
+  children,
+}: {
+  /**
+   * Whose conversation this is. Keyed per agent because a thread is only ever
+   * about the bot it was aimed at; carrying one across agents would test the
+   * new bot against the old one's questions.
+   */
+  botId: string;
+  children: React.ReactNode;
+}) {
+  const raw = useSyncExternalStore(
+    subscribeToStorage,
+    () => readRaw(botId),
+    () => null,
+  );
+
+  const stored = useMemo(() => parse(raw), [raw]);
+
+  // Not stored, and deliberately: a request that was in flight when you
+  // navigated away is not in flight any more, and a spinner nothing will ever
+  // stop is worse than no spinner.
+  const [thinking, setThinking] = useState(false);
+
+  const setTurns = useCallback<Dispatch<SetStateAction<Turn[]>>>(
+    (action) =>
+      update(botId, (current) => ({
+        ...current,
+        turns: typeof action === "function" ? action(current.turns) : action,
+      })),
+    [botId],
+  );
+
+  const setDraft = useCallback<Dispatch<SetStateAction<string>>>(
+    (action) =>
+      update(botId, (current) => ({
+        ...current,
+        draft: typeof action === "function" ? action(current.draft) : action,
+      })),
+    [botId],
+  );
+
+  const value = useMemo(
+    () => ({
+      turns: stored.turns,
+      setTurns,
+      draft: stored.draft,
+      setDraft,
+      thinking,
+      setThinking,
+    }),
+    [stored, setTurns, setDraft, thinking],
+  );
+
+  return (
+    <TestConversation.Provider value={value}>
+      {children}
+    </TestConversation.Provider>
+  );
+}
+
+/**
  * Test your bot.
  *
  * Wired to the real thing: the same prompt composer the live reply path uses,
@@ -261,9 +488,14 @@ function TriggerCard({
  * this panel must not have, and reading the bot back by id is how it would.
  */
 export function TestPanel({ bot }: { bot: ConversationBot }) {
-  const [draft, setDraft] = useState("");
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [thinking, setThinking] = useState(false);
+  // Falls back to its own state when there is no provider above it, so the
+  // panel stays a component you can drop anywhere rather than one that only
+  // works in the one place it is currently used. The hooks run either way —
+  // which set is read is the only thing that changes.
+  const shared = useContext(TestConversation);
+  const own = useOwnConversation();
+  const { turns, setTurns, draft, setDraft, thinking, setThinking } =
+    shared ?? own;
 
   // Scrolled on every turn, including the pending one, so a long answer does
   // not arrive below the fold of a panel you are already looking at.
@@ -271,6 +503,38 @@ export function TestPanel({ bot }: { bot: ConversationBot }) {
   useEffect(() => {
     tail.current?.scrollIntoView({ block: "end" });
   }, [turns, thinking]);
+
+  /**
+   * Empties the thread, and offers it back.
+   *
+   * The button is one click with no confirmation, which was fine when the
+   * conversation died on the next navigation anyway — it does not any more, so
+   * the same click now throws away something that was being kept on purpose.
+   * Undo rather than a confirm dialog: clearing a scratch conversation is a
+   * thing you do often and mean almost every time, and a dialog in front of it
+   * would be paid for on every clear to cover the rare mis-click.
+   */
+  function clear() {
+    const cleared = turns;
+
+    setTurns([]);
+
+    toast("Conversation cleared", {
+      // Longer than the default four seconds. An undo you have to notice,
+      // read and reach for is not the same as a notice you only have to read,
+      // and four seconds is the wrong budget for the first kind.
+      duration: 10_000,
+      action: {
+        label: "Undo",
+        // Restores only if the panel is still empty. Undo is a way back to
+        // what was there, not a way to overwrite a conversation started since
+        // — putting the old thread back on top of a new one would be the same
+        // mistake this exists to fix.
+        onClick: () =>
+          setTurns((current) => (current.length === 0 ? cleared : current)),
+      },
+    });
+  }
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -306,7 +570,11 @@ export function TestPanel({ bot }: { bot: ConversationBot }) {
         // against what you asked.
         setTurns([
           ...next,
-          { role: "assistant", content: payload.error ?? "That failed.", failed: true },
+          {
+            role: "assistant",
+            content: payload.error ?? "That failed.",
+            failed: true,
+          },
         ]);
         return;
       }
@@ -346,7 +614,7 @@ export function TestPanel({ bot }: { bot: ConversationBot }) {
           size="icon-sm"
           aria-label="Clear the test conversation"
           disabled={turns.length === 0 || thinking}
-          onClick={() => setTurns([])}
+          onClick={clear}
         >
           <RotateCcw className="size-3.5" />
         </Button>
@@ -427,6 +695,18 @@ export function TestPanel({ bot }: { bot: ConversationBot }) {
         </Button>
       </form>
     </section>
+  );
+}
+
+/** The standalone fallback, for a panel rendered outside the provider. */
+function useOwnConversation(): TestConversationState {
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [draft, setDraft] = useState("");
+  const [thinking, setThinking] = useState(false);
+
+  return useMemo(
+    () => ({ turns, setTurns, draft, setDraft, thinking, setThinking }),
+    [turns, draft, thinking],
   );
 }
 

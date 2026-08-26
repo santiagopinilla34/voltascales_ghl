@@ -87,6 +87,11 @@ export async function POST(
   const { data: message, error: messageError } = await supabase
     .from("messages")
     .insert({
+      // The contact's organization, not the column default. With a session the
+      // default returns the caller's own membership, which for a platform
+      // admin replying inside a client's inbox is the agency — filing the
+      // agency's copy of a message that belongs to the client.
+      org_id: contact.org_id,
       contact_id: contact.id,
       direction: "out",
       body,

@@ -3,30 +3,22 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Briefcase, Info, Loader2, TriangleAlert } from "lucide-react";
+import { Briefcase, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveSettings } from "@/app/(app)/settings/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
-import { AI_MODEL_OPTIONS, AI_MODE_OPTIONS } from "@/lib/ai/models";
 import type { BookingPreview } from "@/lib/booking/preview";
 import { formatPhone } from "@/lib/format";
 import type { Settings } from "@/types/database";
 
 /** "90 minutes" is harder to picture than "1h 30m" once it passes an hour. */
 function describeMinutes(minutes: number): string {
-  if (!Number.isFinite(minutes) || minutes < 0) return "an invalid amount of time";
+  if (!Number.isFinite(minutes) || minutes < 0)
+    return "an invalid amount of time";
   if (minutes < 60) return `${minutes} minutes`;
 
   const hours = Math.floor(minutes / 60);
@@ -64,11 +56,6 @@ export function SettingsForm({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const [prompt, setPrompt] = useState(settings.ai_system_prompt);
-  // Widened to string because Select hands back a plain string; the action
-  // validates both against the allowed values before they reach the database.
-  const [mode, setMode] = useState<string>(settings.ai_mode);
-  const [model, setModel] = useState<string>(settings.ai_model);
   const [forwardTo, setForwardTo] = useState(settings.forward_to_number ?? "");
   // String, not number: an empty field is a real intermediate state while
   // typing, and a number-typed state would snap it to 0 mid-edit.
@@ -84,9 +71,6 @@ export function SettingsForm({
   const [hostName, setHostName] = useState(settings.booking_host_name ?? "");
 
   const dirty =
-    prompt !== settings.ai_system_prompt ||
-    mode !== settings.ai_mode ||
-    model !== settings.ai_model ||
     forwardTo !== (settings.forward_to_number ?? "") ||
     minNotice !== String(settings.booking_min_notice_minutes) ||
     notifyNumber !== (settings.booking_notify_number ?? "") ||
@@ -99,9 +83,6 @@ export function SettingsForm({
 
     startTransition(async () => {
       const result = await saveSettings({
-        ai_system_prompt: prompt,
-        ai_mode: mode,
-        ai_model: model,
         forward_to_number: forwardTo,
         booking_min_notice_minutes: Number(minNotice),
         booking_notify_number: notifyNumber,
@@ -127,102 +108,9 @@ export function SettingsForm({
     <form onSubmit={save} className="flex flex-col gap-6 pb-4">
       <section className="flex flex-col gap-3">
         <div>
-          <h2 className="text-sm font-semibold tracking-tight">AI chatbot</h2>
-          <p className="text-muted-foreground text-xs">
-            Whether the AI answers inbound texts, and which model writes the
-            reply.
-          </p>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="ai-mode">Mode</Label>
-          <Select value={mode} onValueChange={setMode} disabled={pending}>
-            <SelectTrigger id="ai-mode" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {AI_MODE_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-muted-foreground text-xs">
-            {AI_MODE_OPTIONS.find((option) => option.value === mode)?.description}
-          </p>
-
-          {/* Only warning in this form that describes an irreversible act: a
-              sent SMS cannot be recalled. Shown on selection, before saving. */}
-          {mode === "live" && (
-            <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                Once saved, the AI texts contacts on its own — every contact
-                whose AI handling is on, without anyone approving the wording
-                first. Texts cannot be unsent. Read a few drafts first.
-              </span>
-            </p>
-          )}
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="ai-model">Model</Label>
-          <Select value={model} onValueChange={setModel} disabled={pending}>
-            <SelectTrigger id="ai-model" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {AI_MODEL_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-muted-foreground text-xs">
-            {AI_MODEL_OPTIONS.find((option) => option.value === model)?.description}
-          </p>
-        </div>
-      </section>
-
-      <Separator />
-
-      <section className="flex flex-col gap-3">
-        <div>
           <h2 className="text-sm font-semibold tracking-tight">
-            AI system prompt
+            Notifications
           </h2>
-          <p className="text-muted-foreground text-xs">
-            How the AI chatbot behaves when it replies to a contact.
-          </p>
-        </div>
-
-        <Textarea
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          disabled={pending}
-          rows={22}
-          aria-label="AI system prompt"
-          className="font-mono text-xs leading-relaxed"
-        />
-
-        <div className="flex items-center justify-between gap-2">
-          <Note>
-            Sent to the model as-is on every reply and every preview. Edits take
-            effect on the next generation.
-          </Note>
-          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-            {prompt.length} chars
-          </span>
-        </div>
-      </section>
-
-      <Separator />
-
-      <section className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-sm font-semibold tracking-tight">Notifications</h2>
           <p className="text-muted-foreground text-xs">
             Where to reach you about new leads.
           </p>
@@ -238,7 +126,9 @@ export function SettingsForm({
         >
           <Briefcase className="text-muted-foreground size-3.5 shrink-0" />
           <span className="min-w-0 flex-1">
-            <span className="font-medium">Alerts go to your business email</span>{" "}
+            <span className="font-medium">
+              Alerts go to your business email
+            </span>{" "}
             <span className="text-muted-foreground">
               — the <code>notify_me</code> action, AI hand-offs and new-booking
               alerts. Set it on My Business.
@@ -307,8 +197,8 @@ export function SettingsForm({
             disabled={pending}
           />
           <Note>
-            Signs the messages to clients. A text from a person gets replies; one
-            from a company reads like an ad.
+            Signs the messages to clients. A text from a person gets replies;
+            one from a company reads like an ad.
           </Note>
         </div>
 
@@ -354,14 +244,18 @@ export function SettingsForm({
 
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="grid gap-1">
-                  <span className="text-muted-foreground text-[11px]">Text</span>
+                  <span className="text-muted-foreground text-[11px]">
+                    Text
+                  </span>
                   <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
                     {bookingPreview.sms ?? "No text is sent to the client."}
                   </pre>
                 </div>
 
                 <div className="grid gap-1">
-                  <span className="text-muted-foreground text-[11px]">Email</span>
+                  <span className="text-muted-foreground text-[11px]">
+                    Email
+                  </span>
                   <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md px-3 py-2 font-sans text-xs whitespace-pre-wrap">
                     {bookingPreview.email
                       ? `Subject: ${bookingPreview.email.subject}\n\n${bookingPreview.email.text}`
@@ -403,7 +297,9 @@ export function SettingsForm({
 
       <section className="flex flex-col gap-3">
         <div>
-          <h2 className="text-sm font-semibold tracking-tight">Call forwarding</h2>
+          <h2 className="text-sm font-semibold tracking-tight">
+            Call forwarding
+          </h2>
           <p className="text-muted-foreground text-xs">
             The real phone inbound calls are forwarded to.
           </p>
@@ -436,8 +332,8 @@ export function SettingsForm({
               </>
             ) : (
               <>
-                <code>TWILIO_FORWARD_TO_NUMBER</code> is not set, so leaving this
-                empty means calls cannot be forwarded at all.
+                <code>TWILIO_FORWARD_TO_NUMBER</code> is not set, so leaving
+                this empty means calls cannot be forwarded at all.
               </>
             )}
           </Note>
@@ -463,9 +359,6 @@ export function SettingsForm({
             type="button"
             variant="ghost"
             onClick={() => {
-              setPrompt(settings.ai_system_prompt);
-              setMode(settings.ai_mode);
-              setModel(settings.ai_model);
               setForwardTo(settings.forward_to_number ?? "");
               setMinNotice(String(settings.booking_min_notice_minutes));
               setNotifyNumber(settings.booking_notify_number ?? "");

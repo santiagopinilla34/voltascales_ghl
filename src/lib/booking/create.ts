@@ -207,6 +207,11 @@ async function attachContact(
       .from("pipeline_entries")
       .upsert(
         {
+          // The booking page has no session, so the column default cannot
+          // attribute this row once more than one organization exists — it
+          // raises instead. Taken from the booking, which was just written
+          // under a known organization.
+          org_id: booking.org_id,
           contact_id: contact.id,
           stage: "booked",
           // Set explicitly: the column means "entered this stage", and an

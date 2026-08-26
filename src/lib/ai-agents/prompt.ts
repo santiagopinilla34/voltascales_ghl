@@ -41,9 +41,30 @@ import type { Contact, Database } from "@/types/database";
 
 /** The knowledge a bot may answer from, already narrowed to its triggers. */
 export type BotKnowledge = {
-  faqs: { question: string; answer: string }[];
-  /** Named, not quoted: see `composeSystemPrompt`. */
-  pages: { label: string; url: string }[];
+  faqs: { question: string; answer: string; base: string }[];
+  /**
+   * Quoted where the budget allows, named where it does not — see
+   * `composeSystemPrompt`. `text` is empty for a page the crawler stored
+   * without a body, which is then only nameable.
+   */
+  pages: {
+    label: string;
+    url: string;
+    text: string;
+    words: number;
+    base: string;
+  }[];
+  /**
+   * What each base is for, in the words of whoever wrote the trigger.
+   *
+   * A trigger says "these bases, for this kind of question", and only the
+   * first half of that was ever acted on: the base ids picked what got loaded
+   * and the sentence went nowhere. That is invisible with one trigger, because
+   * narrowing the load *is* the whole effect. With two it is not — both sets
+   * load together and the model is left to guess which pile a question belongs
+   * to, which is the exact failure `KnowledgeTrigger` was written to prevent.
+   */
+  routing: { base: string; when: string }[];
 };
 
 /**
@@ -71,22 +92,45 @@ export async function readBotKnowledge(
 
   const faqQuery = supabase
     .from("knowledge_faqs")
-    .select("question, answer")
+    .select("question, answer, base_id")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true })
     .limit(FAQ_LIMIT);
 
   const pageQuery = supabase
     .from("knowledge_web_pages")
-    .select("url")
+    .select("url, content, word_count, base_id")
     .eq("org_id", orgId)
     .eq("status", "trained")
+    // Ordered for the same reason the FAQs are: without it PostgREST is free
+    // to return the rows in any order it likes, so the same bot composes a
+    // differently-ordered prompt from one reply to the next. That is a worse
+    // problem now that the pages carry their text — it makes the prompt
+    // non-reproducible, and it is what would defeat prompt caching later.
+    .order("created_at", { ascending: true })
     .limit(PAGE_LIMIT);
 
-  const [faqs, pages] = await Promise.all([
+  // Named so the routing rules below have something to point at. `org_id` for
+  // the same reason every other query here carries it — this runs RLS-bypassed
+  // on the Twilio path, and an unfiltered read would name other tenants' bases.
+  const baseQuery = supabase
+    .from("knowledge_bases")
+    .select("id, name")
+    .eq("org_id", orgId);
+
+  const [faqs, pages, bases] = await Promise.all([
     baseIds.length ? faqQuery.in("base_id", baseIds) : faqQuery,
     baseIds.length ? pageQuery.in("base_id", baseIds) : pageQuery,
+    baseIds.length ? baseQuery.in("id", baseIds) : baseQuery,
   ]);
+
+  if (bases.error) {
+    console.error("[ai] could not read the bot's knowledge bases", bases.error);
+  }
+
+  const baseNames = new Map(
+    (bases.data ?? []).map((base) => [base.id, base.name]),
+  );
 
   if (faqs.error) {
     console.error("[ai] could not read the bot's FAQs", faqs.error);
@@ -96,13 +140,38 @@ export async function readBotKnowledge(
   }
 
   return {
-    faqs: faqs.data ?? [],
+    faqs: (faqs.data ?? []).map((faq) => ({
+      question: faq.question,
+      answer: faq.answer,
+      base: baseNames.get(faq.base_id) ?? "",
+    })),
     // `displayPath` is what the crawler screens already show for a page, so
     // the bot names pages the same way the person who crawled them sees them.
-    pages: (pages.data ?? []).map((page) => ({
-      label: displayPath(page.url),
-      url: page.url,
-    })),
+    pages: (pages.data ?? []).map((page) => {
+      const text = (page.content ?? "").trim();
+      return {
+        label: displayPath(page.url),
+        url: page.url,
+        text,
+        // The crawler's own count, not a recount here: it is what the crawler
+        // screens show, so a page that looks small on screen budgets as small.
+        // Falls back to counting when the column was never filled in.
+        words: page.word_count || (text ? text.split(/\s+/).length : 0),
+        base: baseNames.get(page.base_id) ?? "",
+      };
+    }),
+    // One rule per base named by a trigger that bothered to say when. A
+    // trigger with a blank instruction is the editor's way of saying "leave it
+    // to the agent", so it contributes nothing rather than an empty rule.
+    routing: bot.triggers.flatMap((trigger) => {
+      const when = trigger.instructions.trim();
+      if (!when) return [];
+
+      return trigger.base_ids.flatMap((id) => {
+        const base = baseNames.get(id);
+        return base ? [{ base, when }] : [];
+      });
+    }),
   };
 }
 
@@ -116,8 +185,30 @@ export async function readBotKnowledge(
  */
 const FAQ_LIMIT = 50;
 
-/** And how many crawled pages get named. Titles only, so this is cheap. */
+/** And how many crawled pages are read at all. */
 const PAGE_LIMIT = 40;
+
+/**
+ * How many words of crawled page may be quoted into one prompt.
+ *
+ * Pages used to be named and not quoted, on the reasoning that whole pages in
+ * every request would cost more than the reply is worth. That reasoning was
+ * sound in general and wrong for the sizes actually in the table: the whole
+ * trained crawl is six pages and about three thousand words — roughly four
+ * thousand tokens, well under a cent a reply — and naming them bought nothing
+ * but a bot that knew a pricing page existed and could not say what was on it.
+ *
+ * So the cap is not there to keep the common case small; it is there so that a
+ * customer who crawls three hundred pages does not turn every SMS into a
+ * novel. Pages are taken whole until the budget runs out and the rest fall
+ * back to being named, because half a page quoted as fact is worse than a page
+ * the bot merely knows about.
+ *
+ * This is the number to revisit if retrieval is ever built — with retrieval
+ * the cap stops mattering, because the pages reaching the prompt are the ones
+ * the question asked for rather than all of them.
+ */
+const PAGE_WORD_BUDGET = 8_000;
 
 export function composeSystemPrompt({
   bot,
@@ -156,6 +247,31 @@ export function composeSystemPrompt({
     }
   }
 
+  // More than one base in play is what makes a source label worth printing.
+  // With a single base every heading would carry the same name, which is noise
+  // the model has to read past on every reply.
+  const sources = new Set(
+    [...knowledge.faqs, ...knowledge.pages]
+      .map((item) => item.base)
+      .filter(Boolean),
+  );
+  const labelSources = sources.size > 1;
+
+  if (knowledge.routing.length > 0) {
+    // Deduplicated: two triggers naming the same base with the same sentence
+    // is a thing the editor allows and the model should not be told twice.
+    const rules = [
+      ...new Set(
+        knowledge.routing.map((rule) => `- ${rule.base}: ${rule.when}`),
+      ),
+    ].join("\n");
+
+    sections.push(
+      `What each source below is for. Prefer the one whose description fits ` +
+        `the question being asked:\n${rules}`,
+    );
+  }
+
   if (knowledge.faqs.length > 0) {
     // Answers you have already written beat anything the model would compose,
     // so they are given as answers to reuse rather than as reference material.
@@ -170,19 +286,51 @@ export function composeSystemPrompt({
   }
 
   if (knowledge.pages.length > 0) {
-    // Named, not quoted. The crawler stores whole pages, and pasting them into
-    // every request would cost more than the reply is worth and bury the FAQs
-    // above. Knowing a page exists is enough for the bot to stop claiming the
-    // subject is not covered; reading it needs retrieval, which is not built.
-    const titles = knowledge.pages
-      .map((page) => `- ${page.label} (${page.url})`)
-      .join("\n");
+    // Whole pages until the budget runs out, then names. Split in one pass so
+    // a page is either fully quoted or not quoted at all — see
+    // PAGE_WORD_BUDGET for why a partial page is the one option not on offer.
+    const quoted: typeof knowledge.pages = [];
+    const named: typeof knowledge.pages = [];
+    let spent = 0;
 
-    sections.push(
-      "Pages from the website that have been read into this agent's " +
-        "knowledge. You do not have their text here, so do not quote them — " +
-        `if one clearly answers the question, point the customer at it:\n${titles}`,
-    );
+    for (const page of knowledge.pages) {
+      if (page.text && spent + page.words <= PAGE_WORD_BUDGET) {
+        quoted.push(page);
+        spent += page.words;
+      } else {
+        named.push(page);
+      }
+    }
+
+    if (quoted.length > 0) {
+      const bodies = quoted
+        .map((page) => {
+          const from = labelSources && page.base ? ` — from ${page.base}` : "";
+          return `## ${page.label} (${page.url})${from}\n\n${page.text}`;
+        })
+        .join("\n\n");
+
+      sections.push(
+        "The website pages this agent was trained on, in full. Answer from " +
+          "these when they cover the question — they are the business's own " +
+          "words and are more current than anything you may recall about it. " +
+          "If they do not cover it, say so rather than filling the gap:\n\n" +
+          bodies,
+      );
+    }
+
+    if (named.length > 0) {
+      // The overflow, and pages the crawler stored with no body. Named on the
+      // old reasoning, which still holds for exactly this case: knowing the
+      // page exists stops the bot claiming the subject is not covered.
+      const titles = named.map((page) => `- ${page.label} (${page.url})`).join("\n");
+
+      sections.push(
+        "Other pages in this agent's knowledge. You do not have their text, " +
+          "so do not quote them — if one clearly answers the question, point " +
+          `the customer at it:\n${titles}`,
+      );
+    }
   }
 
   const promised = bot.goals.actions.map((action) => BOT_ACTION_LABELS[action]);

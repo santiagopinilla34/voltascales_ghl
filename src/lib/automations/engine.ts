@@ -425,6 +425,11 @@ async function logRun(
       : detail;
 
   const { error } = await supabase.from("automation_runs").insert({
+    // The automation owns the organization: it was read under one, and a run
+    // belongs to whoever the rule belongs to. Explicit because the engine runs
+    // from the Twilio webhook on the admin client, where the column default
+    // raises once a second organization exists.
+    org_id: automation.org_id,
     // Nullable in the schema, and a booking that matched no contact is exactly
     // the case it was nullable for. The run still gets logged — "it ran and
     // there was nobody to attach it to" is information worth keeping.

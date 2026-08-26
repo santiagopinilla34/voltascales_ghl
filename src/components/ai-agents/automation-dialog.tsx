@@ -53,6 +53,7 @@ export function AutomationDialog({
   triggers,
   onSave,
   onRemove,
+  onBot,
   automations = [],
 }: {
   open: boolean;
@@ -62,6 +63,8 @@ export function AutomationDialog({
   onSave: (triggers: AutomationTrigger[]) => void;
   /** Take the automation action off this bot entirely. */
   onRemove: () => void;
+  /** Whether the action is already on the bot. See ContactFieldsDialog. */
+  onBot: boolean;
   automations?: AutomationOption[];
 }) {
   return (
@@ -87,6 +90,7 @@ export function AutomationDialog({
           triggers={triggers}
           onSave={onSave}
           onRemove={onRemove}
+          onBot={onBot}
           onCancel={() => onOpenChange(false)}
           automations={automations}
         />
@@ -99,12 +103,14 @@ function AutomationForm({
   triggers,
   onSave,
   onRemove,
+  onBot,
   onCancel,
   automations,
 }: {
   triggers: AutomationTrigger[];
   onSave: (triggers: AutomationTrigger[]) => void;
   onRemove: () => void;
+  onBot: boolean;
   onCancel: () => void;
   automations: AutomationOption[];
 }) {
@@ -227,10 +233,7 @@ function AutomationForm({
               id="automation-name"
               value={active.name}
               maxLength={AUTOMATION_NAME_MAX}
-              placeholder={triggerLabel(
-                { ...active, name: "" },
-                automations,
-              )}
+              placeholder={triggerLabel({ ...active, name: "" }, automations)}
               onChange={(event) => patch({ name: event.target.value })}
             />
             <p className="text-muted-foreground text-xs leading-relaxed">
@@ -239,16 +242,18 @@ function AutomationForm({
             </p>
           </div>
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={remove}
-            className="text-destructive hover:text-destructive self-start"
-          >
-            <Trash2 />
-            {draft.length === 1 ? "Remove the action" : "Delete this entry"}
-          </Button>
+          {(onBot || draft.length > 1) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={remove}
+              className="text-destructive hover:text-destructive self-start"
+            >
+              <Trash2 />
+              {draft.length === 1 ? "Remove the action" : "Delete this entry"}
+            </Button>
+          )}
         </div>
       </div>
 

@@ -11,7 +11,7 @@ import { RATES } from "@/lib/billing/rates";
 import { notifyHandoff } from "@/lib/notify/handoff";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
-import type { AiMode, Contact, Database } from "@/types/database";
+import type { Contact, Database } from "@/types/database";
 
 import { saveDraft } from "./drafts";
 import { generateAiReply } from "./generate";
@@ -33,7 +33,7 @@ import { buildConversation, canReply } from "./prompt";
 
 /** Everything that stops a generated reply from being sent. Logged, not thrown. */
 type Held =
-  | "ai_mode is draft"
+  | "the agent is set to Suggestive"
   | "AI handling is off for this contact"
   | "a newer inbound message has arrived"
   | "could not confirm it was safe to send"
@@ -74,43 +74,69 @@ export async function respondToInbound(
       return;
     }
 
-    // The account's primary Conversation AI agent, if it has one. Everything
-    // below prefers it and falls back to `settings` when it is absent, so an
-    // account that has not built an agent keeps answering exactly as it did
-    // before this feature existed.
+    // The account's primary Conversation AI agent. Required, not preferred:
+    // this used to fall back to `settings.ai_mode` / `ai_model` /
+    // `ai_system_prompt` when an account had no agent, and those three are no
+    // longer editable anywhere — the Settings screen that owned them is gone
+    // and Conversation AI owns them now.
+    //
+    // Leaving the fallback in place would have been the dangerous half of the
+    // change rather than the safe one. The columns still hold whatever was
+    // last saved, including `ai_mode = "live"`, so deleting an agent would not
+    // have stopped the AI — it would have quietly handed the conversation to
+    // an invisible prompt nobody could read or turn off. No agent now means no
+    // reply, which is the answer someone can actually see and act on.
     const bot = await getPrimaryBot(supabase, contact.org_id);
 
-    // `off` means the engine never calls Claude — checked before anything else
-    // so that switching the feature off is also a guarantee about spend. The
-    // bot's own switch is read the same way and for the same reason: a bot set
-    // to Off must cost nothing, not generate a reply nobody sends.
-    if (bot ? bot.mode === "off" : settings.ai_mode === "off") {
+    if (!bot) {
       console.log(
-        `[ai] no reply for message ${messageId}: ${bot ? `agent “${bot.name}” is off` : "ai_mode is off"}`,
+        `[ai] no reply for message ${messageId}: organization ${contact.org_id} has no primary agent`,
       );
       return;
     }
 
-    // Auto-pilot sends, suggestive drafts. Mapped rather than stored as the
-    // same enum because `ai_mode` predates agents and other screens read it,
-    // and because three states against two is exactly the sort of mismatch
-    // that gets resolved differently in two places if it is resolved inline.
-    //
-    // `off` cannot reach here — both branches returned above — so the fallback
-    // to "draft" is unreachable rather than a decision about what off means.
-    const sendMode: "draft" | "live" = bot
-      ? bot.mode === "autopilot"
-        ? "live"
-        : "draft"
-      : settings.ai_mode === "live"
-        ? "live"
-        : "draft";
+    // `off` means the engine never calls Claude — checked before anything else
+    // so that switching the agent off is also a guarantee about spend. A bot
+    // set to Off must cost nothing, not generate a reply nobody sends.
+    if (bot.mode === "off") {
+      console.log(
+        `[ai] no reply for message ${messageId}: agent “${bot.name}” is off`,
+      );
+      return;
+    }
+
+    // Auto-pilot sends, suggestive drafts. `off` cannot reach here — it
+    // returned above — so this is a two-way choice rather than a decision
+    // about what off means.
+    const sendMode: "draft" | "live" =
+      bot.mode === "autopilot" ? "live" : "draft";
 
     // Not gated on `contacts.ai_enabled`. That flag decides what goes *out*
     // (checked in `deliver` below); a draft is still worth having for a contact
     // whose AI is off, and it costs a fraction of a cent.
     const messages = await listMessages(supabase, contact.id);
     const conversation = buildConversation(messages);
+
+    // The agent's own message cap, which until now was stored and never read.
+    //
+    // Counted from `sent_by`, not from the conversation the model sees: the
+    // cap is about what this agent has *said*, and `buildConversation` folds
+    // in replies a human or an automation sent, which nobody asked this bot to
+    // be charged for. Placed here rather than beside the `off` check because
+    // it needs the thread, and before the generation because a bot that has
+    // hit its limit should cost nothing further — the same reasoning as `off`.
+    const spoken = messages.filter(
+      (message) => message.direction === "out" && message.sent_by === "ai",
+    ).length;
+
+    if (spoken >= bot.settings.max_messages) {
+      console.log(
+        `[ai] no reply for message ${messageId}: agent “${bot.name}” has ` +
+          `sent ${spoken} messages in this conversation, its limit is ` +
+          `${bot.settings.max_messages}`,
+      );
+      return;
+    }
 
     // False here almost always means an automation already answered this text:
     // the keyword trigger runs inline in the webhook, before this callback, and
@@ -128,22 +154,21 @@ export async function respondToInbound(
     // The integrity guard and the single regeneration both live in here. A
     // discarded reply comes back as `ok: false`, so a corrupted generation
     // returns before a draft is written, let alone sent.
-    // Composed from the agent when there is one — its three prompt boxes, its
-    // answer length, and the knowledge its triggers point at. `settings` still
-    // supplies the business name behind `{{business_name}}`, which is a fact
-    // about the account rather than about any one agent.
-    const systemPrompt = bot
-      ? composeSystemPrompt({
-          bot,
-          knowledge: await readBotKnowledge(supabase, bot, contact.org_id),
-          businessName: settings.business_name ?? "",
-          contact,
-        })
-      : settings.ai_system_prompt;
+    // Composed from the agent — its three prompt boxes, its answer length, and
+    // the knowledge its triggers point at. `settings` still supplies the
+    // business name behind `{{business_name}}`, which is a fact about the
+    // account rather than about any one agent, and is the only thing this path
+    // still reads from that row.
+    const systemPrompt = composeSystemPrompt({
+      bot,
+      knowledge: await readBotKnowledge(supabase, bot, contact.org_id),
+      businessName: settings.business_name ?? "",
+      contact,
+    });
 
     const result = await generateAiReply({
       systemPrompt,
-      model: bot ? bot.goals.model : settings.ai_model,
+      model: bot.goals.model,
       conversation,
     });
 
@@ -157,6 +182,7 @@ export async function respondToInbound(
     // Saved before any send decision. The draft is the record of what the model
     // produced; whether it went out is a separate question answered below.
     const draft = await saveDraft(supabase, {
+      orgId: contact.org_id,
       contactId: contact.id,
       messageId,
       body: result.reply,
@@ -210,7 +236,9 @@ export async function respondToInbound(
       );
     }
 
-    console.log(`[ai] draft ${draft.id} for contact ${contact.id} (${usage}) — sent`);
+    console.log(
+      `[ai] draft ${draft.id} for contact ${contact.id} (${usage}) — sent`,
+    );
   } catch (error) {
     // Nothing is awaiting this callback, so an escaping rejection would be
     // invisible. A missing reply must never be a silent missing reply.
@@ -239,14 +267,14 @@ async function deliver(
   }: {
     contact: Contact;
     messageId: string;
-    /** `off` is handled by the caller and never reaches here. */
-    mode: Exclude<AiMode, "off">;
+    /** Derived from the agent's mode; `off` returned in the caller. */
+    mode: "draft" | "live";
     reply: string;
     needsHuman: boolean;
   },
 ): Promise<Held | null> {
   if (mode !== "live") {
-    return "ai_mode is draft";
+    return "the agent is set to Suggestive";
   }
 
   // Re-read rather than trusting the `contact` row the webhook loaded. Minutes
@@ -314,6 +342,10 @@ async function deliver(
   // that was never sent — same ordering as the manual reply route and the
   // send_sms automation action.
   const { error: logError } = await supabase.from("messages").insert({
+    // Explicit for the same reason the draft above is: this runs on the admin
+    // client with no session, where the column default raises rather than
+    // guessing once a second organization exists.
+    org_id: contact.org_id,
     contact_id: contact.id,
     direction: "out",
     body: reply,
@@ -338,7 +370,11 @@ async function deliver(
   // answering: the contact is a human's from here until someone turns AI back
   // on by hand.
   if (needsHuman) {
-    await disableAi(supabase, contact.id, "the model handed the conversation over");
+    await disableAi(
+      supabase,
+      contact.id,
+      "the model handed the conversation over",
+    );
     // Awaited, not fired and forgotten: this runs inside the webhook's
     // `after()` callback, and an un-awaited promise would race the function
     // being torn down. Nothing it can do throws.
@@ -370,5 +406,7 @@ async function disableAi(
     return;
   }
 
-  console.log(`[ai] AI handling turned off for contact ${contactId}: ${reason}`);
+  console.log(
+    `[ai] AI handling turned off for contact ${contactId}: ${reason}`,
+  );
 }

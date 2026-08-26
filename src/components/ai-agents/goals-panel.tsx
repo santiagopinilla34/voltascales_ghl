@@ -123,9 +123,7 @@ export function GoalsPanel({
                 left < 0 && "text-destructive",
               )}
             >
-              {left < 0
-                ? `${Math.abs(left)} words over`
-                : `${left} words left`}
+              {left < 0 ? `${Math.abs(left)} words over` : `${left} words left`}
             </p>
           </div>
 
@@ -378,9 +376,7 @@ function SummaryFields({
           {summary.recipients.includes("custom") && (
             <Input
               value={summary.custom_emails}
-              onChange={(event) =>
-                patch({ custom_emails: event.target.value })
-              }
+              onChange={(event) => patch({ custom_emails: event.target.value })}
               placeholder="someone@example.com, someone-else@example.com"
               aria-label="Email addresses to send summaries to"
               className="mt-1"
@@ -800,9 +796,7 @@ function ActionPicker({
                 "group focus-within:ring-ring/50 relative flex flex-col gap-0.5 rounded-lg border p-3 transition-colors focus-within:ring-3",
                 // Dashed is the whole signal for "not added yet". Solid, with
                 // a tinted ground, is what an added one looks like.
-                on
-                  ? "border-primary/40 bg-primary/5"
-                  : "border-dashed",
+                on ? "border-primary/40 bg-primary/5" : "border-dashed",
                 // Dimmed rather than hidden: knowing what is coming is why
                 // someone waits instead of building a workaround. The dead
                 // button is what says no.
@@ -867,6 +861,7 @@ function ActionPicker({
 
       <BookingDialog
         open={open === "book"}
+        onBot={value.includes("book")}
         onOpenChange={(next) => setOpen(next ? "book" : null)}
         booking={booking}
         automations={automations}
@@ -888,6 +883,7 @@ function ActionPicker({
 
       <AutomationDialog
         open={open === "workflow"}
+        onBot={value.includes("workflow")}
         onOpenChange={(next) => setOpen(next ? "workflow" : null)}
         triggers={triggers}
         automations={automations}
@@ -906,14 +902,13 @@ function ActionPicker({
 
       <ContactFieldsDialog
         open={open === "contact_info"}
+        onBot={value.includes("contact_info")}
         onOpenChange={(next) => setOpen(next ? "contact_info" : null)}
         updates={contactFields}
         onSave={(next) => {
           onSaveContactFields(
             next,
-            value.includes("contact_info")
-              ? value
-              : [...value, "contact_info"],
+            value.includes("contact_info") ? value : [...value, "contact_info"],
           );
           setOpen(null);
         }}

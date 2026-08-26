@@ -60,6 +60,7 @@ export function BookingDialog({
   booking,
   onSave,
   onRemove,
+  onBot,
   calendars = [],
   automations = [],
   agents = [],
@@ -71,6 +72,8 @@ export function BookingDialog({
   onSave: (booking: BookingSettings) => void;
   /** Take the booking action off this bot entirely. */
   onRemove: () => void;
+  /** Whether the action is already on the bot. See ContactFieldsDialog. */
+  onBot: boolean;
   calendars?: { id: string; name: string }[];
   automations?: AutomationOption[];
   agents?: { id: string; name: string }[];
@@ -89,8 +92,7 @@ export function BookingDialog({
             <div className="flex min-w-0 flex-col gap-1">
               <DialogTitle>Appointment booking</DialogTitle>
               <DialogDescription className="text-xs">
-                Which calendar the bot books into, and what happens once it
-                has.
+                Which calendar the bot books into, and what happens once it has.
               </DialogDescription>
             </div>
           </div>
@@ -100,6 +102,7 @@ export function BookingDialog({
           booking={booking}
           onSave={onSave}
           onRemove={onRemove}
+          onBot={onBot}
           onCancel={() => onOpenChange(false)}
           calendars={calendars}
           automations={automations}
@@ -114,6 +117,7 @@ function BookingForm({
   booking,
   onSave,
   onRemove,
+  onBot,
   onCancel,
   calendars,
   automations,
@@ -122,6 +126,7 @@ function BookingForm({
   booking: BookingSettings;
   onSave: (booking: BookingSettings) => void;
   onRemove: () => void;
+  onBot: boolean;
   onCancel: () => void;
   calendars: { id: string; name: string }[];
   automations: AutomationOption[];
@@ -145,11 +150,7 @@ function BookingForm({
           stepping back and forth does not reset a half-filled select. */}
       <div className="max-h-[55vh] overflow-x-hidden overflow-y-auto pr-1">
         {step === 1 ? (
-          <CalendarStep
-            draft={draft}
-            patch={patch}
-            calendars={calendars}
-          />
+          <CalendarStep draft={draft} patch={patch} calendars={calendars} />
         ) : (
           <OptionsStep
             draft={draft}
@@ -166,16 +167,18 @@ function BookingForm({
       <DialogFooter className="sm:justify-between">
         {/* On the left and quiet: it deletes the action, and it sits next to
             Cancel on every step, so it has to look nothing like Cancel. */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onRemove}
-          className="text-destructive hover:text-destructive sm:mr-auto"
-        >
-          <Trash2 />
-          Remove
-        </Button>
+        {onBot && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            className="text-destructive hover:text-destructive sm:mr-auto"
+          >
+            <Trash2 />
+            Remove
+          </Button>
+        )}
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
           {step === 1 ? (
@@ -494,7 +497,9 @@ function OptionsStep({
         <div className="bg-muted/50 text-muted-foreground relative flex gap-2 rounded-lg border p-3 text-xs leading-relaxed">
           <Info className="mt-0.5 size-3.5 shrink-0" />
           <p className="pr-5">
-            <span className="text-foreground font-medium">Check the prompt.</span>{" "}
+            <span className="text-foreground font-medium">
+              Check the prompt.
+            </span>{" "}
             A line like &quot;I cannot help with cancellations or
             rescheduling&quot; will beat these switches — the bot follows the
             prompt first.

@@ -52,6 +52,7 @@ export function ContactFieldsDialog({
   updates,
   onSave,
   onRemove,
+  onBot,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -60,6 +61,16 @@ export function ContactFieldsDialog({
   onSave: (updates: ContactFieldUpdate[]) => void;
   /** Take the contact-details action off this bot entirely. */
   onRemove: () => void;
+  /**
+   * Whether the action is currently on the bot.
+   *
+   * The same dialog is how an action is added and how it is edited, and it
+   * used to look identical either way — including a "Remove the action"
+   * button on a bot that had never had it. Offering to take something off
+   * reads as a statement that it is on, which is exactly how an action nobody
+   * enabled looks enabled.
+   */
+  onBot: boolean;
 }) {
   return (
     // Keyed on `open` so each opening starts from what was saved rather than
@@ -85,6 +96,7 @@ export function ContactFieldsDialog({
           updates={updates}
           onSave={onSave}
           onRemove={onRemove}
+          onBot={onBot}
           onCancel={() => onOpenChange(false)}
         />
       </DialogContent>
@@ -96,11 +108,13 @@ function ContactFieldsForm({
   updates,
   onSave,
   onRemove,
+  onBot,
   onCancel,
 }: {
   updates: ContactFieldUpdate[];
   onSave: (updates: ContactFieldUpdate[]) => void;
   onRemove: () => void;
+  onBot: boolean;
   onCancel: () => void;
 }) {
   // Opening on an action with nothing on it starts you on a blank entry
@@ -168,8 +182,8 @@ function ContactFieldsForm({
             This listens, it does not ask.
           </span>{" "}
           The bot fills a field only when the contact volunteers the answer, so
-          put the question in your prompt too — &quot;ask what company they
-          work for&quot;.
+          put the question in your prompt too — &quot;ask what company they work
+          for&quot;.
         </p>
       </div>
 
@@ -271,16 +285,22 @@ function ContactFieldsForm({
             />
           </div>
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={remove}
-            className="text-destructive hover:text-destructive self-start"
-          >
-            <Trash2 />
-            {draft.length === 1 ? "Remove the action" : "Delete this entry"}
-          </Button>
+          {/* Hidden while the action is not on the bot and there is only the
+              one starter entry: there is nothing to remove yet, and Cancel is
+              already the way out. Shown for a second entry either way, where
+              it deletes that entry rather than the action. */}
+          {(onBot || draft.length > 1) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={remove}
+              className="text-destructive hover:text-destructive self-start"
+            >
+              <Trash2 />
+              {draft.length === 1 ? "Remove the action" : "Delete this entry"}
+            </Button>
+          )}
         </div>
       </div>
 

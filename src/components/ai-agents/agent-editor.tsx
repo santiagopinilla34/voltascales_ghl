@@ -3,19 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import {
-  ChevronDown,
-  Minus,
-  Plus,
-  Sparkles,
-  Star,
-  X,
-} from "lucide-react";
+import { ChevronDown, Minus, Plus, Sparkles, Star, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveBot } from "@/app/(app)/ai-agents/conversation/actions";
 import { GoalsPanel } from "@/components/ai-agents/goals-panel";
-import { TrainingPanel } from "@/components/ai-agents/training-panel";
+import {
+  TestConversationProvider,
+  TrainingPanel,
+} from "@/components/ai-agents/training-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -179,10 +175,24 @@ export function AgentEditor({
 
     toast.success(known ? "Agent saved" : `Created “${trimmed}”`);
 
-    // Refresh before navigating: the list is a server component, and pushing
-    // to a cached version of it is how a bot you just saved fails to appear.
+    // Stay on the agent. Saving used to throw you back to the list, which read
+    // as "done" when saving is mostly not done — the loop here is edit, save,
+    // test, edit again, and every lap of it began by finding your way back to
+    // the bot you were already looking at. The toast is the confirmation; the
+    // screen not moving is the rest of it.
+    setSaving(false);
+
+    // The list behind this screen is a server component holding the old name
+    // and timestamp, so it is refreshed even though we are not going there.
     router.refresh();
-    router.push("/ai-agents/conversation");
+
+    if (!known) {
+      // A created bot is a real row now, and the URL still says `/new`. Swapped
+      // for its own address so a reload lands on the bot rather than on a blank
+      // create form, and so the footer stops offering to create it again.
+      // `replace` rather than `push`: `/new` is not a place to go Back to.
+      router.replace(`/ai-agents/conversation/${result.value.id}`);
+    }
   }
 
   return (
@@ -210,312 +220,318 @@ export function AgentEditor({
               are routes. These four are panels of one unsaved form: routing
               between them would throw the draft away every time you looked at
               the training tab to check something. */}
-          <Tabs value={tab} onValueChange={setTab} className="gap-4">
-            <TabsList>
-              <TabsTrigger value="settings">Bot settings</TabsTrigger>
-              <TabsTrigger value="training">Training</TabsTrigger>
-              <TabsTrigger value="goals">Goals</TabsTrigger>
-            </TabsList>
+          {/* Above the tabs on purpose: the test panel is rendered inside two
+              of them, and state kept inside it dies on every tab switch. */}
+          <TestConversationProvider botId={draft.id}>
+            <Tabs value={tab} onValueChange={setTab} className="gap-4">
+              <TabsList>
+                <TabsTrigger value="settings">Bot settings</TabsTrigger>
+                <TabsTrigger value="training">Training</TabsTrigger>
+                <TabsTrigger value="goals">Goals</TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="settings" className="flex flex-col gap-4">
-              <Section
-                title="Bot details"
-                hint="What it is called, and where it is allowed to answer."
-                action={
-                  draft.is_primary ? (
-                    <Badge variant="outline">
-                      <Star />
-                      Primary bot
-                    </Badge>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      // Applied straight away rather than into the draft:
-                      // exactly one bot may hold it, so it is a change to
-                      // every other row as well, and a Cancel that silently
-                      // demoted one of them would be a surprise.
-                      disabled={!known}
-                      title={
-                        known
-                          ? undefined
-                          : "Save this agent first, then it can take over inbound messages."
-                      }
-                      // Marked on the draft rather than written now: Save is
-                      // what promotes it, in the same transaction as the rest
-                      // of the edit, so a Cancel cannot leave the account
-                      // pointing at a bot whose changes were thrown away.
-                      onClick={() => {
-                        patch({ is_primary: true });
-                        toast.success(
-                          `“${draft.name}” will answer inbound messages once you save`,
-                        );
-                      }}
-                    >
-                      <Star className="size-4" />
-                      Set as primary
-                    </Button>
-                  )
-                }
-              >
-                <Field
-                  label="Bot name"
-                  htmlFor="agent-name"
-                  required
+              <TabsContent value="settings" className="flex flex-col gap-4">
+                <Section
+                  title="Bot details"
+                  hint="What it is called, and where it is allowed to answer."
+                  action={
+                    draft.is_primary ? (
+                      <Badge variant="outline">
+                        <Star />
+                        Primary bot
+                      </Badge>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        // Applied straight away rather than into the draft:
+                        // exactly one bot may hold it, so it is a change to
+                        // every other row as well, and a Cancel that silently
+                        // demoted one of them would be a surprise.
+                        disabled={!known}
+                        title={
+                          known
+                            ? undefined
+                            : "Save this agent first, then it can take over inbound messages."
+                        }
+                        // Marked on the draft rather than written now: Save is
+                        // what promotes it, in the same transaction as the rest
+                        // of the edit, so a Cancel cannot leave the account
+                        // pointing at a bot whose changes were thrown away.
+                        onClick={() => {
+                          patch({ is_primary: true });
+                          toast.success(
+                            `“${draft.name}” will answer inbound messages once you save`,
+                          );
+                        }}
+                      >
+                        <Star className="size-4" />
+                        Set as primary
+                      </Button>
+                    )
+                  }
                 >
-                  {/* Capped rather than filling the card. The card is as wide
+                  <Field label="Bot name" htmlFor="agent-name" required>
+                    {/* Capped rather than filling the card. The card is as wide
                       as every other page's content, which is right, but a name
                       box a thousand pixels long reads as a paragraph field and
                       leaves the caret miles from the label. */}
-                  <Input
-                    id="agent-name"
-                    value={draft.name}
-                    maxLength={NAME_MAX}
-                    onChange={(event) => patch({ name: event.target.value })}
-                    className="max-w-xl"
-                  />
-                </Field>
-
-                <Field
-                  label="Description"
-                  htmlFor="agent-description"
-                  hint="Which conversations this one is for, so the next person knows which bot to edit."
-                >
-                  <Textarea
-                    id="agent-description"
-                    value={draft.description ?? ""}
-                    maxLength={DESCRIPTION_MAX}
-                    rows={2}
-                    onChange={(event) =>
-                      patch({ description: event.target.value })
-                    }
-                    className="max-w-xl"
-                  />
-                </Field>
-
-                <Field
-                  label="Bot status"
-                  hint="How much it may do without you. Choose one."
-                >
-                  <CardRadioGroup
-                    label="Bot status"
-                    options={BOT_MODES}
-                    value={draft.mode}
-                    onChange={(mode) => patch({ mode })}
-                  />
-                </Field>
-
-                <Field
-                  label="Channels"
-                  hint="Where this bot is active. One with none is saved but idle — nothing reaches it."
-                >
-                  <ChannelPicker
-                    value={draft.channels}
-                    onChange={(channels) => patch({ channels })}
-                  />
-                </Field>
-
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-3 py-2.5">
-                  <p className="text-muted-foreground flex items-center gap-2 text-xs">
-                    <Sparkles className="size-3.5 shrink-0" />
-                    Try the bot against your knowledge base before letting it
-                    near a customer. Nothing you send it reaches anyone.
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setTab("training")}
-                  >
-                    Open the test panel
-                  </Button>
-                </div>
-              </Section>
-
-              <Section
-                title="Advanced settings"
-                hint="Fine-tune how the bot behaves once it is answering."
-              >
-                <Field
-                  label="Business name"
-                  htmlFor="agent-business"
-                  hint="What the bot calls your business. Leave it blank to use the account name."
-                >
-                  <Input
-                    id="agent-business"
-                    value={draft.settings.business_name}
-                    placeholder="Your business name"
-                    onChange={(event) =>
-                      patchSettings({ business_name: event.target.value })
-                    }
-                    className="max-w-xl"
-                  />
-                </Field>
-
-                <Field
-                  label="Send SMS from"
-                  htmlFor="agent-sms-from"
-                  hint="The number texts from this bot arrive on. Only numbers that can send SMS are listed."
-                >
-                  <SmsFromPicker
-                    value={draft.settings.sms_from}
-                    numbers={numbers}
-                    onChange={(sms_from) => patchSettings({ sms_from })}
-                  />
-                </Field>
-
-                <div className="flex flex-col gap-3 border-t pt-4">
-                  <p className="text-xs font-medium">Auto-pilot</p>
-
-                  <Field
-                    label="Wait before replying"
-                    htmlFor="agent-wait"
-                    hint="A pause so the bot does not answer faster than a person could have read the message."
-                  >
-                    <div className="flex gap-2">
-                      <Input
-                        id="agent-wait"
-                        type="number"
-                        min={0}
-                        max={unit === "minutes" ? WAIT_SECONDS_MAX / 60 : WAIT_SECONDS_MAX}
-                        value={
-                          unit === "minutes"
-                            ? draft.settings.wait_seconds / 60
-                            : draft.settings.wait_seconds
-                        }
-                        onChange={(event) => {
-                          const typed = Number(event.target.value);
-                          if (Number.isNaN(typed)) return;
-
-                          const seconds =
-                            unit === "minutes" ? typed * 60 : typed;
-
-                          patchSettings({
-                            wait_seconds: clamp(seconds, 0, WAIT_SECONDS_MAX),
-                          });
-                        }}
-                        className="w-28"
-                      />
-
-                      <Select
-                        value={unit}
-                        onValueChange={(next) => setUnit(next as WaitUnit)}
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="seconds">Seconds</SelectItem>
-                          <SelectItem value="minutes">Minutes</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </Field>
-
-                  <Field
-                    label="Most messages in one conversation"
-                    hint="A stop, so a bot that misreads a thread cannot send fifty messages into it."
-                  >
-                    <Stepper
-                      value={draft.settings.max_messages}
-                      min={MAX_MESSAGES_MIN}
-                      max={MAX_MESSAGES_MAX}
-                      onChange={(max_messages) => patchSettings({ max_messages })}
+                    <Input
+                      id="agent-name"
+                      value={draft.name}
+                      maxLength={NAME_MAX}
+                      onChange={(event) => patch({ name: event.target.value })}
+                      className="max-w-xl"
                     />
                   </Field>
 
+                  <Field
+                    label="Description"
+                    htmlFor="agent-description"
+                    hint="Which conversations this one is for, so the next person knows which bot to edit."
+                  >
+                    <Textarea
+                      id="agent-description"
+                      value={draft.description ?? ""}
+                      maxLength={DESCRIPTION_MAX}
+                      rows={2}
+                      onChange={(event) =>
+                        patch({ description: event.target.value })
+                      }
+                      className="max-w-xl"
+                    />
+                  </Field>
+
+                  <Field
+                    label="Bot status"
+                    hint="How much it may do without you. Choose one."
+                  >
+                    <CardRadioGroup
+                      label="Bot status"
+                      options={BOT_MODES}
+                      value={draft.mode}
+                      onChange={(mode) => patch({ mode })}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Channels"
+                    hint="Where this bot is active. One with none is saved but idle — nothing reaches it."
+                  >
+                    <ChannelPicker
+                      value={draft.channels}
+                      onChange={(channels) => patch({ channels })}
+                    />
+                  </Field>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-3 py-2.5">
+                    <p className="text-muted-foreground flex items-center gap-2 text-xs">
+                      <Sparkles className="size-3.5 shrink-0" />
+                      Try the bot against your knowledge base before letting it
+                      near a customer. Nothing you send it reaches anyone.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTab("training")}
+                    >
+                      Open the test panel
+                    </Button>
+                  </div>
+                </Section>
+
+                <Section
+                  title="Advanced settings"
+                  hint="Fine-tune how the bot behaves once it is answering."
+                >
+                  <Field
+                    label="Business name"
+                    htmlFor="agent-business"
+                    hint="What the bot calls your business. Leave it blank to use the account name."
+                  >
+                    <Input
+                      id="agent-business"
+                      value={draft.settings.business_name}
+                      placeholder="Your business name"
+                      onChange={(event) =>
+                        patchSettings({ business_name: event.target.value })
+                      }
+                      className="max-w-xl"
+                    />
+                  </Field>
+
+                  <Field
+                    label="Send SMS from"
+                    htmlFor="agent-sms-from"
+                    hint="The number texts from this bot arrive on. Only numbers that can send SMS are listed."
+                  >
+                    <SmsFromPicker
+                      value={draft.settings.sms_from}
+                      numbers={numbers}
+                      onChange={(sms_from) => patchSettings({ sms_from })}
+                    />
+                  </Field>
+
+                  <div className="flex flex-col gap-3 border-t pt-4">
+                    <p className="text-xs font-medium">Auto-pilot</p>
+
+                    <Field
+                      label="Wait before replying"
+                      htmlFor="agent-wait"
+                      hint="A pause so the bot does not answer faster than a person could have read the message."
+                    >
+                      <div className="flex gap-2">
+                        <Input
+                          id="agent-wait"
+                          type="number"
+                          min={0}
+                          max={
+                            unit === "minutes"
+                              ? WAIT_SECONDS_MAX / 60
+                              : WAIT_SECONDS_MAX
+                          }
+                          value={
+                            unit === "minutes"
+                              ? draft.settings.wait_seconds / 60
+                              : draft.settings.wait_seconds
+                          }
+                          onChange={(event) => {
+                            const typed = Number(event.target.value);
+                            if (Number.isNaN(typed)) return;
+
+                            const seconds =
+                              unit === "minutes" ? typed * 60 : typed;
+
+                            patchSettings({
+                              wait_seconds: clamp(seconds, 0, WAIT_SECONDS_MAX),
+                            });
+                          }}
+                          className="w-28"
+                        />
+
+                        <Select
+                          value={unit}
+                          onValueChange={(next) => setUnit(next as WaitUnit)}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="seconds">Seconds</SelectItem>
+                            <SelectItem value="minutes">Minutes</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </Field>
+
+                    <Field
+                      label="Most messages in one conversation"
+                      hint="A stop, so a bot that misreads a thread cannot send fifty messages into it."
+                    >
+                      <Stepper
+                        value={draft.settings.max_messages}
+                        min={MAX_MESSAGES_MIN}
+                        max={MAX_MESSAGES_MAX}
+                        onChange={(max_messages) =>
+                          patchSettings({ max_messages })
+                        }
+                      />
+                    </Field>
+
+                    <Toggle
+                      label="Reply to images"
+                      hint="Replies to photos take longer, and only auto-pilot can send them."
+                      checked={draft.settings.respond_to_images}
+                      onChange={(respond_to_images) =>
+                        patchSettings({ respond_to_images })
+                      }
+                    />
+
+                    <Toggle
+                      label="Reply to voice notes"
+                      checked={draft.settings.respond_to_voice_notes}
+                      onChange={(respond_to_voice_notes) =>
+                        patchSettings({ respond_to_voice_notes })
+                      }
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 border-t pt-4">
+                    <p className="text-xs font-medium">Going quiet</p>
+
+                    <Toggle
+                      label="Sleep when I send a message"
+                      hint="Someone typing into the thread is the clearest sign the bot should stop."
+                      checked={draft.settings.sleep_on_manual_message}
+                      onChange={(sleep_on_manual_message) =>
+                        patchSettings({ sleep_on_manual_message })
+                      }
+                    />
+
+                    <Toggle
+                      label="Sleep when an automation sends"
+                      checked={draft.settings.sleep_on_workflow_message}
+                      onChange={(sleep_on_workflow_message) =>
+                        patchSettings({ sleep_on_workflow_message })
+                      }
+                    />
+                  </div>
+                </Section>
+
+                <Section
+                  title="Response settings"
+                  hint="How the replies read, once you want to shape them."
+                >
                   <Toggle
-                    label="Reply to images"
-                    hint="Replies to photos take longer, and only auto-pilot can send them."
-                    checked={draft.settings.respond_to_images}
-                    onChange={(respond_to_images) =>
-                      patchSettings({ respond_to_images })
+                    label="Response style"
+                    hint="Set how long an answer should run. Off, the bot writes whatever length the question seems to want."
+                    checked={draft.settings.response_style_enabled}
+                    onChange={(response_style_enabled) =>
+                      patchSettings({ response_style_enabled })
                     }
                   />
 
-                  <Toggle
-                    label="Reply to voice notes"
-                    checked={draft.settings.respond_to_voice_notes}
-                    onChange={(respond_to_voice_notes) =>
-                      patchSettings({ respond_to_voice_notes })
-                    }
-                  />
-                </div>
-
-                <div className="flex flex-col gap-3 border-t pt-4">
-                  <p className="text-xs font-medium">Going quiet</p>
-
-                  <Toggle
-                    label="Sleep when I send a message"
-                    hint="Someone typing into the thread is the clearest sign the bot should stop."
-                    checked={draft.settings.sleep_on_manual_message}
-                    onChange={(sleep_on_manual_message) =>
-                      patchSettings({ sleep_on_manual_message })
-                    }
-                  />
-
-                  <Toggle
-                    label="Sleep when an automation sends"
-                    checked={draft.settings.sleep_on_workflow_message}
-                    onChange={(sleep_on_workflow_message) =>
-                      patchSettings({ sleep_on_workflow_message })
-                    }
-                  />
-                </div>
-              </Section>
-
-              <Section
-                title="Response settings"
-                hint="How the replies read, once you want to shape them."
-              >
-                <Toggle
-                  label="Response style"
-                  hint="Set how long an answer should run. Off, the bot writes whatever length the question seems to want."
-                  checked={draft.settings.response_style_enabled}
-                  onChange={(response_style_enabled) =>
-                    patchSettings({ response_style_enabled })
-                  }
-                />
-
-                {/* Revealed by the switch rather than sitting there greyed out.
+                  {/* Revealed by the switch rather than sitting there greyed out.
                     A disabled row of options is a puzzle — it says a choice
                     exists without saying what turns it on — and there is
                     nothing above it that needs explaining first. */}
-                {draft.settings.response_style_enabled && (
-                  <Field label="How long an answer should run">
-                    <CardRadioGroup
-                      label="Response style"
-                      options={RESPONSE_STYLES}
-                      value={draft.settings.response_style}
-                      onChange={(response_style) =>
-                        patchSettings({ response_style })
-                      }
-                    />
-                  </Field>
-                )}
-              </Section>
-            </TabsContent>
+                  {draft.settings.response_style_enabled && (
+                    <Field label="How long an answer should run">
+                      <CardRadioGroup
+                        label="Response style"
+                        options={RESPONSE_STYLES}
+                        value={draft.settings.response_style}
+                        onChange={(response_style) =>
+                          patchSettings({ response_style })
+                        }
+                      />
+                    </Field>
+                  )}
+                </Section>
+              </TabsContent>
 
-            {/* Panels rather than nothing, so the tab row is the real shape of
+              {/* Panels rather than nothing, so the tab row is the real shape of
                 this screen from the start — the same argument the unbuilt AI
                 Agents tabs already make. */}
-            <TabsContent value="training">
-              <TrainingPanel
-                bot={draft}
-                triggers={draft.triggers}
-                onChange={(triggers) => patch({ triggers })}
-                bases={bases}
-              />
-            </TabsContent>
+              <TabsContent value="training">
+                <TrainingPanel
+                  bot={draft}
+                  triggers={draft.triggers}
+                  onChange={(triggers) => patch({ triggers })}
+                  bases={bases}
+                />
+              </TabsContent>
 
-            <TabsContent value="goals">
-              <GoalsPanel
-                bot={draft}
-                automations={automations}
-                goals={draft.goals}
-                onChange={(goals) => patch({ goals })}
-              />
-            </TabsContent>
-          </Tabs>
+              <TabsContent value="goals">
+                <GoalsPanel
+                  bot={draft}
+                  automations={automations}
+                  goals={draft.goals}
+                  onChange={(goals) => patch({ goals })}
+                />
+              </TabsContent>
+            </Tabs>
+          </TestConversationProvider>
         </div>
       </div>
 
@@ -531,8 +547,12 @@ export function AgentEditor({
           >
             Cancel
           </Button>
-          <Button size="sm" onClick={save} disabled={blocked}
-            title={summaryIssue ?? undefined}>
+          <Button
+            size="sm"
+            onClick={save}
+            disabled={blocked}
+            title={summaryIssue ?? undefined}
+          >
             {known ? "Save changes" : "Create agent"}
           </Button>
         </div>
@@ -675,7 +695,8 @@ function SmsFromPicker({
   // as a dead entry rather than silently swapped for another: sending would
   // have failed either way, and a bot quietly texting from a different number
   // than the one it was set to is worse than one that says it is broken.
-  const missing = value !== null && !numbers.some((n) => n.phoneNumber === value);
+  const missing =
+    value !== null && !numbers.some((n) => n.phoneNumber === value);
 
   return (
     <div className="flex max-w-xl flex-col gap-1.5">
@@ -895,4 +916,3 @@ function Stepper({
     </div>
   );
 }
-

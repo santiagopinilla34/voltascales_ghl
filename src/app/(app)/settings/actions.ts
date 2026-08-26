@@ -2,21 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 
-import { AI_MODEL_OPTIONS, AI_MODE_OPTIONS } from "@/lib/ai/models";
 import { MINUTES_PER_DAY, parseTimeOfDay } from "@/lib/booking/time";
 import { normalizePhone } from "@/lib/phone/normalize";
+import { requireOrgContext } from "@/lib/orgs/context";
 import { SETTINGS_ID } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
-import type { AiMode, AiModel } from "@/types/database";
 
 export type ActionResult<T = null> =
   | { ok: true; value: T }
   | { ok: false; error: string };
 
 export type SettingsInput = {
-  ai_system_prompt: string;
-  ai_mode: string;
-  ai_model: string;
   forward_to_number: string;
   booking_min_notice_minutes: number;
   booking_notify_number: string;
@@ -35,15 +31,6 @@ export async function saveSettings(
   } = await supabase.auth.getUser();
 
   if (!user) return { ok: false, error: "Not authenticated" };
-
-  // Checked here as well as by the database's CHECK constraints, so an invalid
-  // value comes back as a sentence rather than a Postgres constraint name.
-  if (!AI_MODE_OPTIONS.some((option) => option.value === input.ai_mode)) {
-    return { ok: false, error: `"${input.ai_mode}" is not a valid AI mode` };
-  }
-  if (!AI_MODEL_OPTIONS.some((option) => option.value === input.ai_model)) {
-    return { ok: false, error: `"${input.ai_model}" is not a valid model` };
-  }
 
   // Stored E.164 so it matches TWILIO_FORWARD_TO_NUMBER and whatever Twilio
   // expects in <Dial>, rather than however it happened to be typed.
@@ -115,9 +102,6 @@ export async function saveSettings(
       booking_notify_number: bookingNotifyNumber,
       booking_meeting_link: meetingLink,
       booking_host_name: input.booking_host_name.trim() || null,
-      ai_system_prompt: input.ai_system_prompt,
-      ai_mode: input.ai_mode as AiMode,
-      ai_model: input.ai_model as AiModel,
       forward_to_number: forwardToNumber,
       updated_at: new Date().toISOString(),
     })
@@ -191,6 +175,8 @@ export async function saveAvailability(
   const supabase = await requireSession();
   if (!supabase) return { ok: false, error: "Not authenticated" };
 
+  const context = await requireOrgContext();
+
   for (const rule of rules) {
     if (rule.day_of_week < 0 || rule.day_of_week > 6) {
       return { ok: false, error: `${rule.day_of_week} is not a day of the week` };
@@ -215,9 +201,15 @@ export async function saveAvailability(
   }
 
   if (rules.length > 0) {
+    // Attributed explicitly rather than by the column default. With a session
+    // the default does not raise — it returns the caller's single membership,
+    // which for a platform admin is the agency even while they are looking at
+    // a client. The delete above is scoped to the organization on screen, so
+    // the default would have cleared a client's availability and written the
+    // replacement rows under the agency.
     const { error: insertError } = await supabase
       .from("availability_rules")
-      .insert(rules);
+      .insert(rules.map((rule) => ({ ...rule, org_id: context.orgId })));
 
     if (insertError) {
       return {
