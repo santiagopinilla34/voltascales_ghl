@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   graphql_public: {
     Tables: {
@@ -305,78 +305,10 @@ export type Database = {
           },
         ]
       }
-      availability_rules: {
-        Row: {
-          active: boolean
-          created_at: string
-          day_of_week: number
-          end_time: string
-          id: string
-          org_id: string
-          start_time: string
-        }
-        Insert: {
-          active?: boolean
-          created_at?: string
-          day_of_week: number
-          end_time: string
-          id?: string
-          org_id?: string
-          start_time: string
-        }
-        Update: {
-          active?: boolean
-          created_at?: string
-          day_of_week?: number
-          end_time?: string
-          id?: string
-          org_id?: string
-          start_time?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "availability_rules_org_id_fkey"
-            columns: ["org_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      blocked_dates: {
-        Row: {
-          created_at: string
-          date: string
-          id: string
-          org_id: string
-          reason: string | null
-        }
-        Insert: {
-          created_at?: string
-          date: string
-          id?: string
-          org_id?: string
-          reason?: string | null
-        }
-        Update: {
-          created_at?: string
-          date?: string
-          id?: string
-          org_id?: string
-          reason?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "blocked_dates_org_id_fkey"
-            columns: ["org_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       bookings: {
         Row: {
+          buffer_minutes: number
+          calendar_id: string
           cancel_token: string
           cancelled_at: string | null
           client_email: string
@@ -394,6 +326,8 @@ export type Database = {
           status: string
         }
         Insert: {
+          buffer_minutes?: number
+          calendar_id: string
           cancel_token?: string
           cancelled_at?: string | null
           client_email: string
@@ -411,6 +345,8 @@ export type Database = {
           status?: string
         }
         Update: {
+          buffer_minutes?: number
+          calendar_id?: string
           cancel_token?: string
           cancelled_at?: string | null
           client_email?: string
@@ -429,6 +365,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "bookings_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "bookings_contact_id_org_id_fkey"
             columns: ["contact_id", "org_id"]
             isOneToOne: false
@@ -437,6 +380,252 @@ export type Database = {
           },
           {
             foreignKeyName: "bookings_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendar_availability_rules: {
+        Row: {
+          active: boolean
+          calendar_id: string
+          created_at: string
+          day_of_week: number
+          end_time: string
+          id: string
+          org_id: string
+          start_time: string
+        }
+        Insert: {
+          active?: boolean
+          calendar_id: string
+          created_at?: string
+          day_of_week: number
+          end_time: string
+          id?: string
+          org_id: string
+          start_time: string
+        }
+        Update: {
+          active?: boolean
+          calendar_id?: string
+          created_at?: string
+          day_of_week?: number
+          end_time?: string
+          id?: string
+          org_id?: string
+          start_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_availability_rules_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_availability_rules_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendar_blocked_dates: {
+        Row: {
+          calendar_id: string
+          created_at: string
+          date: string
+          id: string
+          org_id: string
+          reason: string | null
+        }
+        Insert: {
+          calendar_id: string
+          created_at?: string
+          date: string
+          id?: string
+          org_id: string
+          reason?: string | null
+        }
+        Update: {
+          calendar_id?: string
+          created_at?: string
+          date?: string
+          id?: string
+          org_id?: string
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_blocked_dates_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_blocked_dates_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendar_groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          org_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          org_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          org_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_groups_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendar_one_time_links: {
+        Row: {
+          booking_id: string | null
+          calendar_id: string
+          created_at: string
+          id: string
+          org_id: string
+          token: string
+          used_at: string | null
+        }
+        Insert: {
+          booking_id?: string | null
+          calendar_id: string
+          created_at?: string
+          id?: string
+          org_id: string
+          token: string
+          used_at?: string | null
+        }
+        Update: {
+          booking_id?: string | null
+          calendar_id?: string
+          created_at?: string
+          id?: string
+          org_id?: string
+          token?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_one_time_links_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_one_time_links_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_one_time_links_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendars: {
+        Row: {
+          active: boolean
+          buffer_minutes: number
+          created_at: string
+          description: string | null
+          duration_minutes: number
+          group_id: string | null
+          host_name: string | null
+          id: string
+          meeting_link: string | null
+          members: string[]
+          min_notice_minutes: number
+          name: string
+          notify_number: string | null
+          org_id: string
+          slug: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          buffer_minutes?: number
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number
+          group_id?: string | null
+          host_name?: string | null
+          id?: string
+          meeting_link?: string | null
+          members?: string[]
+          min_notice_minutes?: number
+          name: string
+          notify_number?: string | null
+          org_id: string
+          slug: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          buffer_minutes?: number
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number
+          group_id?: string | null
+          host_name?: string | null
+          id?: string
+          meeting_link?: string | null
+          members?: string[]
+          min_notice_minutes?: number
+          name?: string
+          notify_number?: string | null
+          org_id?: string
+          slug?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendars_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendars_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -1512,9 +1701,6 @@ export type Database = {
           anthropic_credit_at: string | null
           anthropic_credit_cents: number | null
           anthropic_monthly_budget_cents: number | null
-          booking_host_name: string | null
-          booking_meeting_link: string | null
-          booking_min_notice_minutes: number
           booking_notify_number: string | null
           business_address: string | null
           business_email: string | null
@@ -1538,9 +1724,6 @@ export type Database = {
           anthropic_credit_at?: string | null
           anthropic_credit_cents?: number | null
           anthropic_monthly_budget_cents?: number | null
-          booking_host_name?: string | null
-          booking_meeting_link?: string | null
-          booking_min_notice_minutes?: number
           booking_notify_number?: string | null
           business_address?: string | null
           business_email?: string | null
@@ -1564,9 +1747,6 @@ export type Database = {
           anthropic_credit_at?: string | null
           anthropic_credit_cents?: number | null
           anthropic_monthly_budget_cents?: number | null
-          booking_host_name?: string | null
-          booking_meeting_link?: string | null
-          booking_min_notice_minutes?: number
           booking_notify_number?: string | null
           business_address?: string | null
           business_email?: string | null
@@ -1602,7 +1782,7 @@ export type Database = {
       active_org_id: { Args: never; Returns: string }
       automation_triggers_valid: { Args: { triggers: Json }; Returns: boolean }
       booking_span: {
-        Args: { ends_at: string; starts_at: string }
+        Args: { buffer_minutes: number; ends_at: string; starts_at: string }
         Returns: unknown
       }
       default_org_id: { Args: never; Returns: string }
