@@ -20,7 +20,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { CalendarMonth } from "@/lib/booking/queries";
-import { MEETING_DURATION_MINUTES, MEETING_NAME, type Slot } from "@/lib/booking/slots";
+import { type Slot } from "@/lib/booking/slots";
+import type { BookingCalendar } from "@/types/database";
 import { addMonths, todayDayKey } from "@/lib/booking/time";
 import { TIME_ZONE } from "@/lib/format";
 import { TimeZonePicker, zoneLongName } from "@/components/booking/time-zone-picker";
@@ -152,7 +153,18 @@ type Screen =
 /** Which pane a phone is showing. Ignored at `lg`, where both are visible. */
 type Step = "calendar" | "times";
 
-export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
+export function BookingWidget({
+  calendar,
+  oneTimeToken,
+}: {
+  calendar: CalendarMonth;
+  /** Spent on submit when the visitor came through a one time link. */
+  oneTimeToken?: string;
+}) {
+  // The row behind the month: what the meeting is called and how long it runs.
+  // Named apart from the month itself because `calendar.calendar` at every use
+  // site would read as a mistake.
+  const meeting = calendar.calendar;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -219,7 +231,15 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
     setError(null);
 
     startTransition(async () => {
-      const result = await book({ start: slot.start, name, email, phone, notes });
+      const result = await book({
+        calendarId: meeting.id,
+        oneTimeToken,
+        start: slot.start,
+        name,
+        email,
+        phone,
+        notes,
+      });
 
       if (!result.ok) {
         setError(result.error);
@@ -252,12 +272,12 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
           <div className="space-y-1">
             <h2 className="text-xl font-semibold tracking-tight">Confirmed</h2>
             <p className="text-muted-foreground text-sm">
-              You&apos;re booked for a {MEETING_NAME.toLowerCase()}.
+              You&apos;re booked for a {meeting.name.toLowerCase()}.
             </p>
           </div>
 
           <div className="text-muted-foreground mt-2 grid gap-2.5 text-sm">
-            <Detail icon={Clock}>{MEETING_DURATION_MINUTES} minutes</Detail>
+            <Detail icon={Clock}>{meeting.duration_minutes} minutes</Detail>
             <Detail icon={CalendarDays}>
               <span className="text-foreground font-medium">
                 {fmt.time.format(new Date(screen.slot.start))} –{" "}
@@ -286,6 +306,7 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
       <Card>
         <div className="grid lg:grid-cols-[minmax(0,17rem)_1fr]">
           <MeetingPanel
+            meeting={meeting}
             selected={{
               day: fullDay.format(dayKeyDate(screen.slot.start.slice(0, 10))),
               time: `${fmt.time.format(new Date(screen.slot.start))} – ${fmt.time.format(
@@ -384,7 +405,10 @@ export function BookingWidget({ calendar }: { calendar: CalendarMonth }) {
   return (
     <Card>
       <div className="grid lg:h-[36rem] lg:grid-cols-[minmax(0,17rem)_1fr_minmax(0,16rem)]">
-        <MeetingPanel className={cn(step === "times" && "hidden lg:flex")} />
+        <MeetingPanel
+          meeting={meeting}
+          className={cn(step === "times" && "hidden lg:flex")}
+        />
 
         {/* The month */}
         <div
@@ -634,11 +658,14 @@ function ErrorNote({ children }: { children: React.ReactNode }) {
  * is being booked without a second panel to hold it.
  */
 function MeetingPanel({
+  meeting,
   className,
   selected,
   onBack,
   backDisabled,
 }: {
+  /** The calendar row: what this meeting is called and how long it runs. */
+  meeting: Pick<BookingCalendar, "name" | "duration_minutes" | "description">;
   className?: string;
   selected?: { day: string; time: string };
   onBack?: () => void;
@@ -668,14 +695,19 @@ function MeetingPanel({
       <div>
         <p className="text-muted-foreground text-sm">VoltaScales</p>
         <h1 className="mt-0.5 text-xl font-semibold tracking-tight">
-          {MEETING_NAME}
+          {meeting.name}
         </h1>
+        {meeting.description?.trim() && (
+          <p className="text-muted-foreground mt-1.5 text-sm">
+            {meeting.description}
+          </p>
+        )}
       </div>
 
       <div className="text-muted-foreground grid gap-2.5 text-sm">
         <div className="flex items-center gap-2.5">
           <Clock className="size-4 shrink-0" />
-          <span>{MEETING_DURATION_MINUTES} min</span>
+          <span>{meeting.duration_minutes} min</span>
         </div>
         <div className="flex items-center gap-2.5">
           <Video className="size-4 shrink-0" />

@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
 import { TriangleAlert } from "lucide-react";
 
-import { AvailabilityEditor } from "@/components/settings/availability-editor";
-import { BlockedDatesEditor } from "@/components/settings/blocked-dates-editor";
 import { BookLink } from "@/components/settings/book-link";
 import { SettingsForm } from "@/components/settings/settings-form";
-import { Separator } from "@/components/ui/separator";
+import { getDefaultCalendar } from "@/lib/booking/calendars";
 import { getBookingPreview } from "@/lib/booking/preview";
-import { listAvailabilityRules, listBlockedDates } from "@/lib/booking/queries";
 import { appBaseUrl } from "@/lib/env";
+import { getOrgContext } from "@/lib/orgs/context";
 import { environmentForwardToNumber, getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 import { formatFullTimestamp } from "@/lib/format";
@@ -17,16 +15,20 @@ export const metadata: Metadata = { title: "Settings · VoltaScales" };
 
 export default async function SettingsPage() {
   const supabase = await createClient();
-  const [settings, rules, blockedDates] = await Promise.all([
-    getSettings(supabase),
-    listAvailabilityRules(supabase),
-    listBlockedDates(supabase),
-  ]);
+  const context = await getOrgContext();
+  const settings = await getSettings(supabase);
+
+  // The preview is written from a calendar's meeting name, link and host, so
+  // it needs one. The default calendar is what `/book` resolves to, which is
+  // the booking most of these messages are about.
+  const calendar = context
+    ? await getDefaultCalendar(supabase, context.orgId)
+    : null;
 
   // Rendered server-side because the templates now live in an automation and
   // the renderer is server-only. The form receives finished strings, not the
   // machinery to build them.
-  const preview = await getBookingPreview(supabase, settings);
+  const preview = await getBookingPreview(supabase, settings, calendar);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -68,14 +70,11 @@ export default async function SettingsPage() {
                 bookingPreview={preview}
               />
 
-              {/* Beside the settings form rather than inside it: these write
-                  rows of their own and save independently, so sharing that
-                  form's single Save button would be a lie about what it does. */}
+              {/* The availability and blocked-dates editors used to sit here.
+                  Both are per calendar now and live under Calendar settings —
+                  two editors for one set of hours is how a Tuesday afternoon
+                  goes missing. What is left on this side is the link itself. */}
               <div className="flex min-w-0 flex-col gap-6">
-                <AvailabilityEditor rules={rules} />
-                <Separator />
-                <BlockedDatesEditor dates={blockedDates} />
-                <Separator />
                 <BookLink configuredOrigin={appBaseUrl()} />
               </div>
             </div>

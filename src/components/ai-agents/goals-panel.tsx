@@ -35,6 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AI_MODEL_OPTIONS, aiModelLabel } from "@/lib/ai/models";
+import type { BookingCalendar } from "@/types/database";
 import {
   BOT_ACTIONS,
   PROMPT_FIELDS,
@@ -80,6 +81,7 @@ export function GoalsPanel({
   goals,
   onChange,
   automations,
+  calendars,
 }: {
   /** The draft as it stands, for the test panel beside it. */
   bot: ConversationBot;
@@ -87,6 +89,8 @@ export function GoalsPanel({
   onChange: (goals: BotGoals) => void;
   /** The account's real automations, for the two action dialogs that pick one. */
   automations: AutomationOption[];
+  /** The account's real calendars, for the booking action's picker. */
+  calendars: BookingCalendar[];
 }) {
   function patch(changes: Partial<BotGoals>) {
     onChange({ ...goals, ...changes });
@@ -179,6 +183,7 @@ export function GoalsPanel({
             patch({ contact_fields: contactFields, actions })
           }
           automations={automations}
+          calendars={calendars}
         />
 
         <div className="flex flex-col gap-3 border-t pt-4">
@@ -726,6 +731,7 @@ function ActionPicker({
   contactFields,
   onSaveContactFields,
   automations,
+  calendars,
 }: {
   value: BotActionKind[];
   onChange: (actions: BotActionKind[]) => void;
@@ -744,6 +750,8 @@ function ActionPicker({
   ) => void;
   /** The account's real automations, handed to both dialogs. */
   automations: AutomationOption[];
+  /** The account's real calendars, for the booking dialog's picker. */
+  calendars: BookingCalendar[];
 }) {
   // Which dialog is open, or none. A boolean each would let two be true,
   // which is a state none of the dialogs has a story for.
@@ -860,6 +868,7 @@ function ActionPicker({
       </div>
 
       <BookingDialog
+        calendars={calendars}
         open={open === "book"}
         onBot={value.includes("book")}
         onOpenChange={(next) => setOpen(next ? "book" : null)}

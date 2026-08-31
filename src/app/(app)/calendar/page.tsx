@@ -132,8 +132,11 @@ function Shell({
                 {entry.label}
               </Link>
             ))}
+            {/* The calendar's own settings, not the app's. This used to point
+                at /settings, which meant clicking "Calendar settings" landed
+                you on a page that is mostly about other things. */}
             <Link
-              href="/settings"
+              href="/calendar/settings"
               className="text-muted-foreground hover:text-foreground shrink-0 border-b-2 border-transparent px-1 pt-1 pb-1.5 text-xs whitespace-nowrap"
             >
               Calendar settings

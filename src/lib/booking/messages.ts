@@ -63,12 +63,13 @@ export function formatBookingDate(booking: { start_time: string }): string {
  * templates are deliberately ASCII, and why the editor warns when an edit
  * introduces a character that isn't.
  */
-export function signature(settings: {
-  booking_host_name: string | null;
+export function signature(from: {
+  /** The calendar's host, not the account's — see `calendars.host_name`. */
+  host_name: string | null;
   business_name: string | null;
 }): string {
-  const host = settings.booking_host_name?.trim();
-  const business = settings.business_name?.trim() || "VoltaScales";
+  const host = from.host_name?.trim();
+  const business = from.business_name?.trim() || "VoltaScales";
 
   return host ? `- ${host} from ${business}` : `- ${business}`;
 }

@@ -45,6 +45,17 @@ export type ActionContext = {
   recipient: EventRecipient;
   /** Contact variables plus whatever the trigger contributed. */
   variables: TemplateVariables;
+  /**
+   * Where a `to: "business"` text goes for *this* event, overriding the
+   * account's alert number.
+   *
+   * Set by the booking triggers to the calendar's own `notify_number`, so a
+   * calendar someone else hosts can alert them instead of you. Undefined or
+   * null everywhere else, which falls through to
+   * `settings.booking_notify_number` — still the account-wide answer for
+   * missed calls, form submissions and the rest.
+   */
+  operatorPhone?: string | null;
 };
 
 export type ActionResult = {
@@ -64,13 +75,19 @@ export type ActionResult = {
 async function resolveTarget(
   target: MessageTarget,
   channel: "sms" | "email",
-  { supabase, recipient, orgId }: ActionContext,
+  { supabase, recipient, orgId, operatorPhone }: ActionContext,
 ): Promise<{ address: string } | { missing: string }> {
   if (target === "contact") {
     const address = channel === "sms" ? recipient.phone : recipient.email;
     return address?.trim()
       ? { address: address.trim() }
       : { missing: `no ${channel === "sms" ? "phone number" : "email address"} for the contact` };
+  }
+
+  // Checked before the settings read, so a calendar with its own alert number
+  // costs no round trip at all.
+  if (channel === "sms" && operatorPhone?.trim()) {
+    return { address: operatorPhone.trim() };
   }
 
   const settings = await getSettings(supabase, orgId);

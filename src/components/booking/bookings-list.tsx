@@ -10,7 +10,6 @@ import { cancelBookingAsOperator } from "@/app/(app)/calendar/actions";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { BookingsView, BookingWithContact } from "@/lib/booking/queries";
-import { MEETING_NAME } from "@/lib/booking/slots";
 import { formatPhone, TIME_ZONE } from "@/lib/format";
 
 /**
@@ -68,7 +67,12 @@ function BookingCard({
         <span className="text-sm font-medium tabular-nums">
           {timeRange.format(start)} – {timeRange.format(end)}
         </span>
-        <span className="text-muted-foreground text-xs">{MEETING_NAME}</span>
+        {/* Which calendar it was booked on. It used to be a constant, because
+            there was one calendar; now it is the answer to "why is this in my
+            Tuesday". */}
+        <span className="text-muted-foreground text-xs">
+          {booking.calendar?.name ?? "Meeting"}
+        </span>
         {tone === "cancelled" && (
           <span className="text-destructive ml-auto shrink-0 text-xs font-medium">
             Cancelled

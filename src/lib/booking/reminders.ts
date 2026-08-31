@@ -5,11 +5,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelUrl, formatBookingTime } from "@/lib/notify/booking";
 import { isOrgSuspended } from "@/lib/orgs/suspension";
 import { hasCredit } from "@/lib/billing/credit";
-import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
-import type { Booking, Database, TablesUpdate } from "@/types/database";
+import type {
+  Booking,
+  BookingCalendar,
+  Database,
+  TablesUpdate,
+} from "@/types/database";
 
-import { MEETING_NAME } from "./slots";
+import { getCalendarById } from "./calendars";
 
 /**
  * Reminder SMS for upcoming bookings, driven by the Vercel cron job.
@@ -46,12 +50,29 @@ type ReminderSpec = {
    * texts inside an hour is nagging.
    */
   floor: number;
-  body: (booking: Booking, join: string | null) => string;
+  /**
+   * The calendar is what names the meeting and holds the join link, so both
+   * arrive together rather than the name being a constant and the link a
+   * settings lookup.
+   */
+  body: (booking: Booking, calendar: BookingCalendar | null) => string;
 };
 
 /** Drops the lines a missing link or origin would leave empty. */
 function lines(parts: (string | null)[]): string {
   return parts.filter((part) => part !== null).join("\n");
+}
+
+/**
+ * What to call the meeting in a reminder.
+ *
+ * Lower-cased because it lands mid-sentence — "your Discovery Call is" reads
+ * as a proper noun the client never agreed to. Falls back to "meeting" rather
+ * than to nothing: a calendar row that could not be read must still produce a
+ * sentence, since the text is already going out.
+ */
+function meetingName(calendar: BookingCalendar | null): string {
+  return calendar?.name?.trim().toLowerCase() || "meeting";
 }
 
 const SPECS: Record<ReminderKind, ReminderSpec> = {
@@ -60,10 +81,11 @@ const SPECS: Record<ReminderKind, ReminderSpec> = {
     stamp: (at) => ({ reminder_24h_sent_at: at }),
     lead: 24 * HOUR,
     floor: 2 * HOUR,
-    body: (booking, join) => {
+    body: (booking, calendar) => {
       const cancel = cancelUrl(booking);
+      const join = calendar?.meeting_link?.trim() || null;
       return lines([
-        `Reminder: your ${MEETING_NAME} is ${formatBookingTime(booking)}.`,
+        `Reminder: your ${meetingName(calendar)} is ${formatBookingTime(booking)}.`,
         join ? "" : null,
         join ? `Join here:\n${join}` : null,
         cancel ? "" : null,
@@ -79,13 +101,15 @@ const SPECS: Record<ReminderKind, ReminderSpec> = {
     // No cancel link on this one. An hour out, cancelling by link and not
     // turning up look the same from your side, and the useful thing to put in
     // front of them is the way in.
-    body: (booking, join) =>
-      lines([
-        `Your ${MEETING_NAME} starts in about an hour - ${formatBookingTime(booking)}.`,
+    body: (booking, calendar) => {
+      const join = calendar?.meeting_link?.trim() || null;
+      return lines([
+        `Your ${meetingName(calendar)} starts in about an hour - ${formatBookingTime(booking)}.`,
         join ? "" : null,
         join ? `Join here:\n${join}` : null,
         join ? null : "Talk soon.",
-      ]),
+      ]);
+    },
   },
 };
 
@@ -161,22 +185,23 @@ export async function runReminderPass(
   let sent = 0;
   let failed = 0;
 
-  // Settings are per organization now, so this can no longer be read once for
-  // the pass — this job sweeps every client at once, and the meeting link in a
-  // reminder is the client's own. Reading the old way is not merely wrong, it
-  // throws: without a session the service role matches every organization's
-  // row and `maybeSingle()` refuses.
+  // The meeting's name and its join link are on the calendar, and this job
+  // sweeps every client's bookings at once — so neither can be read once for
+  // the pass.
   //
-  // Cached per organization within the pass, which restores most of what the
-  // single read was buying. A run covers a handful of bookings and usually one
-  // or two accounts.
-  const settingsByOrg = new Map<string, Awaited<ReturnType<typeof getSettings>>>();
+  // Cached per calendar within the pass, which is what the old single settings
+  // read was buying. A run covers a handful of bookings, usually across one or
+  // two calendars.
+  const calendarsById = new Map<string, BookingCalendar | null>();
 
-  async function joinLinkFor(orgId: string): Promise<string | null> {
-    if (!settingsByOrg.has(orgId)) {
-      settingsByOrg.set(orgId, await getSettings(supabase, orgId));
+  async function calendarFor(booking: Booking): Promise<BookingCalendar | null> {
+    if (!calendarsById.has(booking.calendar_id)) {
+      calendarsById.set(
+        booking.calendar_id,
+        await getCalendarById(supabase, booking.calendar_id, booking.org_id),
+      );
     }
-    return settingsByOrg.get(orgId)?.booking_meeting_link?.trim() || null;
+    return calendarsById.get(booking.calendar_id) ?? null;
   }
 
   // Sequential, deliberately. These are texts on a shared Twilio number and
@@ -208,8 +233,12 @@ export async function runReminderPass(
     }
 
     try {
-      const join = await joinLinkFor(booking.org_id);
-      await sendSms(booking.client_phone, spec.body(booking, join), booking.org_id);
+      const calendar = await calendarFor(booking);
+      await sendSms(
+        booking.client_phone,
+        spec.body(booking, calendar),
+        booking.org_id,
+      );
     } catch (error) {
       failed++;
       console.error(

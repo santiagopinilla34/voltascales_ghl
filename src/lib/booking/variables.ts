@@ -1,7 +1,11 @@
-import { MEETING_NAME } from "@/lib/booking/slots";
 import { formatBookingDate, formatBookingTime, signature } from "@/lib/booking/messages";
 import { formatPhone } from "@/lib/format";
-import type { Booking, Contact, Settings } from "@/types/database";
+import type {
+  Booking,
+  BookingCalendar,
+  Contact,
+  Settings,
+} from "@/types/database";
 
 /**
  * The `{{variables}}` a booking rule can use.
@@ -45,9 +49,15 @@ export const BOOKING_VARIABLES: BookingVariableDoc[] = [
   { name: "client_name", description: "Their full name." },
   { name: "booking_time", description: "Tuesday, August 18 at 2:00 p.m. Eastern" },
   { name: "booking_date", description: "Tue, Aug 18 — short, for subject lines." },
-  { name: "meeting_name", description: `What the meeting is called ("${MEETING_NAME}").` },
+  {
+    name: "meeting_name",
+    description: "What the meeting is called — the calendar's name.",
+  },
   { name: "business_name", description: "Your business name, from My Business." },
-  { name: "sign_off", description: "- Aleck from VoltaScales, per Settings." },
+  {
+    name: "sign_off",
+    description: "- Aleck from VoltaScales, per the calendar's host name.",
+  },
   { name: "client_phone", description: "Their phone, formatted." },
   { name: "client_email", description: "Their email address." },
   { name: "cancel_url", description: "Link that cancels this booking. Empty if the app doesn't know its own URL." },
@@ -106,12 +116,19 @@ export const BOOKING_VARIABLES: BookingVariableDoc[] = [
  */
 export function bookingVariables({
   booking,
+  calendar,
   contact,
   settings,
   baseUrl,
   cancelled,
 }: {
   booking: Booking;
+  /**
+   * The calendar the meeting is on. Null only when its row could not be read,
+   * which the schema forbids — the fallbacks below exist so a message still
+   * goes out rather than throwing on the way to a client.
+   */
+  calendar: BookingCalendar | null;
   contact: Contact | null;
   settings: Settings | null;
   baseUrl: string | null;
@@ -119,19 +136,30 @@ export function bookingVariables({
 }): Record<string, string> {
   const when = formatBookingTime(booking);
   const cancelUrl = baseUrl ? `${baseUrl}/book/cancel/${booking.cancel_token}` : "";
-  const join = settings?.booking_meeting_link?.trim() ?? "";
+  // The meeting link and the sign-off come from the calendar now, not from
+  // settings: two calendars can meet in two different rooms, and one of them
+  // may not be yours to host.
+  const join = calendar?.meeting_link?.trim() ?? "";
   const notes = booking.notes?.trim() ?? "";
+  // Back to the calendar they booked on rather than to whatever `/book`
+  // resolves to — those are the same link only for the default calendar.
+  const rebookUrl = !baseUrl
+    ? ""
+    : calendar
+      ? `${baseUrl}/book/${calendar.slug}`
+      : `${baseUrl}/book`;
 
   return {
     first_name: booking.client_name.trim().split(/\s+/)[0] ?? "",
     client_name: booking.client_name,
     booking_time: when,
     booking_date: formatBookingDate(booking),
-    meeting_name: MEETING_NAME,
+    meeting_name: calendar?.name?.trim() || "meeting",
     business_name: settings?.business_name?.trim() || "VoltaScales",
-    sign_off: settings
-      ? signature(settings)
-      : "- VoltaScales",
+    sign_off: signature({
+      host_name: calendar?.host_name ?? null,
+      business_name: settings?.business_name ?? null,
+    }),
     client_phone: formatPhone(booking.client_phone),
     client_email: booking.client_email,
     cancel_url: cancelUrl,
@@ -151,11 +179,11 @@ export function bookingVariables({
     // follows, and that newline is still there on the day the block is empty,
     // leaving a stray blank line in every message without a meeting link.
     join_block: join ? `Here's the link to join:\n${join}\n\n` : "",
-    rebook_line: baseUrl
-      ? `Want another time? ${baseUrl}/book`
+    rebook_line: rebookUrl
+      ? `Want another time? ${rebookUrl}`
       : "Reply here to pick another time.",
-    rebook_block: baseUrl
-      ? `Want another time?\n${baseUrl}/book`
+    rebook_block: rebookUrl
+      ? `Want another time?\n${rebookUrl}`
       : "Reply to the text you just got to pick another time.",
     notes_block: notes ? `\nThey wrote:\n\n${notes}\n` : "",
     pipeline_block: contact

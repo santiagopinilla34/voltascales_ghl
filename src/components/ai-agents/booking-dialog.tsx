@@ -49,10 +49,14 @@ import { cn } from "@/lib/utils";
  * after. Everything on step two is optional and off, so someone who only
  * wanted the bot to book can pick a calendar and be finished.
  *
- * Front end only, though not uniformly: the automations are the account's
- * real ones, read on the server and passed down. Calendars and agents are
- * still seams and arrive empty — an empty list that says so is more honest
- * than invented names.
+ * The calendars and the automations are the account's real rows, read on the
+ * server and passed down; picking one stores that calendar's id, which is the
+ * row `/book` and the slot generator work from. Agents are still a seam and
+ * arrive empty — an empty list that says so is more honest than invented names.
+ *
+ * What is stored and what is *acted on* are still different things: the
+ * runtime has no booking tool, so a bot cannot yet take an appointment in a
+ * thread. This screen records the choice for when it can.
  */
 export function BookingDialog({
   open,
@@ -643,12 +647,12 @@ function SwitchRow({
 }
 
 /**
- * A select over a list that is currently empty.
+ * A select that copes with its list being empty.
  *
- * Two of the three lists on this screen — calendars and agents — are still
- * seams and arrive empty. A line saying so beats a menu that opens onto
- * nothing, and beats a disabled control, which reads as something being
- * broken rather than as something not being there yet.
+ * Calendars and automations are real rows now; agents are still a seam and
+ * arrive empty. A line saying so beats a menu that opens onto nothing, and
+ * beats a disabled control, which reads as something being broken rather than
+ * as something not being there yet.
  */
 function ListSelect({
   id,

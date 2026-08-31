@@ -497,7 +497,9 @@ export function summaryProblem(
  * One calendar is the whole feature for almost everybody: a business has a
  * booking link, and the bot fills it. Letting the agent choose between several
  * is a different job — it has to know which calendar a given question belongs
- * to — and that is not written yet, so it is announced and refused.
+ * to — and that is not written yet, so it is announced and refused. The
+ * `calendars` table can hold as many as you like; deciding between them is the
+ * part that is missing.
  */
 export type BookingCalendarMode = "single" | "multi";
 
@@ -539,9 +541,13 @@ export const BOOKING_PAUSE_UNITS: { value: BookingPauseUnit; label: string }[] =
  * you configured it, because the usual reason to turn it off is to try
  * something for an afternoon.
  *
- * Front end only. Nothing here reaches the calendar yet, and the three id
- * fields are the seams where the real calendars, workflows and bots will be
- * hung — which is why they are ids rather than names.
+ * `calendar_id` and `workflow_id` point at real rows — a `calendars` id and
+ * an `automations` id — and the pickers read them from the database.
+ * `transfer_bot_id` is still a seam.
+ *
+ * Stored, not yet acted on: the runtime has no booking tool, so none of this
+ * changes what a bot does in a thread today. It is the configuration waiting
+ * for one.
  */
 export type BookingSettings = {
   calendar_mode: BookingCalendarMode;

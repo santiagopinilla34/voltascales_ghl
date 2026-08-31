@@ -10,6 +10,7 @@ import { UNIQUE_VIOLATION } from "@/lib/contacts";
 import { normalizePhone } from "@/lib/phone/normalize";
 import type {
   Booking,
+  BookingCalendar,
   Contact,
   Database,
   PipelineStage,
@@ -34,6 +35,22 @@ const EXCLUSION_VIOLATION = "23P01";
 const MAX_UPCOMING_PER_PHONE = 3;
 
 export type BookingInput = {
+  /**
+   * Which calendar is being booked.
+   *
+   * Sent by the widget and re-resolved on the server rather than trusted: the
+   * caller loads the row, so a posted id that names an inactive calendar or one
+   * belonging to another organization never reaches this function.
+   */
+  calendarId: string;
+  /**
+   * The one time link the visitor arrived through, if any.
+   *
+   * The token itself, not the row id: the action claims it before calling this
+   * and releases it if this fails, so what reaches here is only used to record
+   * which booking spent it.
+   */
+  oneTimeToken?: string;
   /** ISO instant of the chosen slot, as the page rendered it. */
   start: string;
   name: string;
@@ -65,9 +82,20 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 export async function createBooking(
   supabase: SupabaseClient<Database>,
+  calendar: BookingCalendar,
   input: BookingInput,
   now: Date = new Date(),
 ): Promise<BookingOutcome> {
+  // The caller resolved this row; the id in the request only has to agree with
+  // it. A mismatch means the form was edited between render and submit.
+  if (input.calendarId !== calendar.id) {
+    return { ok: false, error: "That booking link is out of date. Reload the page." };
+  }
+
+  if (!calendar.active) {
+    return { ok: false, error: "This calendar is no longer taking bookings." };
+  }
+
   const name = input.name.trim();
   const email = input.email.trim();
   const notes = input.notes.trim();
@@ -96,7 +124,7 @@ export async function createBooking(
   // The gate. The page that rendered this slot may be minutes old, was served
   // to a browser we don't control, and could have been edited before it posted
   // back. Only a slot the generator produces *right now* is bookable.
-  const day = await getDaySlots(supabase, dayKeyOf(startsAt), now);
+  const day = await getDaySlots(supabase, calendar, dayKeyOf(startsAt), now);
   const slot = day.slots.find((candidate) => candidate.start === startsAt.toISOString());
 
   if (!slot) {
@@ -107,9 +135,15 @@ export async function createBooking(
     };
   }
 
+  // Counted across the organization rather than the calendar: the cap is an
+  // abuse backstop, and one number filling three calendars with one meeting
+  // each is the same problem as filling one with three. Scoped explicitly
+  // because this runs on the service role, where an unscoped count would tally
+  // one visitor's bookings against every other business's.
   const { count, error: countError } = await supabase
     .from("bookings")
     .select("id", { count: "exact", head: true })
+    .eq("org_id", calendar.org_id)
     .eq("status", "confirmed")
     .eq("client_phone", phone)
     .gte("start_time", now.toISOString());
@@ -128,8 +162,18 @@ export async function createBooking(
   const { data: booking, error: insertError } = await supabase
     .from("bookings")
     .insert({
+      calendar_id: calendar.id,
+      // Attributed from the calendar rather than left to the column default:
+      // this runs on the service role with no session, where the default
+      // raises rather than guessing.
+      org_id: calendar.org_id,
       start_time: slot.start,
-      end_time: meetingEnd(startsAt).toISOString(),
+      end_time: meetingEnd(startsAt, calendar.duration_minutes).toISOString(),
+      // Snapshotted, not joined. Shortening the buffer next month must not
+      // retroactively make this meeting overlap the one after it — and the
+      // exclusion constraint indexes this row's own columns, so it could not
+      // read the calendar even if that were wanted.
+      buffer_minutes: calendar.buffer_minutes,
       client_name: name,
       client_email: email,
       client_phone: phone,

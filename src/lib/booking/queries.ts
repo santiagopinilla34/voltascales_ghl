@@ -2,11 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { getSettings } from "@/lib/settings";
 import type {
   AvailabilityRule,
   BlockedDate,
   Booking,
+  BookingCalendar,
   Contact,
   Database,
 } from "@/types/database";
@@ -14,6 +14,7 @@ import type {
 import {
   BOOKING_HORIZON_DAYS,
   generateDays,
+  slotRulesOf,
   type BusyInterval,
   type DaySlots,
 } from "./slots";
@@ -33,14 +34,22 @@ import {
  * Split from `slots.ts` on purpose: that file is pure and runs in the browser
  * too, this one talks to the database. The generator never fetches anything, so
  * there is exactly one place that decides what a slot is.
+ *
+ * Every read here takes a `calendarId`, and it is required rather than
+ * optional. These used to be scoped by organization alone, which was the same
+ * thing while an organization had one implicit calendar; now it would mean
+ * generating a discovery-call calendar out of the site-visit calendar's hours.
+ * A missing scope should not compile.
  */
 
 export async function listAvailabilityRules(
   supabase: SupabaseClient<Database>,
-  orgId?: string,
+  calendarId: string,
 ): Promise<AvailabilityRule[]> {
-  const base = supabase.from("availability_rules").select("*");
-  const { data, error } = await (orgId ? base.eq("org_id", orgId) : base)
+  const { data, error } = await supabase
+    .from("calendar_availability_rules")
+    .select("*")
+    .eq("calendar_id", calendarId)
     .order("day_of_week")
     .order("start_time");
 
@@ -59,11 +68,13 @@ export async function listAvailabilityRules(
  */
 export async function listBlockedDates(
   supabase: SupabaseClient<Database>,
+  calendarId: string,
   fromDayKey: string = todayDayKey(),
-  orgId?: string,
 ): Promise<BlockedDate[]> {
-  const base = supabase.from("blocked_dates").select("*");
-  const { data, error } = await (orgId ? base.eq("org_id", orgId) : base)
+  const { data, error } = await supabase
+    .from("calendar_blocked_dates")
+    .select("*")
+    .eq("calendar_id", calendarId)
     .gte("date", fromDayKey)
     .order("date");
 
@@ -75,21 +86,26 @@ export async function listBlockedDates(
 }
 
 /**
- * Confirmed bookings overlapping a window of days.
+ * Confirmed bookings overlapping a window of days, on one calendar.
  *
  * Widened by a day at each end before hitting the database: a meeting starting
  * at 4pm on the day before the window can still consume the window's first
  * slot through its buffer, and a query bounded exactly at midnight would miss
  * it and offer a time that the exclusion constraint then refuses.
+ *
+ * `buffer_minutes` comes back with each row because the generator compares
+ * against the buffer a meeting was *booked* under, not today's setting.
  */
 export async function listBusyBookings(
   supabase: SupabaseClient<Database>,
+  calendarId: string,
   fromDayKey: string,
   toDayKey: string,
-  orgId?: string,
 ): Promise<BusyInterval[]> {
-  const base = supabase.from("bookings").select("start_time, end_time");
-  const { data, error } = await (orgId ? base.eq("org_id", orgId) : base)
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("start_time, end_time, buffer_minutes")
+    .eq("calendar_id", calendarId)
     .eq("status", "confirmed")
     .gte("start_time", zonedTimeToUtc(addDays(fromDayKey, -1), 0).toISOString())
     .lt("start_time", zonedTimeToUtc(addDays(toDayKey, 2), 0).toISOString())
@@ -103,6 +119,8 @@ export async function listBusyBookings(
 }
 
 export type CalendarWeek = {
+  /** Which calendar these slots belong to. */
+  calendar: BookingCalendar;
   /** Monday of the week being shown. */
   weekStart: string;
   days: DaySlots[];
@@ -120,9 +138,9 @@ export type CalendarWeek = {
  */
 export async function getCalendarWeek(
   supabase: SupabaseClient<Database>,
+  calendar: BookingCalendar,
   anchorDayKey: string,
   now: Date = new Date(),
-  orgId?: string,
 ): Promise<CalendarWeek> {
   const today = todayDayKey(now);
   const horizonEnd = addDays(today, BOOKING_HORIZON_DAYS);
@@ -133,32 +151,23 @@ export async function getCalendarWeek(
   const days = weekOf(clamped);
   const [first, last] = [days[0], days[6]];
 
-  // `orgId` is passed through to every read rather than relied on from RLS,
-  // because the public booking page runs on the service role with no session —
-  // unscoped, it would generate a calendar from every client's availability at
-  // once, showing one business's free slots as another's and treating a third's
-  // meetings as busy time.
-  const [rules, blockedRows, busy, settings] = await Promise.all([
-    listAvailabilityRules(supabase, orgId),
-    listBlockedDates(supabase, first, orgId),
-    listBusyBookings(supabase, first, last, orgId),
-    getSettings(supabase, orgId),
+  const [rules, blockedRows, busy] = await Promise.all([
+    listAvailabilityRules(supabase, calendar.id),
+    listBlockedDates(supabase, calendar.id, first),
+    listBusyBookings(supabase, calendar.id, first, last),
   ]);
 
   const blocked = new Map(blockedRows.map((row) => [row.date, row.reason]));
 
   return {
+    calendar,
     weekStart: first,
     days: generateDays(days, {
       rules,
       blocked,
       busy,
       now,
-      // Falls back to the column default rather than to zero. A missing
-      // settings row means the migration hasn't run, and "no minimum notice"
-      // is the wrong way to fail — it would let someone book the slot that
-      // starts in four minutes.
-      minNoticeMinutes: settings?.booking_min_notice_minutes ?? 120,
+      calendar: slotRulesOf(calendar),
     }),
     earliestWeek: weekOf(today)[0],
     latestWeek: weekOf(horizonEnd)[0],
@@ -166,6 +175,8 @@ export async function getCalendarWeek(
 }
 
 export type CalendarMonth = {
+  /** Which calendar these slots belong to. */
+  calendar: BookingCalendar;
   /** The 1st of the month being shown. */
   monthStart: string;
   /** Every day of that month, 1st to last. Days outside the bookable horizon
@@ -179,12 +190,12 @@ export type CalendarMonth = {
 };
 
 /**
- * Everything `/book` needs for one month, in the same four round trips a week
- * took.
+ * Everything `/book` needs for one month, in the same three round trips a week
+ * takes.
  *
  * Widening the window costs nothing extra in queries — the blocked dates and
  * the bookings were already range reads, and `generateDays` is pure arithmetic
- * over the rules — so a month is four reads and about thirty days of slot
+ * over the rules — so a month is three reads and about thirty days of slot
  * generation rather than seven.
  *
  * `anchor` is any day in the wanted month. Unlike the week version this does
@@ -195,9 +206,9 @@ export type CalendarMonth = {
  */
 export async function getCalendarMonth(
   supabase: SupabaseClient<Database>,
+  calendar: BookingCalendar,
   anchorDayKey: string,
   now: Date = new Date(),
-  orgId?: string,
 ): Promise<CalendarMonth> {
   const today = todayDayKey(now);
   const horizonEnd = addDays(today, BOOKING_HORIZON_DAYS);
@@ -212,16 +223,10 @@ export async function getCalendarMonth(
   const days = monthOf(clamped);
   const [first, last] = [days[0], days[days.length - 1]];
 
-  // `orgId` is passed through to every read rather than relied on from RLS,
-  // because the public booking page runs on the service role with no session —
-  // unscoped, it would generate a calendar from every client's availability at
-  // once, showing one business's free slots as another's and treating a third's
-  // meetings as busy time.
-  const [rules, blockedRows, busy, settings] = await Promise.all([
-    listAvailabilityRules(supabase, orgId),
-    listBlockedDates(supabase, first, orgId),
-    listBusyBookings(supabase, first, last, orgId),
-    getSettings(supabase, orgId),
+  const [rules, blockedRows, busy] = await Promise.all([
+    listAvailabilityRules(supabase, calendar.id),
+    listBlockedDates(supabase, calendar.id, first),
+    listBusyBookings(supabase, calendar.id, first, last),
   ]);
 
   const blocked = new Map(blockedRows.map((row) => [row.date, row.reason]));
@@ -231,14 +236,11 @@ export async function getCalendarMonth(
     blocked,
     busy,
     now,
-    // Falls back to the column default rather than to zero. A missing settings
-    // row means the migration hasn't run, and "no minimum notice" is the wrong
-    // way to fail — it would let someone book the slot that starts in four
-    // minutes.
-    minNoticeMinutes: settings?.booking_min_notice_minutes ?? 120,
+    calendar: slotRulesOf(calendar),
   });
 
   return {
+    calendar,
     monthStart: first,
     // Past the horizon the generator would happily invent slots nobody may
     // book, so those days are emptied here rather than filtered out — the grid
@@ -259,17 +261,21 @@ export async function getCalendarMonth(
  * this what is actually open, and refuses anything that isn't in the list. It
  * deliberately re-reads instead of trusting the page the client rendered, which
  * may be minutes old and was in any case served to an untrusted browser.
+ *
+ * Takes the calendar row rather than an id so it cannot be called without the
+ * three numbers the generator needs — reading them here would be a fourth
+ * round trip on the hot path of every booking.
  */
 export async function getDaySlots(
   supabase: SupabaseClient<Database>,
+  calendar: BookingCalendar,
   dayKey: string,
   now: Date = new Date(),
 ): Promise<DaySlots> {
-  const [rules, blockedRows, busy, settings] = await Promise.all([
-    listAvailabilityRules(supabase),
-    listBlockedDates(supabase, dayKey),
-    listBusyBookings(supabase, dayKey, dayKey),
-    getSettings(supabase),
+  const [rules, blockedRows, busy] = await Promise.all([
+    listAvailabilityRules(supabase, calendar.id),
+    listBlockedDates(supabase, calendar.id, dayKey),
+    listBusyBookings(supabase, calendar.id, dayKey, dayKey),
   ]);
 
   return generateDays([dayKey], {
@@ -277,13 +283,15 @@ export async function getDaySlots(
     blocked: new Map(blockedRows.map((row) => [row.date, row.reason])),
     busy,
     now,
-    minNoticeMinutes: settings?.booking_min_notice_minutes ?? 120,
+    calendar: slotRulesOf(calendar),
   })[0];
 }
 
-/** A booking with whatever contact it was linked to, for the dashboard. */
+/** A booking with whatever contact it was linked to, and which calendar it is on. */
 export type BookingWithContact = Booking & {
   contact: Pick<Contact, "id" | "name" | "business_name"> | null;
+  /** Null only if the calendar row went missing, which the schema forbids. */
+  calendar: Pick<BookingCalendar, "id" | "name" | "slug"> | null;
 };
 
 export type BookingsView = {
@@ -293,6 +301,10 @@ export type BookingsView = {
   /** Cancelled meetings still ahead of us, kept separate rather than dropped. */
   cancelled: BookingWithContact[];
 };
+
+/** The columns every dashboard read of a booking pulls in alongside the row. */
+const BOOKING_WITH_RELATIONS =
+  "*, contacts (id, name, business_name), calendars (id, name, slug)";
 
 /**
  * Every booking overlapping a window of calendar days, for the grid.
@@ -306,15 +318,21 @@ export type BookingsView = {
  * at 11pm on the day before the window is a different question from one whose
  * *start day* is in it, and the zone offset means an exact midnight bound in
  * UTC cuts the wrong instant.
+ *
+ * `calendarId` is optional here, unlike in the slot reads: the operator's
+ * calendar shows every meeting by default, and narrowing to one is a filter on
+ * screen rather than a correctness requirement.
  */
 export async function listBookingsBetween(
   supabase: SupabaseClient<Database>,
   fromDayKey: string,
   toDayKey: string,
+  calendarId?: string,
 ): Promise<BookingWithContact[]> {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*, contacts (id, name, business_name)")
+  const base = supabase.from("bookings").select(BOOKING_WITH_RELATIONS);
+  const { data, error } = await (calendarId
+    ? base.eq("calendar_id", calendarId)
+    : base)
     .gte("start_time", zonedTimeToUtc(addDays(fromDayKey, -1), 0).toISOString())
     .lt("start_time", zonedTimeToUtc(addDays(toDayKey, 2), 0).toISOString())
     .order("start_time");
@@ -323,9 +341,10 @@ export async function listBookingsBetween(
     throw new Error(`Failed to load bookings: ${error.message}`);
   }
 
-  return (data ?? []).map(({ contacts, ...booking }) => ({
+  return (data ?? []).map(({ contacts, calendars, ...booking }) => ({
     ...booking,
     contact: contacts,
+    calendar: calendars,
   }));
 }
 
@@ -344,11 +363,13 @@ export async function getBookingsView(
   supabase: SupabaseClient<Database>,
   now: Date = new Date(),
   pastLimit = 25,
+  calendarId?: string,
 ): Promise<BookingsView> {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*, contacts (id, name, business_name)")
-    .order("start_time", { ascending: false });
+  const base = supabase.from("bookings").select(BOOKING_WITH_RELATIONS);
+  const { data, error } = await (calendarId
+    ? base.eq("calendar_id", calendarId)
+    : base
+  ).order("start_time", { ascending: false });
 
   if (error) {
     throw new Error(`Failed to load bookings: ${error.message}`);
@@ -358,8 +379,12 @@ export async function getBookingsView(
   const nowMs = now.getTime();
 
   for (const row of data ?? []) {
-    const { contacts, ...booking } = row;
-    const entry: BookingWithContact = { ...booking, contact: contacts };
+    const { contacts, calendars, ...booking } = row;
+    const entry: BookingWithContact = {
+      ...booking,
+      contact: contacts,
+      calendar: calendars,
+    };
 
     // A meeting counts as upcoming until it has finished, not until it has
     // started — one that is happening right now belongs at the top of the

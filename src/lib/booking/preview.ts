@@ -4,8 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { parseActions } from "@/lib/automations/config";
 import { renderTemplate } from "@/lib/automations/template";
-import { MEETING_NAME } from "@/lib/booking/slots";
-import type { Database, Settings } from "@/types/database";
+import type { BookingCalendar, Database, Settings } from "@/types/database";
 
 /**
  * What a client will actually receive when they book.
@@ -38,10 +37,13 @@ export type BookingPreview = {
  * cancel token would be a live link to cancel somebody's meeting, sitting on a
  * settings page.
  */
-function sampleVariables(settings: Settings | null): Record<string, string> {
+function sampleVariables(
+  settings: Settings | null,
+  calendar: BookingCalendar | null,
+): Record<string, string> {
   const business = settings?.business_name?.trim() || "VoltaScales";
-  const host = settings?.booking_host_name?.trim();
-  const join = settings?.booking_meeting_link?.trim() ?? "";
+  const host = calendar?.host_name?.trim();
+  const join = calendar?.meeting_link?.trim() ?? "";
 
   return {
     first_name: "Jane",
@@ -49,7 +51,7 @@ function sampleVariables(settings: Settings | null): Record<string, string> {
     name: "Jane Okafor",
     booking_time: "Tuesday, August 18 at 2:00 p.m. Eastern",
     booking_date: "Tue, Aug 18",
-    meeting_name: MEETING_NAME,
+    meeting_name: calendar?.name?.trim() || "meeting",
     business_name: business,
     sign_off: host ? `- ${host} from ${business}` : `- ${business}`,
     client_phone: "(514) 555-0134",
@@ -72,6 +74,12 @@ function sampleVariables(settings: Settings | null): Record<string, string> {
 export async function getBookingPreview(
   supabase: SupabaseClient<Database>,
   settings: Settings | null,
+  /**
+   * The calendar the sample is for. The meeting name, join link and sign-off
+   * are all its now, so a preview without one shows the generic fallbacks —
+   * which is honest for an account that has no calendars.
+   */
+  calendar: BookingCalendar | null,
 ): Promise<BookingPreview | null> {
   const { data, error } = await supabase
     .from("automations")
@@ -84,7 +92,7 @@ export async function getBookingPreview(
   const actions = parseActions(data.actions);
   if (!actions.ok) return null;
 
-  const variables = sampleVariables(settings);
+  const variables = sampleVariables(settings, calendar);
 
   const sms = actions.value.find(
     (action) => action.type === "send_sms" && action.to === "contact",

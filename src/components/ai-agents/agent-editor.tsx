@@ -53,7 +53,7 @@ import {
 import { formatPhone } from "@/lib/format";
 import type { SmsNumber } from "@/lib/ai-agents/sms-numbers";
 import { cn } from "@/lib/utils";
-import type { KnowledgeBase } from "@/types/database";
+import type { BookingCalendar, KnowledgeBase } from "@/types/database";
 
 /**
  * The whole of one agent, on one screen.
@@ -81,6 +81,7 @@ export function AgentEditor({
   bases,
   numbers,
   automations,
+  calendars,
   isNew = false,
 }: {
   bot: ConversationBot;
@@ -90,6 +91,8 @@ export function AgentEditor({
   numbers: SmsNumber[];
   /** The account's real automations, for the Goals tab's action dialogs. */
   automations: AutomationOption[];
+  /** The account's real calendars, for the booking action's picker. */
+  calendars: BookingCalendar[];
   /** True on `/new`, where this bot has never been written. */
   isNew?: boolean;
 }) {
@@ -552,6 +555,7 @@ export function AgentEditor({
 
               <TabsContent value="goals">
                 <GoalsPanel
+                  calendars={calendars}
                   bot={draft}
                   automations={automations}
                   goals={draft.goals}

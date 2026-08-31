@@ -9,7 +9,7 @@ import {
   type BotKind,
 } from "@/lib/ai-agents/bots";
 import type { SmsNumber } from "@/lib/ai-agents/sms-numbers";
-import type { KnowledgeBase } from "@/types/database";
+import type { BookingCalendar, KnowledgeBase } from "@/types/database";
 
 /**
  * Mints the blank bot the create route opens on.
@@ -28,12 +28,15 @@ export function NewAgentEditor({
   bases,
   numbers,
   automations,
+  calendars,
   taken,
 }: {
   kind: BotKind;
   bases: KnowledgeBase[];
   numbers: SmsNumber[];
   automations: AutomationOption[];
+  /** The account's real calendars, for the booking action's picker. */
+  calendars: BookingCalendar[];
   /** The names already in use, so the blank one does not collide on save. */
   taken: string[];
 }) {
@@ -45,6 +48,7 @@ export function NewAgentEditor({
       bases={bases}
       numbers={numbers}
       automations={automations}
+      calendars={calendars}
       isNew
     />
   );

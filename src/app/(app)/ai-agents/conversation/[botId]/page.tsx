@@ -5,6 +5,7 @@ import { AgentEditor } from "@/components/ai-agents/agent-editor";
 import { getBot } from "@/lib/ai-agents/queries";
 import { listSmsNumbers } from "@/lib/ai-agents/sms-numbers";
 import { listAutomations } from "@/lib/automations/queries";
+import { listCalendars } from "@/lib/booking/calendars";
 import { listKnowledgeBases } from "@/lib/knowledge/queries";
 import { createClient } from "@/lib/supabase/server";
 
@@ -26,11 +27,12 @@ export default async function AgentPage({
 
   const supabase = await createClient();
 
-  const [bot, bases, numbers, rules] = await Promise.all([
+  const [bot, bases, numbers, rules, calendars] = await Promise.all([
     getBot(supabase, botId),
     listKnowledgeBases(supabase),
     listSmsNumbers(),
     listAutomations(supabase),
+    listCalendars(supabase),
   ]);
 
   // Someone else deleted it, or it belongs to another organization and RLS
@@ -45,6 +47,7 @@ export default async function AgentPage({
       bases={bases}
       numbers={numbers}
       automations={automations}
+      calendars={calendars}
     />
   );
 }

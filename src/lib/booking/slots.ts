@@ -10,46 +10,68 @@
  * booked**. `/book` is a public endpoint that sends SMS on your Twilio account,
  * so the action re-generates the day and checks the submitted instant is in the
  * list, rather than trusting the timestamp that arrived in the request.
+ *
+ * The meeting length, the buffer and the minimum notice used to be constants
+ * here and a column on `settings`. They are columns on `calendars` now, passed
+ * in per call, because "how long is a meeting" has a different answer on a
+ * discovery call and a site visit. Nothing in this file knows what a calendar
+ * is beyond those three numbers.
  */
 
 import type { AvailabilityRule } from "@/types/database";
 
 import { dayOfWeekOf, parseTimeOfDay, zonedTimeToUtc } from "./time";
 
-/** The one meeting type. */
-export const MEETING_NAME = "Discovery Call";
-export const MEETING_DURATION_MINUTES = 60;
-
-/**
- * Dead time after a meeting, before the next one can start.
- *
- * Mirrored in the database by `public.booking_span()`, the function the
- * `bookings_no_overlap` exclusion constraint indexes. Change one and you must
- * change the other, or the database will start rejecting slots this file
- * offers. The duplication is forced: an index expression has to be IMMUTABLE,
- * which is what pushed the arithmetic into a function of its own.
- */
-export const MEETING_BUFFER_MINUTES = 15;
-
-/** Slots start this far apart: the meeting, then the buffer. */
-export const SLOT_CADENCE_MINUTES =
-  MEETING_DURATION_MINUTES + MEETING_BUFFER_MINUTES;
-
 /**
  * How far ahead the calendar goes.
  *
- * Not in the spec, but an unbounded booking page will eventually take a meeting
- * eighteen months out from someone who will not be thinking about it by then.
- * Eight weeks is long enough for any real discovery call.
+ * Still global: an unbounded booking page will eventually take a meeting
+ * eighteen months out from someone who will not be thinking about it by then,
+ * and that is true of every calendar rather than a property of any one.
  */
 export const BOOKING_HORIZON_DAYS = 56;
 
+/**
+ * What the generator needs to know about the calendar it is generating.
+ *
+ * A structural type rather than the `BookingCalendar` row, so this file stays
+ * pure and the browser bundle does not pull in the database types to render a
+ * week of slots.
+ */
+export type SlotRules = {
+  durationMinutes: number;
+  bufferMinutes: number;
+  minNoticeMinutes: number;
+};
+
+/**
+ * The fallbacks, used only when a calendar cannot be read.
+ *
+ * They match the column defaults in `20260831000000_calendars.sql`. Notice
+ * falls back to two hours rather than to zero on purpose: "no minimum notice"
+ * is the wrong way to fail, because it hands out the slot that starts in four
+ * minutes.
+ */
+export const DEFAULT_SLOT_RULES: SlotRules = {
+  durationMinutes: 30,
+  bufferMinutes: 15,
+  minNoticeMinutes: 120,
+};
+
 const MS_PER_MINUTE = 60_000;
-const BUFFER_MS = MEETING_BUFFER_MINUTES * MS_PER_MINUTE;
-const DURATION_MS = MEETING_DURATION_MINUTES * MS_PER_MINUTE;
 
 /** Just enough of a booking row to know what it occupies. */
-export type BusyInterval = { start_time: string; end_time: string };
+export type BusyInterval = {
+  start_time: string;
+  end_time: string;
+  /**
+   * The buffer that booking was taken under, which may not be the calendar's
+   * current one. Snapshotted on the row for exactly this reason — see
+   * `bookings.buffer_minutes`. Optional so a caller with only a time range
+   * still works; it falls back to the calendar's buffer.
+   */
+  buffer_minutes?: number | null;
+};
 
 export type Slot = {
   /** Absolute instant, ISO. This is the value the booking form submits back. */
@@ -76,19 +98,32 @@ export type GenerateInput = {
   /** Confirmed bookings overlapping the range being generated. */
   busy: BusyInterval[];
   now: Date;
-  minNoticeMinutes: number;
+  calendar: SlotRules;
 };
 
-/** Whether a candidate meeting collides with something already booked. */
-function collides(startMs: number, endMs: number, busy: BusyInterval[]): boolean {
+/**
+ * Whether a candidate meeting collides with something already booked.
+ *
+ * Each side carries its own buffer: the booked meeting the one it was taken
+ * under, the candidate the calendar's current one. That asymmetry is the point
+ * — shortening the buffer today must not make yesterday's bookings retroactively
+ * overlap, and it is the same comparison the exclusion constraint performs.
+ */
+function collides(
+  startMs: number,
+  endMs: number,
+  busy: BusyInterval[],
+  bufferMinutes: number,
+): boolean {
+  const candidateBuffer = bufferMinutes * MS_PER_MINUTE;
+
   return busy.some((interval) => {
     const busyStart = Date.parse(interval.start_time);
     const busyEnd = Date.parse(interval.end_time);
+    const busyBuffer =
+      (interval.buffer_minutes ?? bufferMinutes) * MS_PER_MINUTE;
 
-    // Both sides carry the buffer on their end, matching the ranges the
-    // exclusion constraint compares. Back-to-back is a collision; a meeting
-    // ending at 10:00 leaves the next one free to start at 10:15.
-    return startMs < busyEnd + BUFFER_MS && busyStart < endMs + BUFFER_MS;
+    return startMs < busyEnd + busyBuffer && busyStart < endMs + candidateBuffer;
   });
 }
 
@@ -99,7 +134,7 @@ export function generateDay({
   blocked,
   busy,
   now,
-  minNoticeMinutes,
+  calendar,
 }: GenerateInput): DaySlots {
   if (blocked.has(dayKey)) {
     return {
@@ -118,7 +153,10 @@ export function generateDay({
     return { dayKey, slots: [], closedReason: null };
   }
 
-  const earliest = now.getTime() + minNoticeMinutes * MS_PER_MINUTE;
+  const durationMs = calendar.durationMinutes * MS_PER_MINUTE;
+  /** Slots start this far apart: the meeting, then the buffer. */
+  const cadence = calendar.durationMinutes + calendar.bufferMinutes;
+  const earliest = now.getTime() + calendar.minNoticeMinutes * MS_PER_MINUTE;
   const byStart = new Map<string, Slot>();
 
   for (const rule of applicable) {
@@ -130,15 +168,15 @@ export function generateDay({
     // and there is no next meeting after the day closes.
     for (
       let minute = opens;
-      minute + MEETING_DURATION_MINUTES <= closes;
-      minute += SLOT_CADENCE_MINUTES
+      minute + calendar.durationMinutes <= closes;
+      minute += cadence
     ) {
       const start = zonedTimeToUtc(dayKey, minute);
       const startMs = start.getTime();
-      const endMs = startMs + DURATION_MS;
+      const endMs = startMs + durationMs;
 
       if (startMs < earliest) continue;
-      if (collides(startMs, endMs, busy)) continue;
+      if (collides(startMs, endMs, busy, calendar.bufferMinutes)) continue;
 
       // Keyed so two overlapping rules can't offer the same time twice.
       const iso = start.toISOString();
@@ -161,7 +199,20 @@ export function generateDays(
   return dayKeys.map((dayKey) => generateDay({ ...input, dayKey }));
 }
 
-/** The end instant for a meeting starting at `start`. */
-export function meetingEnd(start: Date): Date {
-  return new Date(start.getTime() + DURATION_MS);
+/** The end instant for a meeting starting at `start` on a calendar. */
+export function meetingEnd(start: Date, durationMinutes: number): Date {
+  return new Date(start.getTime() + durationMinutes * MS_PER_MINUTE);
+}
+
+/** The three numbers the generator reads, from a calendar row. */
+export function slotRulesOf(calendar: {
+  duration_minutes: number;
+  buffer_minutes: number;
+  min_notice_minutes: number;
+}): SlotRules {
+  return {
+    durationMinutes: calendar.duration_minutes,
+    bufferMinutes: calendar.buffer_minutes,
+    minNoticeMinutes: calendar.min_notice_minutes,
+  };
 }

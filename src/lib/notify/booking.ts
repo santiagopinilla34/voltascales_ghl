@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { runAutomationsForEvent } from "@/lib/automations/engine";
+import { getCalendarById } from "@/lib/booking/calendars";
 import { bookingVariables } from "@/lib/booking/variables";
 import { appBaseUrl } from "@/lib/env";
 import { getSettings } from "@/lib/settings";
@@ -62,18 +63,29 @@ async function runBookingRules(
   contact: Contact | null,
   { cancelled }: { cancelled: boolean },
 ): Promise<void> {
-  // Read fresh rather than snapshotted onto the booking: changing the meeting
-  // link or your sign-off is meant to fix every future message, including for
-  // meetings booked before the change.
-  const settings = await getSettings(supabase, booking.org_id);
+  // Both read fresh rather than snapshotted onto the booking: changing the
+  // meeting link or your sign-off is meant to fix every future message,
+  // including for meetings booked before the change.
+  //
+  // The calendar is where the link, the host name and the meeting's own name
+  // now live, so it is loaded here rather than being reached for through
+  // `settings` — which no longer holds any of them.
+  const [settings, calendar] = await Promise.all([
+    getSettings(supabase, booking.org_id),
+    getCalendarById(supabase, booking.calendar_id, booking.org_id),
+  ]);
 
   const outcomes = await runAutomationsForEvent(supabase, {
     orgId: booking.org_id,
     trigger: cancelled ? "booking_cancelled" : "booking_confirmed",
     contact,
     recipient: { phone: booking.client_phone, email: booking.client_email },
+    // Null falls back to the account's alert number, which is what every
+    // calendar without its own does.
+    operatorPhone: calendar?.notify_number ?? null,
     variables: bookingVariables({
       booking,
+      calendar,
       contact,
       settings,
       baseUrl: appBaseUrl(),

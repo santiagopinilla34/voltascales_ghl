@@ -15,18 +15,8 @@ import type { BookingPreview } from "@/lib/booking/preview";
 import { formatPhone } from "@/lib/format";
 import type { Settings } from "@/types/database";
 
-/** "90 minutes" is harder to picture than "1h 30m" once it passes an hour. */
-function describeMinutes(minutes: number): string {
-  if (!Number.isFinite(minutes) || minutes < 0)
-    return "an invalid amount of time";
-  if (minutes < 60) return `${minutes} minutes`;
-
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  const hoursLabel = `${hours} hour${hours === 1 ? "" : "s"}`;
-
-  return rest === 0 ? hoursLabel : `${hoursLabel} ${rest} min`;
-}
+// `describeMinutes` lived here to caption the minimum-notice field. That field
+// is per calendar now, and the caption went with it.
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
@@ -57,25 +47,13 @@ export function SettingsForm({
   const [error, setError] = useState<string | null>(null);
 
   const [forwardTo, setForwardTo] = useState(settings.forward_to_number ?? "");
-  // String, not number: an empty field is a real intermediate state while
-  // typing, and a number-typed state would snap it to 0 mid-edit.
-  const [minNotice, setMinNotice] = useState(
-    String(settings.booking_min_notice_minutes),
-  );
   const [notifyNumber, setNotifyNumber] = useState(
     settings.booking_notify_number ?? "",
   );
-  const [meetingLink, setMeetingLink] = useState(
-    settings.booking_meeting_link ?? "",
-  );
-  const [hostName, setHostName] = useState(settings.booking_host_name ?? "");
 
   const dirty =
     forwardTo !== (settings.forward_to_number ?? "") ||
-    minNotice !== String(settings.booking_min_notice_minutes) ||
-    notifyNumber !== (settings.booking_notify_number ?? "") ||
-    meetingLink !== (settings.booking_meeting_link ?? "") ||
-    hostName !== (settings.booking_host_name ?? "");
+    notifyNumber !== (settings.booking_notify_number ?? "");
 
   function save(event: React.FormEvent) {
     event.preventDefault();
@@ -84,10 +62,7 @@ export function SettingsForm({
     startTransition(async () => {
       const result = await saveSettings({
         forward_to_number: forwardTo,
-        booking_min_notice_minutes: Number(minNotice),
         booking_notify_number: notifyNumber,
-        booking_meeting_link: meetingLink,
-        booking_host_name: hostName,
       });
 
       if (!result.ok) {
@@ -143,64 +118,26 @@ export function SettingsForm({
         <div>
           <h2 className="text-sm font-semibold tracking-tight">Booking</h2>
           <p className="text-muted-foreground text-xs">
-            How the public booking page offers your time. The hours themselves
-            are below.
+            What clients get when they book, and where your alert goes.
           </p>
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="min-notice">Minimum notice (minutes)</Label>
-          <Input
-            id="min-notice"
-            type="number"
-            inputMode="numeric"
-            min={0}
-            step={15}
-            value={minNotice}
-            onChange={(event) => setMinNotice(event.target.value)}
-            disabled={pending}
-            className="w-40"
-          />
-          <Note>
-            {Number(minNotice) === 0
-              ? "Zero — someone can book a slot that starts in a minute."
-              : `A slot stops being bookable ${describeMinutes(Number(minNotice))} before it starts.`}
-          </Note>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="meeting-link">Meeting link</Label>
-          <Input
-            id="meeting-link"
-            type="url"
-            inputMode="url"
-            value={meetingLink}
-            onChange={(event) => setMeetingLink(event.target.value)}
-            placeholder="https://zoom.us/j/1234567890"
-            disabled={pending}
-          />
-          <Note>
-            {meetingLink.trim()
-              ? "Sent in the confirmation and both reminders. Change it here and every future message uses the new one, including for meetings already booked."
-              : "Empty, so the confirmation tells them you'll call the number they gave you instead."}
-          </Note>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="host-name">Your first name</Label>
-          <Input
-            id="host-name"
-            value={hostName}
-            onChange={(event) => setHostName(event.target.value)}
-            placeholder="Aleck"
-            autoComplete="given-name"
-            disabled={pending}
-          />
-          <Note>
-            Signs the messages to clients. A text from a person gets replies;
-            one from a company reads like an ad.
-          </Note>
-        </div>
+        {/* The minimum notice, the meeting link and the host name used to be
+            three fields here. They are per calendar now — a business with a
+            discovery call and a site visit meets in two different places and
+            signs off as two different people — so this points at the screen
+            that owns them rather than keeping a fourth copy of the question. */}
+        <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-xs">
+          Hours, minimum notice, meeting link and host name are set per
+          calendar in{" "}
+          <Link
+            href="/calendar/settings"
+            className="text-foreground underline underline-offset-2"
+          >
+            Calendar settings
+          </Link>
+          .
+        </p>
 
         {/* Rendered from the rule that will actually send, not from a copy of
             its wording. The wording is editable now, so a preview built any
@@ -280,13 +217,14 @@ export function SettingsForm({
           <Note>
             {notifyNumber.trim() ? (
               <>
-                Texted the moment someone books or cancels, on top of the email
-                above. One extra SMS per booking on your Twilio bill.
+                Texted the moment someone books or cancels, and for every other
+                automation that alerts the business. A calendar can override it
+                with its own number.
               </>
             ) : (
               <>
-                Empty, so booking alerts are email-only. A booking can land an
-                hour before the meeting — a text gets there in time.
+                Empty, so alerts are email-only. A booking can land an hour
+                before the meeting — a text gets there in time.
               </>
             )}
           </Note>
@@ -360,10 +298,7 @@ export function SettingsForm({
             variant="ghost"
             onClick={() => {
               setForwardTo(settings.forward_to_number ?? "");
-              setMinNotice(String(settings.booking_min_notice_minutes));
               setNotifyNumber(settings.booking_notify_number ?? "");
-              setMeetingLink(settings.booking_meeting_link ?? "");
-              setHostName(settings.booking_host_name ?? "");
               setError(null);
             }}
           >

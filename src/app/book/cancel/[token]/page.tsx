@@ -3,12 +3,14 @@ import Link from "next/link";
 
 import { CancelBooking } from "@/components/booking/cancel-booking";
 import { findBookingByToken } from "@/lib/booking/cancel";
-import { MEETING_NAME } from "@/lib/booking/slots";
+import { getCalendarById } from "@/lib/booking/calendars";
 import { formatBookingTime } from "@/lib/notify/booking";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const metadata: Metadata = {
-  title: `Cancel your ${MEETING_NAME} · VoltaScales`,
+  // Generic rather than naming the meeting: the name is a database read now,
+  // and a title is not worth a second one — the page itself says which meeting.
+  title: "Cancel your meeting · VoltaScales",
   // Nothing here should be indexed or previewed — a crawler following one of
   // these links should get nothing, and a link preview should not render
   // someone's name and meeting time into a chat thread.
@@ -55,6 +57,15 @@ export default async function CancelBookingPage({
     );
   }
 
+  // The meeting's name lives on its calendar. Falls back to "meeting" rather
+  // than throwing: someone holding a cancel link should be able to cancel even
+  // if the calendar row cannot be read.
+  const calendar = await getCalendarById(
+    supabase,
+    booking.calendar_id,
+    booking.org_id,
+  );
+  const meetingName = calendar?.name?.trim() || "meeting";
   const when = formatBookingTime(booking);
 
   if (booking.status === "cancelled") {
@@ -62,7 +73,7 @@ export default async function CancelBookingPage({
       <Frame>
         <h1 className="text-lg font-semibold tracking-tight">Already cancelled</h1>
         <p className="text-muted-foreground text-sm">
-          Your {MEETING_NAME} on {when} was cancelled and the time is free again.
+          Your {meetingName} on {when} was cancelled and the time is free again.
           Nothing else to do.
         </p>
         <Link href="/book" className="text-sm underline underline-offset-4">
@@ -82,7 +93,7 @@ export default async function CancelBookingPage({
           That meeting has passed
         </h1>
         <p className="text-muted-foreground text-sm">
-          Your {MEETING_NAME} was {when}. There&apos;s nothing left to cancel.
+          Your {meetingName} was {when}. There&apos;s nothing left to cancel.
         </p>
         <Link href="/book" className="text-sm underline underline-offset-4">
           Book another time
@@ -97,7 +108,7 @@ export default async function CancelBookingPage({
         token={token}
         clientName={booking.client_name}
         when={when}
-        meetingName={MEETING_NAME}
+        meetingName={meetingName}
       />
     </Frame>
   );

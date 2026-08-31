@@ -50,7 +50,6 @@ import {
   zoneLabel,
   type CalendarViewMode,
 } from "@/lib/booking/calendar-grid";
-import { MEETING_NAME } from "@/lib/booking/slots";
 import { dayKeyOf, minutesFromMidnightOf, weekOf } from "@/lib/booking/time";
 import type { BookingWithContact } from "@/lib/booking/queries";
 import { TIME_ZONE, formatPhone } from "@/lib/format";
@@ -174,42 +173,45 @@ function TimeGrid({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-      {/* Column headings, outside the scroller so they stay put. */}
-      <div
-        className="grid shrink-0 border-b"
-        style={{ gridTemplateColumns: `3.5rem repeat(${days.length}, 1fr)` }}
-      >
-        <div className="text-muted-foreground flex items-end justify-center pb-1 text-[10px] leading-tight">
-          {zoneLabel()}
-        </div>
-        {days.map((day) => {
-          const isToday = day === today;
-          return (
-            <div
-              key={day}
-              className={[
-                "border-l py-1.5 text-center",
-                isWeekend(day) ? "bg-muted/30" : "",
-              ].join(" ")}
-            >
-              <p
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
+        {/* Column headings live inside the scroller and stick to its top. Kept
+            outside it they stayed put too, but they measured a scrollbar wider
+            than the body, so every column boundary drifted. Sharing the
+            scroller's content box is what keeps the two grids on one scale. */}
+        <div
+          className="bg-background sticky top-0 z-20 grid border-b"
+          style={{ gridTemplateColumns: `3.5rem repeat(${days.length}, 1fr)` }}
+        >
+          <div className="text-muted-foreground flex items-end justify-center pb-1 text-[10px] leading-tight">
+            {zoneLabel()}
+          </div>
+          {days.map((day) => {
+            const isToday = day === today;
+            return (
+              <div
+                key={day}
                 className={[
-                  "text-xs",
-                  isToday ? "text-destructive font-semibold" : "",
+                  "border-l py-1.5 text-center",
+                  isWeekend(day) ? "bg-muted/30" : "",
                 ].join(" ")}
               >
-                {days.length === 1
-                  ? fullDay.format(new Date(`${day}T00:00:00Z`))
-                  : `${day.slice(8).replace(/^0/, "")} ${
-                      WEEKDAY_LABELS[(new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7]
-                    }`}
-              </p>
-            </div>
-          );
-        })}
-      </div>
+                <p
+                  className={[
+                    "text-xs",
+                    isToday ? "text-destructive font-semibold" : "",
+                  ].join(" ")}
+                >
+                  {days.length === 1
+                    ? fullDay.format(new Date(`${day}T00:00:00Z`))
+                    : `${day.slice(8).replace(/^0/, "")} ${
+                        WEEKDAY_LABELS[(new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7]
+                      }`}
+                </p>
+              </div>
+            );
+          })}
+        </div>
 
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div
           className="relative grid"
           style={{
@@ -325,24 +327,28 @@ function MonthView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-      <div className="grid shrink-0 grid-cols-7 border-b">
-        {WEEKDAY_LABELS.map((label) => (
-          <div
-            key={label}
-            className="text-muted-foreground border-l py-1.5 text-center text-[11px] font-medium first:border-l-0"
-          >
-            {label}
-          </div>
-        ))}
-      </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {/* Sticky rather than a sibling above the scroller, so the headings
+            measure the same content box as the weeks and the columns line up
+            whether or not a scrollbar is showing. */}
+        <div className="bg-background sticky top-0 z-20 grid shrink-0 grid-cols-7 border-b">
+          {WEEKDAY_LABELS.map((label) => (
+            <div
+              key={label}
+              className="text-muted-foreground border-l py-1.5 text-center text-[11px] font-medium first:border-l-0"
+            >
+              {label}
+            </div>
+          ))}
+        </div>
 
-      <div
-        className="grid min-h-0 flex-1 overflow-y-auto"
-        style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(6rem, 1fr))` }}
-      >
-        {weeks.map((week) => (
-          <div key={week[0]} className="grid grid-cols-7 border-b last:border-b-0">
-            {week.map((day) => {
+        <div
+          className="grid flex-1"
+          style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(6rem, 1fr))` }}
+        >
+          {weeks.map((week) => (
+            <div key={week[0]} className="grid grid-cols-7 border-b last:border-b-0">
+              {week.map((day) => {
               const outside = day.slice(0, 7) !== monthPrefix;
               const isToday = day === today;
               const items = byDay.get(day) ?? [];
@@ -399,11 +405,12 @@ function MonthView({
                       +{items.length - 3} more
                     </Link>
                   )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -476,7 +483,7 @@ function BookingDialog({
             <DialogHeader>
               <DialogTitle>{booking.client_name}</DialogTitle>
               <DialogDescription>
-                {MEETING_NAME} ·{" "}
+                {booking.calendar?.name ?? "Meeting"} ·{" "}
                 {/* Reduced to its day key first, then formatted in UTC: the
                     key is a bare calendar date, and re-reading it in any other
                     zone moves it a day. */}

@@ -6,6 +6,7 @@ import { listBots } from "@/lib/ai-agents/queries";
 import { BOT_KINDS, type BotKind } from "@/lib/ai-agents/bots";
 import { listSmsNumbers } from "@/lib/ai-agents/sms-numbers";
 import { listAutomations } from "@/lib/automations/queries";
+import { listCalendars } from "@/lib/booking/calendars";
 import { listKnowledgeBases } from "@/lib/knowledge/queries";
 import { createClient } from "@/lib/supabase/server";
 
@@ -48,11 +49,12 @@ export default async function NewAgentPage({
   // In parallel: one is Postgres, the other is Twilio over the network, and
   // waiting for them in turn would make opening this screen as slow as the
   // sum of both for no reason.
-  const [bases, numbers, rules, bots] = await Promise.all([
+  const [bases, numbers, rules, bots, calendars] = await Promise.all([
     listKnowledgeBases(supabase),
     listSmsNumbers(),
     listAutomations(supabase),
     listBots(supabase),
+    listCalendars(supabase),
   ]);
 
   // Narrowed to what the pickers read. Inactive rules are kept: `active` is a
@@ -66,6 +68,7 @@ export default async function NewAgentPage({
       bases={bases}
       numbers={numbers}
       automations={automations}
+      calendars={calendars}
       taken={bots.map((bot) => bot.name)}
     />
   );

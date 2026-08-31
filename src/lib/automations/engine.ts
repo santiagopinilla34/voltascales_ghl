@@ -149,6 +149,11 @@ type AutomationTrigger =
  */
 type BookingEventFields = {
   /**
+   * The calendar's own alert number, when it has one. Overrides the
+   * account's for this event only — see ActionContext.operatorPhone.
+   */
+  operatorPhone?: string | null;
+  /**
    * Null when the booking could not be matched to a contact. The messages
    * still send — they are addressed from the booking — but the actions that
    * operate on a contact have nothing to work on and say so.
@@ -176,6 +181,14 @@ function usesCooldown(trigger: AutomationEvent["trigger"]): boolean {
     trigger === "keyword" ||
     trigger === "form_submit"
   );
+}
+
+/** The calendar alert number this event carries, if any. */
+function operatorPhoneOf(event: AutomationEvent): string | null {
+  return event.trigger === "booking_confirmed" ||
+    event.trigger === "booking_cancelled"
+    ? (event.operatorPhone ?? null)
+    : null;
 }
 
 /** Where `to: "contact"` goes for this event. */
@@ -552,6 +565,7 @@ async function runAutomation(
         contact: current,
         recipient,
         variables,
+        operatorPhone: operatorPhoneOf(event),
       });
 
       done.push(result.summary);

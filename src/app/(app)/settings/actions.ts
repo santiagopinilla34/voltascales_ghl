@@ -2,9 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { MINUTES_PER_DAY, parseTimeOfDay } from "@/lib/booking/time";
 import { normalizePhone } from "@/lib/phone/normalize";
-import { requireOrgContext } from "@/lib/orgs/context";
 import { SETTINGS_ID } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,10 +12,14 @@ export type ActionResult<T = null> =
 
 export type SettingsInput = {
   forward_to_number: string;
-  booking_min_notice_minutes: number;
+  /**
+   * The account's alert number, for every automation that texts the business.
+   *
+   * Despite the column name this is not a booking setting — missed calls and
+   * form submissions resolve `to: "business"` through it too. A calendar can
+   * override it for its own bookings; see `calendars.notify_number`.
+   */
   booking_notify_number: string;
-  booking_meeting_link: string;
-  booking_host_name: string;
 };
 
 export async function saveSettings(
@@ -62,46 +64,10 @@ export async function saveSettings(
     }
   }
 
-  // Checked because this link is texted to clients, and a typo'd one is a
-  // meeting nobody can join — discovered at the worst possible moment, by
-  // someone sitting there trying to get in. `new URL` catches what a regex
-  // would, plus the schemes: an https link opens, "zoom.us/j/123" does not.
-  const rawMeetingLink = input.booking_meeting_link.trim();
-  let meetingLink: string | null = null;
-  if (rawMeetingLink) {
-    let parsed: URL;
-    try {
-      parsed = new URL(rawMeetingLink);
-    } catch {
-      return {
-        ok: false,
-        error:
-          "The meeting link needs to be a full URL, starting with https:// — paste it straight from Zoom.",
-      };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { ok: false, error: "The meeting link has to be an http or https URL." };
-    }
-    meetingLink = parsed.toString();
-  }
-
-  // Mirrors settings_booking_min_notice_check. A negative notice would mean
-  // slots open in the past, which the generator would silently offer.
-  const minNotice = Math.round(input.booking_min_notice_minutes);
-  if (!Number.isFinite(minNotice) || minNotice < 0) {
-    return { ok: false, error: "Minimum notice must be zero or more minutes." };
-  }
-  if (minNotice > 30 * MINUTES_PER_DAY) {
-    return { ok: false, error: "Minimum notice can't be more than 30 days." };
-  }
-
   const { error } = await supabase
     .from("settings")
     .update({
-      booking_min_notice_minutes: minNotice,
       booking_notify_number: bookingNotifyNumber,
-      booking_meeting_link: meetingLink,
-      booking_host_name: input.booking_host_name.trim() || null,
       forward_to_number: forwardToNumber,
       updated_at: new Date().toISOString(),
     })
@@ -110,167 +76,16 @@ export async function saveSettings(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/settings");
-  // Minimum notice decides which slots /book offers, so a saved change has to
-  // reach the public page too.
-  revalidatePath("/book");
   return { ok: true, value: { forwardToNumber, bookingNotifyNumber } };
 }
 
-// ---------------------------------------------------------------------------
-// Availability (booking phase 2)
-// ---------------------------------------------------------------------------
-//
-// Separate actions rather than fields on `saveSettings`, because these are rows
-// and it is a row. The Settings *page* is one screen; the Settings *table* is
-// one row, and conflating the two would mean rebuilding the whole weekly
-// pattern on every unrelated save.
-
-/**
- * Every action here re-checks the session.
+/*
+ * Availability used to live here too — a weekly pattern and a list of blocked
+ * dates, both account-wide, plus the minimum notice, meeting link and host
+ * name on `saveSettings`.
  *
- * Server Actions are reachable by direct POST, not only through the form that
- * renders them, and `proxy.ts` is about to start letting unauthenticated
- * traffic through to `/book`. The guard in the proxy is no longer the only
- * thing standing between the internet and these writes.
+ * All of it is per calendar now, in `app/(app)/calendar/settings/actions.ts`,
+ * next to the screen that edits it. Nothing is left behind as a shim: an
+ * action that wrote "the account's calendar" has no meaning once there are
+ * several, and a version that guessed which one you meant would guess wrong.
  */
-async function requireSession() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  return user ? supabase : null;
-}
-
-/** Both `/settings` and the public calendar it configures. */
-function revalidateCalendar() {
-  revalidatePath("/settings");
-  revalidatePath("/book");
-}
-
-export type AvailabilityRuleInput = {
-  day_of_week: number;
-  /** `HH:MM`, as an `<input type="time">` produces. */
-  start_time: string;
-  end_time: string;
-  active: boolean;
-};
-
-/**
- * Replaces the entire weekly pattern.
- *
- * Delete-then-insert rather than a per-row diff. The editor hands over the
- * whole week as one object, the table has no foreign keys pointing into it, and
- * nothing anywhere holds an availability rule's id — a booking records its own
- * start and end, not the rule that offered it. So there is nothing a fresh set
- * of ids can break, and this avoids reconciling adds, edits and removes.
- *
- * Not a transaction, which is the honest tradeoff: PostgREST has no way to send
- * one. A failure between the delete and the insert leaves no availability, so
- * the insert goes first in the error message the operator sees.
- */
-export async function saveAvailability(
-  rules: AvailabilityRuleInput[],
-): Promise<ActionResult> {
-  const supabase = await requireSession();
-  if (!supabase) return { ok: false, error: "Not authenticated" };
-
-  const context = await requireOrgContext();
-
-  for (const rule of rules) {
-    if (rule.day_of_week < 0 || rule.day_of_week > 6) {
-      return { ok: false, error: `${rule.day_of_week} is not a day of the week` };
-    }
-    if (parseTimeOfDay(rule.end_time) <= parseTimeOfDay(rule.start_time)) {
-      return {
-        ok: false,
-        error: `${rule.start_time}–${rule.end_time} ends before it starts.`,
-      };
-    }
-  }
-
-  const { error: deleteError } = await supabase
-    .from("availability_rules")
-    .delete()
-    // PostgREST refuses an unfiltered delete. Every id is a uuid, so this
-    // matches every row while still being a filter.
-    .not("id", "is", null);
-
-  if (deleteError) {
-    return { ok: false, error: `Could not clear availability: ${deleteError.message}` };
-  }
-
-  if (rules.length > 0) {
-    // Attributed explicitly rather than by the column default. With a session
-    // the default does not raise — it returns the caller's single membership,
-    // which for a platform admin is the agency even while they are looking at
-    // a client. The delete above is scoped to the organization on screen, so
-    // the default would have cleared a client's availability and written the
-    // replacement rows under the agency.
-    const { error: insertError } = await supabase
-      .from("availability_rules")
-      .insert(rules.map((rule) => ({ ...rule, org_id: context.orgId })));
-
-    if (insertError) {
-      return {
-        ok: false,
-        error:
-          `Availability was cleared but not saved: ${insertError.message}. ` +
-          "Nothing is bookable until you save again.",
-      };
-    }
-  }
-
-  revalidateCalendar();
-  return { ok: true, value: null };
-}
-
-/** Blocks one whole day. `date` is `YYYY-MM-DD` in the app time zone. */
-export async function addBlockedDate(
-  date: string,
-  reason: string,
-): Promise<ActionResult> {
-  const supabase = await requireSession();
-  if (!supabase) return { ok: false, error: "Not authenticated" };
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return { ok: false, error: "Pick a date first." };
-  }
-
-  const { error } = await supabase
-    .from("blocked_dates")
-    .insert({ date, reason: reason.trim() || null });
-
-  if (error) {
-    // The unique index is the only thing that can realistically fail here, and
-    // "already blocked" is not an error worth a stack trace.
-    return {
-      ok: false,
-      error:
-        error.code === "23505"
-          ? "That date is already blocked."
-          : `Could not block that date: ${error.message}`,
-    };
-  }
-
-  revalidateCalendar();
-  return { ok: true, value: null };
-}
-
-/**
- * Unblocks a day.
- *
- * Note this does not resurrect anything: blocking a day never cancelled the
- * meetings already on it, it only stopped new ones being booked. Any bookings
- * that survived the block are still there and still occupy their slots.
- */
-export async function removeBlockedDate(id: string): Promise<ActionResult> {
-  const supabase = await requireSession();
-  if (!supabase) return { ok: false, error: "Not authenticated" };
-
-  const { error } = await supabase.from("blocked_dates").delete().eq("id", id);
-  if (error) return { ok: false, error: error.message };
-
-  revalidateCalendar();
-  return { ok: true, value: null };
-}
