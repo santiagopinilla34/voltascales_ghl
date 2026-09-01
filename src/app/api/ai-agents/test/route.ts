@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { composeSystemPrompt, readBotKnowledge } from "@/lib/ai-agents/prompt";
+import {
+  bookingPromptSection,
+  bookingTools,
+  resolveBookingAbility,
+} from "@/lib/ai/booking-tools";
 import { generateAiReply } from "@/lib/ai/generate";
 import type { ConversationTurn } from "@/lib/ai/prompt";
 import { hasCredit } from "@/lib/billing/credit";
@@ -104,6 +109,12 @@ export async function POST(request: Request) {
 
   const settings = await getSettings(supabase, context.orgId);
 
+  // Resolved from the posted bot, so testing an unsaved calendar choice tests
+  // that choice — the same reason the whole bot arrives in the body. The reads
+  // run under RLS on the session client, so a body naming another tenant's
+  // calendar resolves to nothing rather than to their calendar.
+  const ability = await resolveBookingAbility(supabase, bot, context.orgId);
+
   const systemPrompt = composeSystemPrompt({
     bot,
     knowledge: await readBotKnowledge(supabase, bot, context.orgId),
@@ -111,6 +122,7 @@ export async function POST(request: Request) {
     // No contact: this is a test, and `PREVIEW_VARIABLES` fills the fields
     // with obvious placeholders so nothing reads as a real customer.
     contact: null,
+    booking: ability ? bookingPromptSection(ability) : null,
   });
 
   if (!systemPrompt.trim()) {
@@ -125,6 +137,15 @@ export async function POST(request: Request) {
     model: bot.goals.model,
     conversation: turns,
     cachePrompt: bot.settings.prompt_caching,
+    // `dryRun`: the reads are real, so the panel offers this account's actually
+    // open times and a full booking conversation can be rehearsed — the three
+    // writes come back as "nothing happened, reply as though it had". The
+    // sentence about writing a row is the one thing this route has never done
+    // and must not start doing.
+    tools: ability
+      ? (bookingTools(supabase, ability, { contact: null, dryRun: true }) ??
+        undefined)
+      : undefined,
   });
 
   if (!result.ok) {

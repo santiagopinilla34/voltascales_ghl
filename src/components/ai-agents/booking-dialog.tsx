@@ -54,9 +54,14 @@ import { cn } from "@/lib/utils";
  * row `/book` and the slot generator work from. Agents are still a seam and
  * arrive empty — an empty list that says so is more honest than invented names.
  *
- * What is stored and what is *acted on* are still different things: the
- * runtime has no booking tool, so a bot cannot yet take an appointment in a
- * thread. This screen records the choice for when it can.
+ * Everything on this screen is now acted on. Saving it with a calendar chosen
+ * is what gives the agent its booking tools — see `lib/ai/booking-tools.ts`,
+ * which reads these fields back and hands the model exactly the tools they
+ * describe. Nothing is on by default: an untouched bot has no booking action,
+ * and an action with no calendar picked has no tools.
+ *
+ * The one control that is still only stored is "hand over to another agent",
+ * whose checkbox is disabled for that reason.
  */
 export function BookingDialog({
   open,

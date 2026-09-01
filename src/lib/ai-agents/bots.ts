@@ -545,9 +545,14 @@ export const BOOKING_PAUSE_UNITS: { value: BookingPauseUnit; label: string }[] =
  * an `automations` id — and the pickers read them from the database.
  * `transfer_bot_id` is still a seam.
  *
- * Stored, not yet acted on: the runtime has no booking tool, so none of this
- * changes what a bot does in a thread today. It is the configuration waiting
- * for one.
+ * **Acted on.** `lib/ai/booking-tools.ts` reads every field here and turns it
+ * into the tools the model is given: no tools unless `book` is among the
+ * actions and `calendar_id` names a live calendar, `link_only` replaces the
+ * tools with a line in the prompt, `allow_cancel` and `allow_reschedule` each
+ * add one tool, and `pause_bot` and `trigger_workflow` are checked the moment a
+ * booking lands. `transfer_bot` is the exception and is still ignored — its
+ * checkbox is disabled, and acting on a value whose control is dead would be
+ * worse than ignoring it.
  */
 export type BookingSettings = {
   calendar_mode: BookingCalendarMode;

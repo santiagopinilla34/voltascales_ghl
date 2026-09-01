@@ -156,6 +156,7 @@ export type Database = {
           output_tokens: number | null
           sent_at: string | null
           source: string
+          tools_used: string[]
         }
         Insert: {
           body: string
@@ -170,6 +171,7 @@ export type Database = {
           output_tokens?: number | null
           sent_at?: string | null
           source: string
+          tools_used?: string[]
         }
         Update: {
           body?: string
@@ -184,6 +186,7 @@ export type Database = {
           output_tokens?: number | null
           sent_at?: string | null
           source?: string
+          tools_used?: string[]
         }
         Relationships: [
           {
@@ -1031,6 +1034,7 @@ export type Database = {
       contacts: {
         Row: {
           ai_enabled: boolean
+          ai_paused_until: string | null
           business_name: string | null
           created_at: string
           email: string | null
@@ -1043,6 +1047,7 @@ export type Database = {
         }
         Insert: {
           ai_enabled?: boolean
+          ai_paused_until?: string | null
           business_name?: string | null
           created_at?: string
           email?: string | null
@@ -1055,6 +1060,7 @@ export type Database = {
         }
         Update: {
           ai_enabled?: boolean
+          ai_paused_until?: string | null
           business_name?: string | null
           created_at?: string
           email?: string | null

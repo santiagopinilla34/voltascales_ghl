@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { aiModelLabel } from "@/lib/ai/models";
+import { toolSummary, toolWrites } from "@/lib/ai/tool-labels";
 import { formatFullTimestamp } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { AiDraft } from "@/types/database";
@@ -78,6 +79,14 @@ export function AiPreviewPanel({
   // any special-casing of where the draft came from.
   const sent = Boolean(draft?.sent_at);
 
+  // What the agent actually did while writing this, which is the one thing
+  // about an AI reply that a person cannot get from reading the reply. A
+  // preview's tools are dry-run, so its row is phrased as a rehearsal — the
+  // same names, a different verb, and no claim that a meeting exists.
+  const tools = draft?.tools_used ?? [];
+  const writes = toolWrites(tools);
+  const rehearsal = draft?.source === "preview";
+
   async function generate() {
     setPending(true);
     setDismissedId(null);
@@ -139,6 +148,17 @@ export function AiPreviewPanel({
             >
               {sent ? "Sent by AI" : "Draft — not sent"}
             </span>
+            {/* Ahead of the hand-off badge, and louder: a reply that changed
+                the calendar is the more consequential fact about the row. */}
+            {writes.map((label) => (
+              <Badge
+                key={label}
+                variant="secondary"
+                className="border-transparent bg-sky-100 text-[10px] font-medium text-sky-900 dark:bg-sky-950 dark:text-sky-300"
+              >
+                {rehearsal ? `Would have: ${label.toLowerCase()}` : label}
+              </Badge>
+            ))}
             {draft.needs_human && (
               <Badge
                 variant="secondary"
@@ -173,6 +193,15 @@ export function AiPreviewPanel({
                 In live mode this would not have been sent:{" "}
                 {preview.blockedBy.join("; ")}.
               </span>
+            </p>
+          )}
+
+          {/* The reads too, not only the writes above. "Checked the calendar"
+              on its own is the row that explains a reply which offered times
+              and stopped — which the badges, by design, say nothing about. */}
+          {tools.length > 0 && (
+            <p className="text-muted-foreground mt-2 text-[11px]">
+              {toolSummary(tools)}
             </p>
           )}
 

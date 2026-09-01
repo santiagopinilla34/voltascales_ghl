@@ -593,6 +593,84 @@ async function runAutomation(
 }
 
 /**
+ * Runs one named rule, whatever its own triggers say.
+ *
+ * The other entry point asks "which rules care about this event". This one is
+ * the opposite question, and it exists because a person answered it by hand:
+ * the booking action's "start an automation after booking" stores the id of a
+ * specific automation, chosen from a list. Matching that rule's triggers
+ * against the event would refuse to run the automation the operator explicitly
+ * picked, on the grounds that they did not also give it a booking trigger —
+ * which is a rule that reads as broken from the screen that configured it.
+ *
+ * Conditions are still checked, and the cooldown still applies where the
+ * trigger uses one. Being named is permission to consider the rule, not
+ * permission to skip the filters somebody put on it.
+ *
+ * `active` is in the filter: a paused rule stays paused however it was
+ * reached. Returns null when there is no such rule — deleted, deactivated, or
+ * belonging to another organization — which the caller logs; it is a
+ * configuration problem, not a failed run, so it writes no `automation_runs`
+ * row.
+ */
+export async function runAutomationById(
+  supabase: SupabaseClient<Database>,
+  automationId: string,
+  event: AutomationEvent,
+): Promise<AutomationRunOutcome | null> {
+  // The same two doors `runAutomationsForEvent` puts in front of every rule.
+  // Repeated rather than shared because they are the whole reason that
+  // function is "the one door every automation comes through", and a second
+  // entry point that skipped them would quietly make that untrue.
+  if (await isOrgSuspended(supabase, event.orgId)) {
+    console.log(
+      `[automations] skipping automation ${automationId}: organization ${event.orgId} is suspended`,
+    );
+    return null;
+  }
+
+  if (!(await hasCredit(supabase, event.orgId))) {
+    console.log(
+      `[automations] skipping automation ${automationId}: organization ${event.orgId} is out of credit`,
+    );
+    return null;
+  }
+
+  const { data: automation, error } = await supabase
+    .from("automations")
+    .select("*")
+    .eq("id", automationId)
+    // Scoped explicitly: this is reached from the Twilio webhook on the admin
+    // client, where an id alone would happily name another tenant's rule.
+    .eq("org_id", event.orgId)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[automations] failed to load automation ${automationId}`, error);
+    return null;
+  }
+  if (!automation) {
+    console.log(
+      `[automations] automation ${automationId} is not available to run — deleted, paused, or not this organization's`,
+    );
+    return null;
+  }
+
+  try {
+    // No match variables: nothing matched, somebody chose. The event's own
+    // variables still reach the templates through `runAutomation`.
+    return await runAutomation(supabase, automation, event, {});
+  } catch (unexpected) {
+    console.error(
+      `[automations] "${automation.name}" threw unexpectedly`,
+      unexpected,
+    );
+    return null;
+  }
+}
+
+/**
  * Entry point for webhooks. Returns one outcome per rule that produced a run
  * log; rules whose trigger config didn't apply are left out entirely.
  */

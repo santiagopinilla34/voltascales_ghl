@@ -3,6 +3,11 @@ import { NextResponse } from "next/server";
 import { BOT_MODE_LABELS } from "@/lib/ai-agents/bots";
 import { composeSystemPrompt, readBotKnowledge } from "@/lib/ai-agents/prompt";
 import { getPrimaryBot } from "@/lib/ai-agents/queries";
+import {
+  bookingPromptSection,
+  bookingTools,
+  resolveBookingAbility,
+} from "@/lib/ai/booking-tools";
 import { saveDraft } from "@/lib/ai/drafts";
 import { generateAiReply } from "@/lib/ai/generate";
 import { buildConversation, canReply } from "@/lib/ai/prompt";
@@ -16,10 +21,16 @@ export const runtime = "nodejs";
 /**
  * Generates an AI reply for a contact and stores it as a draft (PRD 5).
  *
- * **This route cannot send.** It does not import the Twilio client, and the
- * draft it writes is not a message. It exists so the chatbot can be exercised
- * against a real conversation — real system prompt, real history, real model —
- * with no way for the output to reach the contact.
+ * **This route cannot send, and cannot book.** It does not import the Twilio
+ * client, and the draft it writes is not a message. It exists so the chatbot
+ * can be exercised against a real conversation — real system prompt, real
+ * history, real model — with no way for the output to reach the contact.
+ *
+ * The booking tools are handed in with `dryRun`, which keeps that true now that
+ * the agent has tools at all: it reads this account's genuinely open times, so
+ * a preview of a booking conversation is a real preview, and the three writes
+ * come back saying nothing happened. Previewing a reply must not put a meeting
+ * in the calendar — that would be a side effect of *looking*.
  *
  * Deliberately ignores the agent's mode and `contacts.ai_enabled`: this is the tool
  * for deciding whether to turn those on. It reports what *would* have blocked
@@ -90,6 +101,10 @@ export async function POST(
     );
   }
 
+  // Same resolver, same gate, so the preview is told exactly what the live path
+  // would tell this agent about booking.
+  const ability = await resolveBookingAbility(supabase, bot, context.orgId);
+
   const result = await generateAiReply({
     // The same composer the live path uses, from the same agent. This route
     // used to read `settings.ai_system_prompt` and `settings.ai_model`, which
@@ -101,10 +116,14 @@ export async function POST(
       knowledge: await readBotKnowledge(supabase, bot, context.orgId),
       businessName: settings.business_name ?? "",
       contact,
+      booking: ability ? bookingPromptSection(ability) : null,
     }),
     model: bot.goals.model,
     conversation,
     cachePrompt: bot.settings.prompt_caching,
+    tools: ability
+      ? (bookingTools(supabase, ability, { contact, dryRun: true }) ?? undefined)
+      : undefined,
   });
 
   if (!result.ok) {
@@ -126,6 +145,11 @@ export async function POST(
     source: "preview",
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
+    // Recorded even though the tools were dry — the generation really did call
+    // them, and "this reply would have booked something" is the single most
+    // useful thing a preview can tell you. `source` is what keeps it honest:
+    // the panel reads it and says "would have" on a preview row.
+    toolsUsed: result.toolsUsed,
   });
 
   // The same gates the live path applies, evaluated but not enforced, so the

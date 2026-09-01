@@ -29,14 +29,21 @@ import type { Contact, Database } from "@/types/database";
  * in the end: how long an answer should run, and the knowledge the bot is
  * allowed to answer from.
  *
- * ## What is left out, and why
+ * ## The actions, and why they are described rather than listed
  *
- * The actions. Booking an appointment, starting an automation and filling in a
- * contact field are *tool calls*, not instructions — telling a model in prose
- * that it "may book an appointment" without giving it a tool produces a bot
- * that claims to have booked one. Until `generate.ts` passes tools, the bot is
- * told what it may do only so it can say so honestly, and told plainly that it
- * cannot do it yet.
+ * Booking an appointment, starting an automation and filling in a contact field
+ * are *tool calls*, not instructions — telling a model in prose that it "may
+ * book an appointment" without giving it a tool produces a bot that claims to
+ * have booked one. So each action appears here as one of two sentences: what it
+ * can do, when the runtime is actually passing the tool, or that it cannot do
+ * it yet, when it is not.
+ *
+ * Booking is the one that is wired. Its sentence is composed by
+ * `bookingPromptSection` and handed in as `booking` — by the caller, because
+ * only the caller knows whether the chosen calendar resolved. Everything else
+ * is still the honest disclaimer. The two must not drift: a bot told it can
+ * book with no tool invents bookings, and a bot told it cannot while holding
+ * the tool refuses to use it.
  */
 
 /** The knowledge a bot may answer from, already narrowed to its scope. */
@@ -224,6 +231,7 @@ export function composeSystemPrompt({
   knowledge,
   businessName,
   contact,
+  booking,
 }: {
   bot: ConversationBot;
   knowledge: BotKnowledge;
@@ -231,6 +239,20 @@ export function composeSystemPrompt({
   businessName: string;
   /** Whose thread this is. Absent in the Test panel, which has no contact. */
   contact?: Contact | null;
+  /**
+   * What the booking action actually amounts to, from
+   * `bookingPromptSection`, or absent when it amounts to nothing.
+   *
+   * Passed in rather than derived here because deciding it needs the database —
+   * the chosen calendar has to be read back and found to exist, belong to this
+   * organization and be switched on. This function stays synchronous and
+   * pure, and the gate lives in one place next to the tools it gates.
+   *
+   * Absent leaves `book` in the "configured but not connected" list below,
+   * which is the correct thing to say about a bot whose calendar has been
+   * deleted as well as about one that never chose a calendar.
+   */
+  booking?: string | null;
 }): string {
   const sections: string[] = [];
 
@@ -344,7 +366,18 @@ export function composeSystemPrompt({
     }
   }
 
-  const promised = bot.goals.actions.map((action) => BOT_ACTION_LABELS[action]);
+  // The one action with a runtime behind it. Its whole description — which
+  // calendar, whether it books or only sends the link, whether it may cancel or
+  // move a meeting — is composed where the tools are, so the sentence and the
+  // tool list cannot disagree.
+  if (booking?.trim()) sections.push(booking.trim());
+
+  const promised = bot.goals.actions
+    // Booking drops out of the disclaimer exactly when it is wired, and stays
+    // in it otherwise: an agent with the action ticked and no usable calendar
+    // is a bot that cannot book, and has to be told so.
+    .filter((action) => !(action === "book" && booking?.trim()))
+    .map((action) => BOT_ACTION_LABELS[action]);
 
   if (promised.length > 0) {
     // Stated as a limitation rather than an ability, deliberately. Told it

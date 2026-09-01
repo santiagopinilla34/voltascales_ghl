@@ -33,6 +33,18 @@ export type DraftInput = {
   source: AiDraftSource;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * The agent tools this reply ran, in call order. Empty when it only talked.
+   *
+   * Stored rather than logged because it is the difference between a reply that
+   * answered a question and one that put a meeting in somebody's calendar, and
+   * that difference should be visible in the Inbox next to the reply rather
+   * than in a server log.
+   *
+   * Optional here and defaulted below: the preview routes generate with
+   * `dryRun` tools, and a caller that does not care should not have to say so.
+   */
+  toolsUsed?: string[];
 };
 
 export async function saveDraft(
@@ -51,6 +63,7 @@ export async function saveDraft(
       source: input.source,
       input_tokens: input.inputTokens,
       output_tokens: input.outputTokens,
+      tools_used: input.toolsUsed ?? [],
     })
     .select()
     .single();

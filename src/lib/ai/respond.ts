@@ -13,6 +13,11 @@ import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import type { Contact, Database } from "@/types/database";
 
+import {
+  bookingPromptSection,
+  bookingTools,
+  resolveBookingAbility,
+} from "./booking-tools";
 import { saveDraft } from "./drafts";
 import { generateAiReply } from "./generate";
 import { buildConversation, canReply } from "./prompt";
@@ -38,6 +43,11 @@ type Held =
   | "a newer inbound message has arrived"
   | "could not confirm it was safe to send"
   | "Twilio rejected the message";
+
+/** Whether a `contacts.ai_paused_until` is still in force. */
+function isPaused(until: string | null, now: Date = new Date()): boolean {
+  return until !== null && Date.parse(until) > now.getTime();
+}
 
 export async function respondToInbound(
   supabase: SupabaseClient<Database>,
@@ -105,6 +115,20 @@ export async function respondToInbound(
       return;
     }
 
+    // "Go quiet after booking", coming home to roost. Checked here rather than
+    // in `deliver` below because a pause is meant to cost nothing: a bot that
+    // is supposed to be silent for two days should not be writing drafts and
+    // billing generations for two days. That is the same reasoning as `off`
+    // directly above, and the opposite of the `ai_enabled` check further down —
+    // that one is about a human taking over, where a draft is still useful.
+    if (isPaused(contact.ai_paused_until)) {
+      console.log(
+        `[ai] no reply for message ${messageId}: agent “${bot.name}” is quiet ` +
+          `for contact ${contact.id} until ${contact.ai_paused_until}`,
+      );
+      return;
+    }
+
     // Auto-pilot sends, suggestive drafts. `off` cannot reach here — it
     // returned above — so this is a two-way choice rather than a decision
     // about what off means.
@@ -159,11 +183,21 @@ export async function respondToInbound(
     // business name behind `{{business_name}}`, which is a fact about the
     // account rather than about any one agent, and is the only thing this path
     // still reads from that row.
+    //
+    // The booking action, resolved against the account's real calendars. Null
+    // unless somebody ticked the box, chose a calendar, and that calendar is
+    // still there and still on — see `resolveBookingAbility`, which is the only
+    // place that decision is made. The prompt sentence and the tool list are
+    // both derived from it, so the bot cannot be told it books while holding no
+    // tools, or handed tools it was told not to use.
+    const ability = await resolveBookingAbility(supabase, bot, contact.org_id);
+
     const systemPrompt = composeSystemPrompt({
       bot,
       knowledge: await readBotKnowledge(supabase, bot, contact.org_id),
       businessName: settings.business_name ?? "",
       contact,
+      booking: ability ? bookingPromptSection(ability) : null,
     });
 
     const result = await generateAiReply({
@@ -171,6 +205,12 @@ export async function respondToInbound(
       model: bot.goals.model,
       conversation,
       cachePrompt: bot.settings.prompt_caching,
+      // Undefined when there is no ability, and also when the ability is
+      // "send them the link" — that one is a sentence in the prompt with
+      // nothing to call.
+      tools: ability
+        ? (bookingTools(supabase, ability, { contact }) ?? undefined)
+        : undefined,
     });
 
     if (!result.ok) {
@@ -192,6 +232,7 @@ export async function respondToInbound(
       source: "shadow",
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
+      toolsUsed: result.toolsUsed,
     });
 
     // The cache counters are in here because a cache that silently stopped
@@ -203,7 +244,13 @@ export async function respondToInbound(
         : result.cacheWriteTokens > 0
           ? `, ${result.cacheWriteTokens} cache write`
           : "";
-    const usage = `${result.inputTokens} in / ${result.outputTokens} out${cache}`;
+    // Named, not counted. Which tools ran is the difference between "the bot
+    // answered a question" and "the bot put a meeting in your calendar", and
+    // that belongs in the line somebody reads when they ask what happened.
+    const used = result.toolsUsed.length
+      ? `, tools: ${result.toolsUsed.join(" → ")}`
+      : "";
+    const usage = `${result.inputTokens} in / ${result.outputTokens} out${cache}${used}`;
     const held = await deliver(supabase, {
       contact,
       messageId,
@@ -216,6 +263,18 @@ export async function respondToInbound(
       console.log(
         `[ai] draft ${draft.id} for contact ${contact.id} (${usage}) — not sent: ${held}`,
       );
+
+      // A held reply is ordinary; a held reply *after a tool wrote something*
+      // is not. The meeting is on the calendar and the sentence saying so is
+      // sitting in the Inbox — the client still gets the booking confirmation
+      // from `sendBookingConfirmation`, so they are not left in the dark, but
+      // somebody should know the thread went quiet mid-booking.
+      if (result.toolsUsed.length > 0) {
+        console.error(
+          `[ai] contact ${contact.id} was held (${held}) after the agent ran ` +
+            `${result.toolsUsed.join(", ")} — check draft ${draft.id}`,
+        );
+      }
       return;
     }
 

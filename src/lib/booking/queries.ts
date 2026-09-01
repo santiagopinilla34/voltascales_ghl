@@ -95,18 +95,29 @@ export async function listBlockedDates(
  *
  * `buffer_minutes` comes back with each row because the generator compares
  * against the buffer a meeting was *booked* under, not today's setting.
+ *
+ * `ignoreBookingId` leaves one meeting out of the busy set, and exists for
+ * exactly one caller: rescheduling. A booking being moved must not block its
+ * own new time — with a buffer, the 2pm meeting makes 2:45 unavailable, so
+ * "move it half an hour later" would be refused on the grounds that it is
+ * already booked, by itself.
  */
 export async function listBusyBookings(
   supabase: SupabaseClient<Database>,
   calendarId: string,
   fromDayKey: string,
   toDayKey: string,
+  ignoreBookingId?: string,
 ): Promise<BusyInterval[]> {
-  const { data, error } = await supabase
+  const base = supabase
     .from("bookings")
     .select("start_time, end_time, buffer_minutes")
     .eq("calendar_id", calendarId)
-    .eq("status", "confirmed")
+    .eq("status", "confirmed");
+
+  const { data, error } = await (
+    ignoreBookingId ? base.neq("id", ignoreBookingId) : base
+  )
     .gte("start_time", zonedTimeToUtc(addDays(fromDayKey, -1), 0).toISOString())
     .lt("start_time", zonedTimeToUtc(addDays(toDayKey, 2), 0).toISOString())
     .order("start_time");
@@ -265,17 +276,21 @@ export async function getCalendarMonth(
  * Takes the calendar row rather than an id so it cannot be called without the
  * three numbers the generator needs — reading them here would be a fourth
  * round trip on the hot path of every booking.
+ *
+ * `ignoreBookingId` is passed straight through to `listBusyBookings`; see the
+ * note there for why rescheduling needs it.
  */
 export async function getDaySlots(
   supabase: SupabaseClient<Database>,
   calendar: BookingCalendar,
   dayKey: string,
   now: Date = new Date(),
+  ignoreBookingId?: string,
 ): Promise<DaySlots> {
   const [rules, blockedRows, busy] = await Promise.all([
     listAvailabilityRules(supabase, calendar.id),
     listBlockedDates(supabase, calendar.id, dayKey),
-    listBusyBookings(supabase, calendar.id, dayKey, dayKey),
+    listBusyBookings(supabase, calendar.id, dayKey, dayKey, ignoreBookingId),
   ]);
 
   return generateDays([dayKey], {
@@ -406,4 +421,42 @@ export async function getBookingsView(
   view.cancelled.reverse();
 
   return view;
+}
+
+/**
+ * One contact's meetings that have not happened yet, soonest first.
+ *
+ * What the agent's cancel and reschedule tools work from: the model is never
+ * handed a booking id it could not have learned about here, so "cancel my
+ * appointment" can only ever reach a meeting belonging to the person it is
+ * texting with.
+ *
+ * Scoped by contact *and* organization. The contact id alone would be enough
+ * under RLS and is not enough on the Twilio path, which runs service-role with
+ * RLS bypassed — the same reasoning as every other read in this file.
+ *
+ * Cancelled rows are left out, unlike `getBookingsView`: this list exists to be
+ * acted on, and there is nothing to do to a meeting that is already cancelled.
+ */
+export async function listUpcomingBookingsForContact(
+  supabase: SupabaseClient<Database>,
+  { contactId, orgId }: { contactId: string; orgId: string },
+  now: Date = new Date(),
+): Promise<Booking[]> {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("contact_id", contactId)
+    .eq("status", "confirmed")
+    // On `end_time`, not `start_time`: a meeting happening right now is still
+    // one somebody might be texting to say they cannot make.
+    .gte("end_time", now.toISOString())
+    .order("start_time");
+
+  if (error) {
+    throw new Error(`Failed to load this contact's bookings: ${error.message}`);
+  }
+
+  return data ?? [];
 }

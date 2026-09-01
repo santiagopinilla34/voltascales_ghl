@@ -437,8 +437,14 @@ function readBooking(
     link_only: bool(raw.link_only, false),
     pause_bot: bool(raw.pause_bot, false),
     pause_amount: num(raw.pause_amount, DEFAULT_BOOKING.pause_amount),
+    // All three named, including the one that happens to be the default.
+    // "days" used to be missing and fell through to `DEFAULT_BOOKING`, which is
+    // "days" — so it read correctly by coincidence, and would have started
+    // silently rounding two-day pauses to whatever the default became next.
     pause_unit:
-      raw.pause_unit === "minutes" || raw.pause_unit === "hours"
+      raw.pause_unit === "minutes" ||
+      raw.pause_unit === "hours" ||
+      raw.pause_unit === "days"
         ? raw.pause_unit
         : DEFAULT_BOOKING.pause_unit,
     trigger_workflow: bool(raw.trigger_workflow, false),

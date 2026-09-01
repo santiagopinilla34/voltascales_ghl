@@ -5,6 +5,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { serverEnv } from "@/lib/env";
 import type { AiModel } from "@/types/database";
 
+import type { AgentTools } from "./booking-tools";
 import { looksCorrupted } from "./integrity";
 import type { ConversationTurn } from "./prompt";
 
@@ -21,9 +22,9 @@ import type { ConversationTurn } from "./prompt";
 const MAX_SMS_LENGTH = 1600;
 
 /**
- * Covers thinking *and* the reply — on models with thinking on, `max_tokens`
- * caps both together, and a tight budget truncates mid-sentence. Unused
- * output tokens aren't billed, so this is generous on purpose.
+ * Covers thinking *and* the reply — `max_tokens` caps both together, and a
+ * tight budget truncates mid-sentence. Unused output tokens aren't billed, so
+ * this is generous on purpose, and it matters more now that thinking is on.
  */
 const MAX_TOKENS = 4000;
 
@@ -52,25 +53,47 @@ const MODEL_SUPPORTS_EFFORT: Record<AiModel, boolean> = {
 };
 
 /**
- * Thinking is disabled for this task.
+ * Thinking, per model. Was off everywhere; tools are why it is back on.
  *
- * Writing one short text message needs no reasoning, and leaving thinking on
- * cost more than it bought:
+ * The case for turning it off was sound and was made for a generator that only
+ * ever wrote a sentence: a corrupted draft in testing correlated with the one
+ * heavy-thinking generation, thinking tokens made `outputTokens` useless as an
+ * integrity signal, and a 6-case handoff test scored 6/6 with it off against
+ * 5/6 with it on. None of that argued for thinking; it argued that there was no
+ * accuracy to protect.
  *
- * - A draft generated in testing came back visibly corrupted — the reply began
- *   mid-word and had words missing from the middle. It was the one generation
- *   where heavy thinking occurred (294 output tokens against 26–107 in every
- *   clean run), on an input byte-identical to a clean generation seconds
- *   earlier. 27 attempts could not reproduce it, so this is a correlation
- *   rather than a proven cause — but the state it correlates with buys us
- *   nothing here.
- * - It made `outputTokens` useless as an integrity signal, because thinking
- *   tokens are counted in it. With thinking off the count tracks the reply,
- *   which is what makes the check below possible at all.
- * - On a 6-case handoff test, thinking off scored 6/6 against 5/6 with it on,
- *   at comparable latency. There was no accuracy to protect.
+ * Giving the model tools changed what is being protected. A thinking-off model
+ * will occasionally write a tool call into its **visible text** instead of
+ * emitting a `tool_use` block: the turn succeeds, the call never runs, nothing
+ * raises, and in a loop that text goes back into the next request. For this app
+ * that is a bot telling somebody their meeting is booked when nothing was
+ * written. A silent wrong answer beats a measurable one, so thinking is on and
+ * the token heuristic is the thing that gives way — see `integrity.ts`, where
+ * the ratio check now only runs on turns the model did not think, and a new
+ * check looks for exactly the leakage described above.
+ *
+ * Encoded as data for the same reason `MODEL_SUPPORTS_EFFORT` is: each of the
+ * three models accepts a *different* shape and rejects the other two with a
+ * 400, which would be a 400 in the middle of a live conversation. Verified
+ * against the API on 2026-09-01:
+ *
+ * - `claude-sonnet-5` — adaptive only; `enabled`/`budget_tokens` is a 400.
+ * - `claude-opus-4-8` — adaptive only; `enabled`/`budget_tokens` is a 400.
+ * - `claude-haiku-4-5-20251001` — older generation: adaptive is a 400, and a
+ *   `budget_tokens` budget is the only way to have thinking at all.
+ *
+ * `display` is left at its default, which omits the reasoning text. Nothing
+ * here reads it — `integrity.ts` only asks *whether* the model thought, which
+ * the presence of a `thinking` block answers on its own — and asking for
+ * summaries would be output tokens spent on something nobody looks at.
  */
-const THINKING = { type: "disabled" as const };
+const THINKING: Record<AiModel, Anthropic.ThinkingConfigParam> = {
+  "claude-sonnet-5": { type: "adaptive" },
+  "claude-opus-4-8": { type: "adaptive" },
+  // The minimum the API accepts, and more than one text message needs. It has
+  // to stay below MAX_TOKENS, which it comfortably does.
+  "claude-haiku-4-5-20251001": { type: "enabled", budget_tokens: 1024 },
+};
 
 /** Reply sanity checks live in `integrity.ts`, kept pure so they're testable. */
 
@@ -103,18 +126,35 @@ const OUTPUT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+/**
+ * How many times the model may call tools before the turn is cut short.
+ *
+ * Booking a meeting is three calls at most — find the times, look up their
+ * existing appointments, write one — so this is generous. It exists because a
+ * model that loops calling `find_available_times` forever would sit on the
+ * webhook's tail until the function is torn down, and a lead would get silence.
+ *
+ * Hitting it is not an error: whatever the model has learned so far is kept and
+ * it is asked, without tools, to answer with what it has.
+ */
+const MAX_TOOL_ROUNDS = 6;
+
 export type AiReplyResult =
   | {
       ok: true;
       reply: string;
       needsHuman: boolean;
       model: AiModel;
+      /** Summed across every turn, so a booking's tool round trips are billed
+       *  and logged as the one reply they produced. */
       inputTokens: number;
       outputTokens: number;
       /** Prefix served from the cache. Non-zero is a hit. */
       cachedTokens: number;
       /** Prefix written to the cache, billed at about 1.25x. */
       cacheWriteTokens: number;
+      /** Which tools ran, in order. Empty when the model just talked. */
+      toolsUsed: string[];
     }
   | { ok: false; error: string; retryable: boolean };
 
@@ -183,6 +223,7 @@ export async function generateAiReply({
   model,
   conversation,
   cachePrompt,
+  tools,
 }: {
   systemPrompt: string;
   model: AiModel;
@@ -197,6 +238,20 @@ export async function generateAiReply({
    * and a single unanswered text is slightly dearer.
    */
   cachePrompt: boolean;
+  /**
+   * What the agent may do besides talk, or nothing.
+   *
+   * Absent means exactly the behaviour this function had before tools existed:
+   * one request, one JSON reply. The caller decides what is connected — see
+   * `bookingTools` — and a bot whose operator has configured nothing arrives
+   * here with this undefined.
+   *
+   * Note the ordering consequence for caching: the API renders `tools` *before*
+   * `system`, so the tool list is part of the cached prefix. It is built from
+   * saved settings and is identical from one reply to the next, which is what
+   * keeps that true.
+   */
+  tools?: AgentTools;
 }): Promise<AiReplyResult> {
   if (conversation.length === 0) {
     return {
@@ -219,6 +274,14 @@ export async function generateAiReply({
   // only ever been seen once in ~30 generations, so a single retry is very
   // likely to succeed — and retrying is far better than the alternatives, which
   // are sending a mangled text or going silent on a lead.
+  //
+  // With tools in play the retry acquired teeth it did not have as a text call:
+  // a second attempt replays the whole turn from the top, so a first attempt
+  // that booked a meeting and then produced a mangled sentence would book a
+  // second one. The database refuses the *identical* slot twice, so the visible
+  // failure would be an exclusion violation — but a retry that picks a
+  // different time books twice for real. `sideEffects` is the answer: once
+  // anything has been written, the reply stands as generated, however it reads.
   let lastError = "";
   for (let attempt = 1; attempt <= 2; attempt++) {
     const result = await attemptGeneration({
@@ -226,12 +289,20 @@ export async function generateAiReply({
       model,
       conversation,
       cachePrompt,
+      tools,
     });
 
     if (result.ok || !result.regenerate) {
       return result.ok
         ? result
         : { ok: false, error: result.error, retryable: result.retryable };
+    }
+
+    if (result.sideEffects) {
+      console.error(
+        `[ai] keeping a bad generation because its tools already wrote something: ${result.error}`,
+      );
+      return { ok: false, error: result.error, retryable: false };
     }
 
     lastError = result.error;
@@ -242,143 +313,289 @@ export async function generateAiReply({
 }
 
 type Attempt =
-  | (Extract<AiReplyResult, { ok: true }> & { regenerate?: false })
-  | { ok: false; error: string; retryable: boolean; regenerate: boolean };
+  | (Extract<AiReplyResult, { ok: true }> & {
+      regenerate?: false;
+      sideEffects?: boolean;
+    })
+  | {
+      ok: false;
+      error: string;
+      retryable: boolean;
+      regenerate: boolean;
+      /** Whether a tool in this attempt wrote something. Blocks the retry. */
+      sideEffects: boolean;
+    };
 
 async function attemptGeneration({
   systemPrompt,
   model,
   conversation,
   cachePrompt,
+  tools,
 }: {
   systemPrompt: string;
   model: AiModel;
   conversation: ConversationTurn[];
   cachePrompt: boolean;
+  tools?: AgentTools;
 }): Promise<Attempt> {
+  // Grows as the model calls tools; the first request is the conversation
+  // exactly as it arrived, which is what makes a bot with no tools byte
+  // identical to how it behaved before this existed.
+  const messages: Anthropic.MessageParam[] = [...conversation];
+  const toolsUsed: string[] = [];
+  let sideEffects = false;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedTokens = 0;
+  let cacheWriteTokens = 0;
+
   try {
-    const response = await client().messages.create({
-      model,
-      max_tokens: MAX_TOKENS,
-      // A string when caching is off; a single block carrying a cache
-      // breakpoint when it is on. The breakpoint sits at the end of the system
-      // prompt on purpose — everything before it is identical from one reply to
-      // the next, and the conversation, which changes every turn, renders after
-      // it and is never part of the cached prefix.
-      system: cachePrompt
-        ? [
-            {
-              type: "text" as const,
-              text: systemPrompt,
-              cache_control: { type: "ephemeral" as const },
-            },
-          ]
-        : systemPrompt,
-      messages: conversation,
-      thinking: THINKING,
-      output_config: {
-        // Low effort keeps latency down for a reply that needs no deliberation.
-        ...(MODEL_SUPPORTS_EFFORT[model] ? { effort: "low" as const } : {}),
-        format: { type: "json_schema" as const, schema: OUTPUT_SCHEMA },
-      },
-    });
+    for (let round = 0; ; round++) {
+      // Withheld on the last round, deliberately. The model has to *answer*
+      // eventually, and taking the tools away is how a loop that would have
+      // gone round again is turned into a reply instead of a timeout.
+      const offerTools =
+        tools !== undefined &&
+        tools.definitions.length > 0 &&
+        round < MAX_TOOL_ROUNDS;
 
-    if (response.stop_reason === "refusal") {
-      return {
-        ok: false,
-        error: `Model declined to answer (${response.stop_details?.category ?? "unspecified"})`,
-        retryable: false,
-        regenerate: false,
-      };
-    }
-    if (response.stop_reason === "max_tokens") {
-      // The JSON is truncated, so there is nothing safe to parse.
-      return {
-        ok: false,
-        error: "Reply hit the token limit",
-        retryable: true,
-        regenerate: false,
-      };
-    }
+      const response = await client().messages.create({
+        model,
+        max_tokens: MAX_TOKENS,
+        // Rendered before `system`, so this is the front of the cached prefix.
+        // Built from saved settings and stable between replies — see the note
+        // on the `tools` parameter above.
+        ...(offerTools ? { tools: tools.definitions } : {}),
+        // A string when caching is off; a single block carrying a cache
+        // breakpoint when it is on. The breakpoint sits at the end of the system
+        // prompt on purpose — everything before it is identical from one reply to
+        // the next, and the conversation, which changes every turn, renders after
+        // it and is never part of the cached prefix.
+        system: cachePrompt
+          ? [
+              {
+                type: "text" as const,
+                text: systemPrompt,
+                cache_control: { type: "ephemeral" as const },
+              },
+            ]
+          : systemPrompt,
+        messages,
+        thinking: THINKING[model],
+        output_config: {
+          // Low effort keeps latency down for a reply that needs no
+          // deliberation. Checked against the API with tools in play: on a
+          // realistic prompt, low, medium and the default all called the tool
+          // 4/4, so this is not costing the agent its tools.
+          ...(MODEL_SUPPORTS_EFFORT[model] ? { effort: "low" as const } : {}),
+          // Composes with tools rather than competing with them: a turn that
+          // calls a tool returns `tool_use` blocks and skips the JSON, and the
+          // turn that ends the loop emits it. Verified against the live API.
+          format: { type: "json_schema" as const, schema: OUTPUT_SCHEMA },
+        },
+      });
 
-    // Every text block, concatenated — not just the first. A response has only
-    // ever contained one, but taking `[0]` of a split payload would parse a
-    // fragment as if it were whole, which is precisely the class of bug this
-    // function must not have.
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("");
+      inputTokens += response.usage.input_tokens;
+      outputTokens += response.usage.output_tokens;
+      cachedTokens += response.usage.cache_read_input_tokens ?? 0;
+      cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
 
-    if (!text) {
-      return {
-        ok: false,
-        error: "Model returned no text",
-        retryable: true,
-        regenerate: false,
-      };
-    }
+      if (response.stop_reason === "tool_use" && tools) {
+        const calls = response.content.filter(
+          (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+        );
 
-    let parsed: { reply?: unknown; needs_human?: unknown };
-    try {
-      parsed = JSON.parse(text) as typeof parsed;
-    } catch {
-      return {
-        ok: false,
-        error: "Model returned unparseable JSON",
-        retryable: true,
-        regenerate: true,
-      };
-    }
+        // `tool_use` with no tool blocks would loop forever on an identical
+        // request. Falling through to the parse below turns it into one
+        // ordinary "no text" failure rather than a hung webhook.
+        if (calls.length === 0) {
+          return {
+            ok: false,
+            error: "Model asked to use a tool and named none",
+            retryable: true,
+            regenerate: !sideEffects,
+            sideEffects,
+          };
+        }
 
-    const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
-    if (!reply) {
-      return {
-        ok: false,
-        error: "Model returned an empty reply",
-        retryable: true,
-        regenerate: true,
-      };
-    }
+        messages.push({ role: "assistant", content: response.content });
 
-    const corruption = looksCorrupted(reply, response.usage.output_tokens);
-    if (corruption) {
-      return {
-        ok: false,
-        error: `Discarded a malformed reply: ${corruption}`,
-        retryable: true,
-        regenerate: true,
-      };
-    }
-    if (reply.length > MAX_SMS_LENGTH) {
-      // Refused rather than truncated: cutting a message mid-sentence sends a
-      // lead something that reads as broken. Worth another attempt — an
-      // over-long reply is usually a one-off, not a property of the thread.
-      return {
-        ok: false,
-        error: `Reply is ${reply.length} characters, over the ${MAX_SMS_LENGTH} SMS limit`,
-        retryable: false,
-        regenerate: true,
-      };
-    }
+        // Sequentially, not in parallel. Two of these write to the same
+        // calendar, and "find times" followed by "book" in one turn has to see
+        // the effect of the first — and every result goes back in one user
+        // message, because splitting them teaches the model to stop batching.
+        const results: Anthropic.ToolResultBlockParam[] = [];
 
-    return {
-      ok: true,
-      reply,
-      // Anything other than an explicit false means hand it over — the safe
-      // direction when the flag is missing is towards a human.
-      needsHuman: parsed.needs_human !== false,
-      model,
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-      cachedTokens: response.usage.cache_read_input_tokens ?? 0,
-      cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
-    };
+        for (const call of calls) {
+          const outcome = await tools.run(call.name, call.input);
+          toolsUsed.push(call.name);
+          sideEffects ||= outcome.sideEffect;
+          results.push({
+            type: "tool_result",
+            tool_use_id: call.id,
+            content: outcome.text,
+          });
+        }
+
+        messages.push({ role: "user", content: results });
+        continue;
+      }
+
+      return finish(response, {
+        model,
+        sideEffects,
+        toolsUsed,
+        // Every tool this generation was *offered*, not the ones it called.
+        // The check is looking for a call that was written down instead of
+        // made, so the tools it never got round to matter as much as the rest.
+        toolNames: tools?.definitions.map((tool) => tool.name) ?? [],
+        inputTokens,
+        outputTokens,
+        cachedTokens,
+        cacheWriteTokens,
+      });
+    }
   } catch (error) {
     const described = describeError(error);
     console.error(`[ai] generation failed: ${described.error}`);
     // Transport and API failures are the SDK's to retry; regenerating here
     // would stack another round of attempts on top of the ones it already made.
-    return { ok: false, ...described, regenerate: false };
+    return { ok: false, ...described, regenerate: false, sideEffects };
   }
+}
+
+/** Turns the turn that stopped asking for tools into a result. */
+function finish(
+  response: Anthropic.Message,
+  {
+    model,
+    sideEffects,
+    toolsUsed,
+    toolNames,
+    inputTokens,
+    outputTokens,
+    cachedTokens,
+    cacheWriteTokens,
+  }: {
+    model: AiModel;
+    sideEffects: boolean;
+    toolsUsed: string[];
+    toolNames: string[];
+    inputTokens: number;
+    outputTokens: number;
+    cachedTokens: number;
+    cacheWriteTokens: number;
+  },
+): Attempt {
+  if (response.stop_reason === "refusal") {
+    return {
+      ok: false,
+      error: `Model declined to answer (${response.stop_details?.category ?? "unspecified"})`,
+      retryable: false,
+      regenerate: false,
+      sideEffects,
+    };
+  }
+  if (response.stop_reason === "max_tokens") {
+    // The JSON is truncated, so there is nothing safe to parse.
+    return {
+      ok: false,
+      error: "Reply hit the token limit",
+      retryable: true,
+      regenerate: false,
+      sideEffects,
+    };
+  }
+
+  // Every text block, concatenated — not just the first. A response has only
+  // ever contained one, but taking `[0]` of a split payload would parse a
+  // fragment as if it were whole, which is precisely the class of bug this
+  // function must not have.
+  const text = response.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+
+  if (!text) {
+    return {
+      ok: false,
+      error: "Model returned no text",
+      retryable: true,
+      regenerate: false,
+      sideEffects,
+    };
+  }
+
+  let parsed: { reply?: unknown; needs_human?: unknown };
+  try {
+    parsed = JSON.parse(text) as typeof parsed;
+  } catch {
+    return {
+      ok: false,
+      error: "Model returned unparseable JSON",
+      retryable: true,
+      regenerate: true,
+      sideEffects,
+    };
+  }
+
+  const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
+  if (!reply) {
+    return {
+      ok: false,
+      error: "Model returned an empty reply",
+      retryable: true,
+      regenerate: true,
+      sideEffects,
+    };
+  }
+
+  // Against *this turn's* output tokens rather than the running total. The
+  // check reads a reply's length against what it cost to produce, and folding a
+  // booking's three round trips into that number would make every tool-using
+  // reply look implausibly cheap for its size.
+  const corruption = looksCorrupted(reply, response.usage.output_tokens, {
+    // A `thinking` block is the only evidence available that the model
+    // reasoned — the text is omitted by default and thinking tokens are not
+    // broken out — and it is exactly the fact the ratio check needs.
+    thought: response.content.some((block) => block.type === "thinking"),
+    toolNames,
+  });
+  if (corruption) {
+    return {
+      ok: false,
+      error: `Discarded a malformed reply: ${corruption}`,
+      retryable: true,
+      regenerate: true,
+      sideEffects,
+    };
+  }
+  if (reply.length > MAX_SMS_LENGTH) {
+    // Refused rather than truncated: cutting a message mid-sentence sends a
+    // lead something that reads as broken. Worth another attempt — an
+    // over-long reply is usually a one-off, not a property of the thread.
+    return {
+      ok: false,
+      error: `Reply is ${reply.length} characters, over the ${MAX_SMS_LENGTH} SMS limit`,
+      retryable: false,
+      regenerate: true,
+      sideEffects,
+    };
+  }
+
+  return {
+    ok: true,
+    reply,
+    // Anything other than an explicit false means hand it over — the safe
+    // direction when the flag is missing is towards a human.
+    needsHuman: parsed.needs_human !== false,
+    model,
+    inputTokens,
+    outputTokens,
+    cachedTokens,
+    cacheWriteTokens,
+    toolsUsed,
+    sideEffects,
+  };
 }
