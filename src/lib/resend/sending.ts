@@ -75,23 +75,31 @@ export function resolveFromAddress(settings: Settings | null): {
 }
 
 /**
- * The From address, read fresh from the database.
+ * The From and Reply-To addresses, read fresh from the database.
  *
- * The async counterpart to `resolveFromAddress`, for the send path — which has
- * no settings row in hand and, in the webhook cases, no user session either.
- * Uses the service-role client for that reason.
+ * The async counterpart to `resolveFromAddress` and `resolveReplyTo`, for the
+ * send path — which has no settings row in hand and, in the webhook cases, no
+ * user session either. Uses the service-role client for that reason.
+ *
+ * Both halves come from one query rather than two. They live in the same row
+ * and are needed on the same send, and a second round trip per email buys
+ * nothing.
  *
  * Never throws, and never lets a database problem stop an email going out.
  * Modelled on `resolveForwardToNumber`, which makes the same trade for the
  * same reason: falling back to the environment sends the message from a
  * less-good address, while propagating the error sends nothing at all. Of
- * those two, only one loses the message.
+ * those two, only one loses the message. A failed lookup costs the Reply-To
+ * entirely — worse than a wrong one is not the trade here, since there is no
+ * environment fallback for it and inventing one would guess at an inbox.
  *
- * Read on every send rather than cached. Changing the sending domain is meant
- * to take effect immediately, and this is one indexed lookup on a single-row
- * table against work that already involves an HTTP round trip to Resend.
+ * Read on every send rather than cached. Changing either is meant to take
+ * effect immediately, and this is one indexed lookup on a single-row table
+ * against work that already involves an HTTP round trip to Resend.
  */
-export async function resolveSendingFrom(orgId?: string): Promise<string> {
+export async function resolveSendingIdentity(
+  orgId?: string,
+): Promise<{ from: string; replyTo: string[] }> {
   try {
     const supabase = createAdminClient();
 
@@ -100,28 +108,66 @@ export async function resolveSendingFrom(orgId?: string): Promise<string> {
     // it is sending — the fallback below is a worse address, not a wrong
     // account, whereas picking an arbitrary row would send a client's mail
     // from another client's domain.
-    const base = supabase.from("settings").select("sending_from_email");
+    const base = supabase
+      .from("settings")
+      .select("sending_from_email, sending_reply_to, business_email");
     const { data, error } = orgId
       ? await base.eq("org_id", orgId).maybeSingle()
       : await base.eq("id", SETTINGS_ID).maybeSingle();
 
     if (error) {
       console.error(
-        "[email] sending-address lookup failed, falling back to NOTIFY_FROM_EMAIL",
+        "[email] sending-identity lookup failed, falling back to NOTIFY_FROM_EMAIL",
         error,
       );
-    } else {
-      const configured = data?.sending_from_email?.trim();
-      if (configured) return configured;
+    } else if (data) {
+      // Reads the same precedence as `resolveReplyTo`, off a partial row. The
+      // shared helper takes a full `Settings`, and selecting every column to
+      // reuse it would pull the AI system prompt into the send path.
+      const explicit = (data.sending_reply_to ?? [])
+        .map((address) => address.trim())
+        .filter(Boolean);
+      const business = data.business_email?.trim();
+      const replyTo =
+        explicit.length > 0 ? explicit : business ? [business] : [];
+
+      const configured = data.sending_from_email?.trim();
+      if (configured) return { from: configured, replyTo };
+
+      return { from: environmentFrom(), replyTo };
     }
   } catch (error) {
     console.error(
-      "[email] sending-address lookup threw, falling back to NOTIFY_FROM_EMAIL",
+      "[email] sending-identity lookup threw, falling back to NOTIFY_FROM_EMAIL",
       error,
     );
   }
 
+  return { from: environmentFrom(), replyTo: [] };
+}
+
+/** The From address the environment offers, and the last-resort shared sender. */
+function environmentFrom(): string {
   return process.env.NOTIFY_FROM_EMAIL?.trim() || SHARED_SENDER;
+}
+
+/**
+ * Saves the Reply-To addresses.
+ *
+ * Empty is stored as null, which is not the same as "no Reply-To": null means
+ * fall back to `business_email`. See the migration for why there is no way to
+ * suppress the header entirely.
+ */
+export async function setReplyTo(
+  supabase: SupabaseClient<Database>,
+  replyTo: string[] | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await supabase
+    .from("settings")
+    .update({ sending_reply_to: replyTo })
+    .eq("id", SETTINGS_ID);
+
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 /**

@@ -1714,11 +1714,13 @@ export type Database = {
           business_phone: string | null
           business_website: string | null
           forward_to_number: string | null
+          forwarding_addresses: string[] | null
           id: boolean
           org_id: string
           sending_domain_id: string | null
           sending_domain_name: string | null
           sending_from_email: string | null
+          sending_reply_to: string[] | null
           sending_verified_at: string | null
           twilio_low_balance_cents: number
           updated_at: string
@@ -1737,11 +1739,13 @@ export type Database = {
           business_phone?: string | null
           business_website?: string | null
           forward_to_number?: string | null
+          forwarding_addresses?: string[] | null
           id?: boolean
           org_id?: string
           sending_domain_id?: string | null
           sending_domain_name?: string | null
           sending_from_email?: string | null
+          sending_reply_to?: string[] | null
           sending_verified_at?: string | null
           twilio_low_balance_cents?: number
           updated_at?: string
@@ -1760,11 +1764,13 @@ export type Database = {
           business_phone?: string | null
           business_website?: string | null
           forward_to_number?: string | null
+          forwarding_addresses?: string[] | null
           id?: boolean
           org_id?: string
           sending_domain_id?: string | null
           sending_domain_name?: string | null
           sending_from_email?: string | null
+          sending_reply_to?: string[] | null
           sending_verified_at?: string | null
           twilio_low_balance_cents?: number
           updated_at?: string

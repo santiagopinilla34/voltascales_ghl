@@ -65,7 +65,7 @@ function confirmUrl(kind: AuthLinkKind, tokenHash: string): string {
  * agency: a client's invite cannot come from the client's own domain, because
  * at the point it is sent they have no account and the domain is not set up.
  *
- * Passing nothing is not the same as passing this. `resolveSendingFrom` falls
+ * Passing nothing is not the same as passing this. `resolveSendingIdentity` falls
  * back to matching the settings table's single-row key, which stopped being
  * unique the moment settings went per-organization — it now matches every row,
  * fails, and drops to Resend's shared sender, which delivers only to the

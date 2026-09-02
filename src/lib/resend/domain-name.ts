@@ -44,7 +44,7 @@ export function domainNameError(name: string): string | null {
   const labels = name.split(".");
 
   if (labels.length < 2) {
-    return "That needs to be a full domain, like info.voltascales.com.";
+    return "That needs to be a full domain, like mail.voltascales.com.";
   }
   for (const label of labels) {
     if (!LABEL.test(label)) {
@@ -76,14 +76,28 @@ export function looksLikeSubdomain(name: string): boolean {
 }
 
 /**
- * `info.voltascales.com` for `voltascales.com`.
+ * `mail.voltascales.com` for `voltascales.com`.
  *
- * The suggestion offered when someone enters a root domain. `info` rather than
- * `mail` or `email`: it reads as a place a human might write from, and the
- * latter two read as bulk.
+ * The suggestion offered when someone enters a root domain. It was `info.`
+ * first, on the reasoning that it reads as a place a human might write from
+ * rather than as bulk. That was true of the subdomain in isolation and wrong
+ * about the address built on top of it: the mailbox picked when selecting a
+ * domain is very often `info` too, and the pair produces
+ * `info@info.voltascales.com` — visibly doubled, and read by a recipient as a
+ * mistake.
+ *
+ * `mail.` cannot collide that way, because nobody names a mailbox `mail`. It
+ * also describes the subdomain honestly: this is where the app's mail comes
+ * from, and the human-sounding half belongs in the local part and the display
+ * name, which is where recipients actually look.
+ *
+ * The clash matters most for the case this feature exists to serve — a client
+ * who will also own `info@` as a real mailbox on the root domain. Two similar
+ * addresses that differ by a subdomain is exactly the confusion worth spending
+ * a word to avoid.
  */
 export function suggestSubdomain(name: string): string {
-  return `info.${name}`;
+  return `mail.${name}`;
 }
 
 /**

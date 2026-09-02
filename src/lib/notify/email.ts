@@ -1,7 +1,7 @@
 import "server-only";
 
 import { resendApiKey } from "@/lib/env";
-import { resolveSendingFrom } from "@/lib/resend/sending";
+import { resolveSendingIdentity } from "@/lib/resend/sending";
 
 /**
  * Transactional email, through Resend.
@@ -57,7 +57,7 @@ export async function sendEmail({
   // sending domain on the Email Services page takes effect without a redeploy.
   // Falls back to NOTIFY_FROM_EMAIL and then to Resend's shared sender, which
   // is where this started and the reason client mail was vanishing.
-  const from = await resolveSendingFrom(orgId);
+  const { from, replyTo } = await resolveSendingIdentity(orgId);
 
   let response: Response;
   try {
@@ -72,6 +72,16 @@ export async function sendEmail({
         to: [to],
         subject,
         text,
+        // Omitted rather than sent empty when nothing is configured: Resend
+        // rejects an empty `reply_to`, and a send that fails over a header
+        // nobody set would lose the message this whole module exists to
+        // deliver.
+        //
+        // When it is set, it is doing the load-bearing work. The From domain
+        // is a sending subdomain created with `receiving: "disabled"`, so a
+        // client hitting Reply without this header is writing to an address
+        // that cannot accept mail.
+        ...(replyTo.length > 0 ? { reply_to: replyTo } : {}),
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

@@ -10,10 +10,12 @@ import {
   verifyAndRead,
   type ResendDomain,
 } from "@/lib/resend/domains";
+import { addressError } from "@/lib/resend/addresses";
 import {
   buildFromAddress,
   clearSendingDomain,
   sendingDomainOf,
+  setReplyTo,
   setSendingDomain,
 } from "@/lib/resend/sending";
 import { getSettings } from "@/lib/settings";
@@ -35,6 +37,7 @@ export type ActionResult<T = null> =
 /** Every action changes something the page renders. */
 function revalidateEmail() {
   revalidatePath("/email");
+  revalidatePath("/email/reply-forward");
 }
 
 async function requireUser() {
@@ -240,6 +243,62 @@ export async function selectSendingDomain(input: {
 
   revalidateEmail();
   return { ok: true, value: { from } };
+}
+
+/**
+ * Normalises a submitted list: trims, drops blanks, and removes
+ * case-insensitive duplicates while keeping the casing that was typed.
+ */
+function normaliseAddresses(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const address = value.trim();
+    if (!address) continue;
+
+    const key = address.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    result.push(address);
+  }
+
+  return result;
+}
+
+/**
+ * Sets the addresses clients reach when they reply.
+ *
+ * An empty list clears the setting, which is a fallback rather than an off
+ * switch: outbound mail then carries the Business email instead. See the
+ * migration for why there is no way to send no Reply-To at all — the missing
+ * header is the bug, not a setting.
+ *
+ * Validated here as well as in the form, because a server action is a public
+ * POST endpoint and the form is not a security boundary.
+ */
+export async function saveReplyTo(input: {
+  addresses: string[];
+}): Promise<ActionResult> {
+  const supabase = await requireUser();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  const addresses = normaliseAddresses(input.addresses);
+
+  for (const address of addresses) {
+    const invalid = addressError(address);
+    if (invalid) return { ok: false, error: invalid };
+  }
+
+  const result = await setReplyTo(
+    supabase,
+    addresses.length ? addresses : null,
+  );
+  if (!result.ok) return { ok: false, error: result.error };
+
+  revalidateEmail();
+  return { ok: true, value: null };
 }
 
 /**

@@ -128,7 +128,7 @@ export function resendApiKey(): string | null {
 /**
  * Who email comes from — NOT the accessor to reach for.
  *
- * `resolveSendingFrom` in `src/lib/resend/sending.ts` is what the send path
+ * `resolveSendingIdentity` in `src/lib/resend/sending.ts` is what the send path
  * uses. It checks the sending domain chosen on the Email Services page first
  * and falls back to NOTIFY_FROM_EMAIL, so the address can be changed without a
  * redeploy. This function knows only about the environment half and would

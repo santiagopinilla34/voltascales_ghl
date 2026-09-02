@@ -84,7 +84,7 @@ export function AddDomainForm({ existing }: { existing: string[] }) {
             setDraft(event.target.value);
             setError(null);
           }}
-          placeholder="info.voltascales.com"
+          placeholder="mail.voltascales.com"
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
