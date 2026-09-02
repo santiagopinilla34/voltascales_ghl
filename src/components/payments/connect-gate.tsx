@@ -1,6 +1,6 @@
-import { ArrowRight, Lock, TriangleAlert } from "lucide-react";
+import { Lock, TriangleAlert } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { ConnectButton } from "@/components/payments/connect-button";
 import type { ConnectScope } from "@/lib/payments/connect";
 
 /**
@@ -110,17 +110,7 @@ export function ConnectGate({
 
       {configured ? (
         <div className="flex flex-col gap-2">
-          {/*
-            A plain link, not a form. The route needs to set a cookie and then
-            redirect to a third-party origin, which a Server Action cannot do
-            cleanly — see the route for why the cookie is load-bearing.
-          */}
-          <Button asChild className="w-fit">
-            <a href="/api/payments/stripe/connect">
-              Connect with Stripe
-              <ArrowRight className="size-4" />
-            </a>
-          </Button>
+          <ConnectButton />
           {/*
             The old line here said "about thirty seconds", which is true only
             for someone who already has Stripe — the case this is built for, but

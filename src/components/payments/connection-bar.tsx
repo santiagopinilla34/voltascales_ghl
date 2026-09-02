@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { CheckCircle2, ExternalLink } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { disconnectStripe } from "@/app/(app)/payments/actions";
@@ -97,6 +97,9 @@ export function ConnectionBar({
             onClick={disconnect}
             disabled={pending}
           >
+            {/* Disconnecting is a round trip to Stripe to deauthorize before
+                the row is deleted, so it is not instant and must not look it. */}
+            {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
             {pending ? "Disconnecting…" : confirming ? "Confirm disconnect" : "Disconnect"}
           </Button>
         </div>

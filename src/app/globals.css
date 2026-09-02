@@ -376,3 +376,107 @@
 .tip-enter {
   animation: page-fade 260ms ease-out both;
 }
+
+
+/* ---------------------------------------------------------------------------
+   Payments
+   ---------------------------------------------------------------------------
+   Three moments on this page involve waiting or appearing, and all three used
+   to happen instantly and invisibly: the New link form popped into existence,
+   the created link popped into the list, and the only sign that Stripe was
+   being asked for anything was a button's label changing to "Creating…".
+
+   Everything here is mount-driven rather than state-driven, which is what
+   makes it correct without any bookkeeping. A CSS animation runs when an
+   element enters the DOM, so after a link is created and the page revalidates,
+   React keeps every existing row (same key, same DOM) and mounts exactly one
+   new one — and exactly one row animates. The same classes give a full page
+   load a staggered cascade for free, because on a load every row is new.
+   --------------------------------------------------------------------------- */
+
+/* A panel that opens and closes in place — the New link form.
+ *
+ * Height is animated through `grid-template-rows` going 0fr → 1fr, which is
+ * the one way to get a real height transition without hardcoding a pixel
+ * value. The form has two modes of different heights, so a max-height guess
+ * would either clip the taller one or coast through empty space on the
+ * shorter.
+ *
+ * The negative margin cancels the parent's `gap-3` while the panel is
+ * collapsed. Without it the 12px gap appears the instant the panel mounts and
+ * vanishes the instant it unmounts, which is a visible jump at each end of an
+ * animation whose entire job is to stop things jumping. */
+.collapse-reveal {
+  display: grid;
+}
+
+/* Both are required for a grid row to be allowed to shrink below its content.
+   Miss either and the row refuses to reach 0fr and nothing appears to move. */
+.collapse-reveal > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.collapse-reveal[data-state="open"] {
+  animation: collapse-open 300ms var(--motion-ease) both;
+}
+
+/* Accelerating and shorter than the way in. Leaving needs no admiring — the
+   same reasoning as the popovers further up. */
+.collapse-reveal[data-state="closed"] {
+  animation: collapse-close 200ms cubic-bezier(0.5, 0, 0.9, 0.2) both;
+}
+
+@keyframes collapse-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    margin-top: -0.75rem;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    margin-top: 0;
+  }
+}
+
+@keyframes collapse-close {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    margin-top: 0;
+  }
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    margin-top: -0.75rem;
+  }
+}
+
+/* A row arriving in the links list.
+ *
+ * Travels less far than a page does — 10px against the page's 32 — because it
+ * arrives inside a bordered box that is already on screen. The distance that
+ * makes a whole page read as arriving makes a single row read as dropping. */
+.link-row-enter {
+  animation: link-row-enter 380ms var(--motion-ease) both;
+  animation-delay: var(--row-delay, 0ms);
+}
+
+@keyframes link-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The links section itself, landing just behind the dashboard above it rather
+   than with it. The delay is the whole effect: simultaneous arrival is what
+   the page did before, and it reads as one flat block. */
+.links-section-enter {
+  animation: link-row-enter 420ms var(--motion-ease) 90ms both;
+}

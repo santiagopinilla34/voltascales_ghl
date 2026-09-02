@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Check, Copy, ExternalLink, Plus } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
+import { Check, Copy, ExternalLink, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -41,6 +41,21 @@ import { cn } from "@/lib/utils";
  * deactivate is a two-press confirm and says what it does and does not do —
  * stops future payments, does not refund past ones.
  */
+
+/**
+ * How long the create panel takes to fold away.
+ *
+ * Paired with `.collapse-reveal[data-state="closed"]` in globals.css: the CSS
+ * plays the fold, this unmounts the panel once it has finished. If the two
+ * disagree the panel either vanishes mid-fold or leaves a hole behind it.
+ */
+const COLLAPSE_EXIT_MS = 200;
+
+/** Spacing between each row's arrival, and the point past which more delay
+ *  stops reading as a cascade and starts reading as a queue. */
+const ROW_STAGGER_MS = 45;
+const MAX_STAGGERED_ROWS = 8;
+
 export function PaymentLinks({
   links,
   packages,
@@ -62,10 +77,23 @@ export function PaymentLinks({
   /** Stripe could not be read for links specifically. */
   error: string | null;
 }) {
-  const [creating, setCreating] = useState(false);
+  /**
+   * Three states rather than a boolean, because closing has to be watchable.
+   *
+   * An unmount cannot be animated — the element is simply gone by the time
+   * anything could play — so the panel stays mounted through `closing` and
+   * leaves only once the fold has finished.
+   */
+  const [panel, setPanel] = useState<"open" | "closing" | "closed">("closed");
+
+  useEffect(() => {
+    if (panel !== "closing") return;
+    const timer = setTimeout(() => setPanel("closed"), COLLAPSE_EXIT_MS);
+    return () => clearTimeout(timer);
+  }, [panel]);
 
   return (
-    <section className="flex min-w-0 flex-col gap-3">
+    <section className="links-section-enter flex min-w-0 flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold tracking-tight">Payment links</h2>
@@ -74,18 +102,38 @@ export function PaymentLinks({
           </p>
         </div>
 
-        <Button size="sm" variant="outline" onClick={() => setCreating((open) => !open)}>
-          <Plus className="size-3.5" />
+        <Button
+          size="sm"
+          variant="outline"
+          aria-expanded={panel === "open"}
+          onClick={() => setPanel((state) => (state === "open" ? "closing" : "open"))}
+        >
+          {/* Rotated into a cross rather than swapped for one, so the button
+              reads as the same control in two positions. */}
+          <Plus
+            className={cn(
+              "size-3.5 transition-transform duration-300",
+              panel === "open" && "rotate-45",
+            )}
+          />
           New link
         </Button>
       </div>
 
-      {creating && (
-        <CreateLink
-          packages={packages}
-          currency={currency}
-          onDone={() => setCreating(false)}
-        />
+      {panel !== "closed" && (
+        <div
+          className="collapse-reveal"
+          data-state={panel === "open" ? "open" : "closed"}
+        >
+          {/* The single child the collapse measures — see globals.css. */}
+          <div>
+            <CreateLink
+              packages={packages}
+              currency={currency}
+              onDone={() => setPanel("closing")}
+            />
+          </div>
+        </div>
       )}
 
       {error ? (
@@ -98,8 +146,8 @@ export function PaymentLinks({
         </p>
       ) : (
         <div className="min-w-0 overflow-hidden rounded-lg border">
-          {links.map((link) => (
-            <LinkRow key={link.id} link={link} />
+          {links.map((link, index) => (
+            <LinkRow key={link.id} link={link} index={index} />
           ))}
         </div>
       )}
@@ -149,10 +197,21 @@ function CreateLink({
   const valid =
     mode === "package" ? Boolean(packageId) : Boolean(name.trim()) && Number(amount) > 0;
 
+  /*
+    The fields recede while Stripe is being asked, rather than staying crisp
+    and merely refusing input. A link is three objects at Stripe and can take
+    a couple of seconds; a form that looks exactly as editable as it did a
+    moment ago invites a second press on a button that is already working.
+  */
+  const whileBusy = cn(
+    "transition-opacity duration-200",
+    pending && "pointer-events-none opacity-55",
+  );
+
   return (
-    <div className="flex min-w-0 flex-col gap-4 rounded-lg border p-4">
+    <div className="flex min-w-0 flex-col gap-4 rounded-lg border p-4" aria-busy={pending}>
       {packages.length > 0 && (
-        <div className="flex gap-1 text-xs">
+        <div className={cn("flex gap-1 text-xs", whileBusy)}>
           <Toggle active={mode === "package"} onClick={() => setMode("package")}>
             A package
           </Toggle>
@@ -163,7 +222,7 @@ function CreateLink({
       )}
 
       {mode === "package" ? (
-        <div className="flex flex-col gap-1.5">
+        <div className={cn("flex flex-col gap-1.5", whileBusy)}>
           <Label htmlFor="link-package" className="text-xs">
             Package
           </Label>
@@ -186,7 +245,7 @@ function CreateLink({
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3 sm:flex-row">
+        <div className={cn("flex flex-col gap-3 sm:flex-row", whileBusy)}>
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <Label htmlFor="link-name" className="text-xs">
               What it is for
@@ -215,17 +274,27 @@ function CreateLink({
 
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={submit} disabled={!valid || pending}>
+          {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
           {pending ? "Creating…" : "Create link"}
         </Button>
         <Button size="sm" variant="ghost" onClick={onDone} disabled={pending}>
           Cancel
         </Button>
+
+        {/* Named, because "Creating…" on a button says that something is
+            happening without saying what is being waited on, and three round
+            trips to Stripe is long enough for the difference to matter. */}
+        {pending && (
+          <span role="status" className="text-muted-foreground text-xs">
+            Setting it up in Stripe…
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
-function LinkRow({ link }: { link: PaymentLink }) {
+function LinkRow({ link, index }: { link: PaymentLink; index: number }) {
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -250,7 +319,7 @@ function LinkRow({ link }: { link: PaymentLink }) {
 
     startTransition(async () => {
       const result = await deactivateLink(link.id);
-      if (result.ok) toast.success("Link deactivated.");
+      if (result.ok) toast.success("Link deactivated and removed from the list.");
       else {
         toast.error(result.error);
         setConfirming(false);
@@ -259,17 +328,40 @@ function LinkRow({ link }: { link: PaymentLink }) {
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2 border-b p-4 last:border-b-0">
+    <div
+      className={cn(
+        "link-row-enter flex min-w-0 flex-col gap-2 border-b p-4 transition-all duration-300 last:border-b-0",
+        /*
+          Already on its way out while Stripe is being told.
+
+          The row cannot be animated out of the list properly: it disappears
+          because the server revalidated, and by the time the action resolves
+          here React has already applied the new tree — there is no moment left
+          in which to play an exit. Receding during the wait puts the fade
+          where the time actually is, so what remains is a row that has visibly
+          gone before it is removed rather than one that blinks out.
+
+          It stops at 40% rather than reaching zero: until Stripe confirms, the
+          link is still taking money, and a row that has completely vanished
+          would say otherwise.
+        */
+        pending && "scale-[0.99] opacity-40",
+      )}
+      /*
+        The stagger is index-based, which makes the case that matters free: a
+        freshly created link comes back at the top of Stripe's list, so it
+        lands at index 0 and arrives immediately, while a full page load
+        cascades down the rows.
+      */
+      style={
+        {
+          "--row-delay": `${Math.min(index, MAX_STAGGERED_ROWS) * ROW_STAGGER_MS}ms`,
+        } as React.CSSProperties
+      }
+    >
       <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className={cn("truncate text-sm", !link.active && "text-muted-foreground")}>
-          {link.description ?? "Payment"}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 text-sm tabular-nums",
-            link.active ? "font-medium" : "text-muted-foreground line-through",
-          )}
-        >
+        <span className="truncate text-sm">{link.description ?? "Payment"}</span>
+        <span className="shrink-0 text-sm font-medium tabular-nums">
           {link.amount === null ? "—" : formatMoney(link.amount, link.currency)}
         </span>
       </div>
@@ -277,39 +369,33 @@ function LinkRow({ link }: { link: PaymentLink }) {
       <p className="text-muted-foreground truncate font-mono text-xs">{link.url}</p>
 
       <div className="flex flex-wrap items-center gap-2">
-        {link.active ? (
-          <>
-            <Button size="sm" variant="outline" onClick={copy}>
-              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-              {copied ? "Copied" : "Copy"}
-            </Button>
-            <Button size="sm" variant="ghost" asChild>
-              <a href={link.url} target="_blank" rel="noreferrer">
-                Open
-                <ExternalLink className="size-3.5" />
-              </a>
-            </Button>
-            <Button
-              size="sm"
-              variant={confirming ? "destructive" : "ghost"}
-              onClick={deactivate}
-              disabled={pending}
-            >
-              {pending ? "Deactivating…" : confirming ? "Confirm" : "Deactivate"}
-            </Button>
-          </>
-        ) : (
-          <span className="text-muted-foreground text-xs">
-            Deactivated — this URL no longer takes payments.
-          </span>
-        )}
+        <Button size="sm" variant="outline" onClick={copy}>
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+        <Button size="sm" variant="ghost" asChild>
+          <a href={link.url} target="_blank" rel="noreferrer">
+            Open
+            <ExternalLink className="size-3.5" />
+          </a>
+        </Button>
+        <Button
+          size="sm"
+          variant={confirming ? "destructive" : "ghost"}
+          onClick={deactivate}
+          disabled={pending}
+        >
+          {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+          {pending ? "Deactivating…" : confirming ? "Confirm" : "Deactivate"}
+        </Button>
       </div>
 
       {confirming && !pending && (
         <p className="text-muted-foreground text-xs">
-          Stops this URL taking any further payments. Anyone who already has it
-          will see it has closed. Payments already made are unaffected — refund
-          those in Stripe.
+          Stops this URL taking any further payments and removes it from this
+          list. Anyone who already has it will see it has closed. Stripe keeps
+          the link and its payment history in your dashboard — nothing there is
+          deleted, and payments already made are unaffected.
         </p>
       )}
     </div>

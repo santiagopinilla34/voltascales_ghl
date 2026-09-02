@@ -35,10 +35,15 @@ const API = "https://api.stripe.com/v1";
 /** Enough to show what is outstanding without paginating. */
 const LINK_LIMIT = 20;
 
+/**
+ * A link that is currently taking money.
+ *
+ * There is no `active` field because there is no inactive case: `listPaymentLinks`
+ * filters those out, so anything of this type is live.
+ */
 export type PaymentLink = {
   id: string;
   url: string;
-  active: boolean;
   /** What it charges for, as far as Stripe knows. */
   description: string | null;
   amount: number | null;
@@ -259,13 +264,30 @@ export async function createPaymentLink(
 }
 
 /**
- * The account's payment links.
+ * The account's live payment links.
  *
  * Read from Stripe rather than mirrored into a table here. There is no second
- * copy to drift, a link deactivated in the Stripe dashboard shows as
- * deactivated the next time this page loads, and the list is already scoped to
- * one organization by the `Stripe-Account` header — because each organization
- * connects its own account.
+ * copy to drift, and the list is already scoped to one organization by the
+ * `Stripe-Account` header — because each organization connects its own
+ * account.
+ *
+ * ## Deactivated links are dropped, not greyed out
+ *
+ * They used to be listed struck through, on the reasoning that a link somebody
+ * has already sent to a customer is worth still being able to see. In practice
+ * that made this list a permanent archive of every link ever made, growing
+ * forever, with the handful of URLs that still take money buried among the
+ * ones that do not — and it also spent the 20-link page limit on dead rows,
+ * so a busy account could push its own working links off the list entirely.
+ *
+ * Switching one off therefore removes it from here. Nothing is destroyed by
+ * that: Stripe has no delete for payment links, the object stays in the
+ * client's own dashboard with its payment history intact, and this filter is
+ * the only thing standing between them and it.
+ *
+ * The filter deliberately sits here rather than in the page, so a link
+ * switched off from the Stripe dashboard disappears the same way one switched
+ * off from this app does.
  */
 export async function listPaymentLinks(accountId: string): Promise<Result<PaymentLink[]>> {
   const config = stripePlatformConfig();
@@ -281,26 +303,30 @@ export async function listPaymentLinks(accountId: string): Promise<Result<Paymen
 
   return {
     kind: "ok",
-    value: (result.value.data ?? []).map((link) => {
-      const item = link.line_items?.data?.[0];
-      return {
-        id: link.id,
-        url: link.url,
-        active: link.active ?? false,
-        description: item?.description ?? null,
-        amount: item?.amount_total ?? null,
-        currency: (link.currency ?? item?.currency ?? "usd").toUpperCase(),
-      };
-    }),
+    value: (result.value.data ?? [])
+      .filter((link) => link.active ?? false)
+      .map((link) => {
+        const item = link.line_items?.data?.[0];
+        return {
+          id: link.id,
+          url: link.url,
+          description: item?.description ?? null,
+          amount: item?.amount_total ?? null,
+          currency: (link.currency ?? item?.currency ?? "usd").toUpperCase(),
+        };
+      }),
   };
 }
 
 /**
- * Switches a link off.
+ * Switches a link off, which is also what removes it from the list.
  *
- * Stripe has no delete for payment links, and that is the right shape: a link
- * already sent to a customer cannot be un-sent, so the honest operation is to
- * stop it working, not to pretend it never existed.
+ * Stripe has no delete for payment links — `active: false` is the whole of the
+ * API — so this is as close to deleting as the platform allows. The URL stops
+ * taking payments immediately and anyone who opens it is told the link has
+ * closed; the object, and every payment already made through it, stays in the
+ * client's Stripe account. See `listPaymentLinks` for why it then vanishes
+ * from this app.
  */
 export async function deactivatePaymentLink(
   accountId: string,
