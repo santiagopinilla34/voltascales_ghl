@@ -321,8 +321,10 @@ export function CalendarList({
                           row of icons in the product this is modelled on. */}
                       <div className="flex items-center justify-end gap-1">
                         {/* A link, not a dialog: editing a calendar means its
-                            hours and its booking settings, which are a screen
-                            rather than a modal. */}
+                            details, its location, its hours and its booking
+                            rules, which are a screen rather than a modal. It
+                            used to point at the Availability tab, which was
+                            the only one of those four that had an editor. */}
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -331,9 +333,7 @@ export function CalendarList({
                               asChild
                               aria-label={`Edit calendar: ${calendar.name}`}
                             >
-                              <Link
-                                href={`/calendar/settings?tab=availability&calendar=${calendar.id}`}
-                              >
+                              <Link href={`/calendar/settings/${calendar.id}`}>
                                 <Pencil />
                               </Link>
                             </Button>
