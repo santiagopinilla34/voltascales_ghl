@@ -174,13 +174,15 @@ export function bookingPromptSection(ability: BookingAbility): string {
   const { calendar, settings, link } = ability;
 
   if (settings.link_only) {
+    // The capability, not the script. In this mode there are no booking tools
+    // at all, so "cannot book here" is a fact about the wiring; what to say
+    // instead is behaviour and lives in the prompt.
     return link
-      ? "You can book appointments, but not in this conversation. When someone " +
-          "wants to book, send them this link and let them pick their own time: " +
-          `${link} — do not offer specific times yourself and do not say you ` +
-          "have booked anything."
-      : "When someone wants to book, tell them you'll have somebody send them a " +
-          "booking link. Do not offer specific times yourself.";
+      ? "You cannot book appointments in this conversation — you have no " +
+          `booking tools. The booking page, where someone picks their own ` +
+          `time, is ${link}.`
+      : "You cannot book appointments in this conversation — you have no " +
+          "booking tools, and no booking page is configured.";
   }
 
   const lines = [
@@ -196,17 +198,25 @@ export function bookingPromptSection(ability: BookingAbility): string {
     lines.push("You can move an appointment to a different time when they ask.");
   }
   if (!settings.allow_cancel && !settings.allow_reschedule) {
-    lines.push(
-      "You cannot cancel or move an existing appointment. If they ask, say a " +
-        "person will sort it out for them.",
-    );
+    // The fact only. What to say when someone asks is behaviour, and saying it
+    // here used to push "a person will sort it out" against a prompt whose
+    // whole point is that handing over is the exception.
+    lines.push("You cannot cancel or move an existing appointment.");
   }
 
-  if (link) {
-    lines.push(
-      `If they would rather pick a time themselves, the booking page is ${link}.`,
-    );
-  }
+  // The link is deliberately NOT offered here.
+  //
+  // This used to add "If they would rather pick a time themselves, the booking
+  // page is <link>", and it was the bug Santiago hit on 2026-09-03: he had
+  // written into the Goal box that when the booking action is set up the bot
+  // should book the meeting rather than send a link, saved it, and watched Ada
+  // send the link anyway. She was not ignoring his prompt — she was obeying
+  // this line, which he could not see in the Goals tab and could not delete.
+  //
+  // With tools in hand the link is redundant, and whether to fall back to it is
+  // a judgement call about how to treat a customer, which is his to make in the
+  // prompt. `link_only` above still sends it, because there the link is the
+  // entire mechanism rather than an alternative to one.
 
   return lines.join(" ");
 }

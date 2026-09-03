@@ -297,10 +297,7 @@ export function composeSystemPrompt({
       ),
     ].join("\n");
 
-    sections.push(
-      `What each source below is for. Prefer the one whose description fits ` +
-        `the question being asked:\n${rules}`,
-    );
+    sections.push(`What each source below is for:\n${rules}`);
   }
 
   if (knowledge.faqs.length > 0) {
@@ -310,10 +307,7 @@ export function composeSystemPrompt({
       .map((faq) => `Q: ${faq.question}\nA: ${faq.answer}`)
       .join("\n\n");
 
-    sections.push(
-      "Answers you have already given to common questions. Reuse these " +
-        `rather than composing your own:\n\n${pairs}`,
-    );
+    sections.push(`Saved answers to common questions:\n\n${pairs}`);
   }
 
   if (knowledge.pages.length > 0) {
@@ -342,11 +336,7 @@ export function composeSystemPrompt({
         .join("\n\n");
 
       sections.push(
-        "The website pages this agent was trained on, in full. Answer from " +
-          "these when they cover the question — they are the business's own " +
-          "words and are more current than anything you may recall about it. " +
-          "If they do not cover it, say so rather than filling the gap:\n\n" +
-          bodies,
+        `Website pages this agent was trained on, in full:\n\n${bodies}`,
       );
     }
 
@@ -359,9 +349,8 @@ export function composeSystemPrompt({
         .join("\n");
 
       sections.push(
-        "Other pages in this agent's knowledge. You do not have their text, " +
-          "so do not quote them — if one clearly answers the question, point " +
-          `the customer at it:\n${titles}`,
+        "Other pages in this agent's knowledge, titles only — their text is " +
+          `not included here:\n${titles}`,
       );
     }
   }
@@ -382,11 +371,11 @@ export function composeSystemPrompt({
   if (promised.length > 0) {
     // Stated as a limitation rather than an ability, deliberately. Told it
     // "may book an appointment" with no tool to do it, a model will say it has
-    // booked one. Told it cannot yet, it offers to have a person follow up.
+    // booked one. This is the fact — that the wiring is absent; what to say
+    // about it is behaviour and belongs in the prompt.
     sections.push(
-      `This agent is configured to ${promised.join(", ").toLowerCase()}, but ` +
-        "those are not connected yet. Never claim to have done any of them. " +
-        "If the customer asks for one, say a person will follow up.",
+      `Configured but not connected, so you cannot actually do these: ` +
+        `${promised.join(", ").toLowerCase()}.`,
     );
   }
 
