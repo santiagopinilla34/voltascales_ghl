@@ -171,8 +171,22 @@ export function bookingPromptSection(ability: BookingAbility): string {
       "conversation, using your tools.",
     "Never offer or confirm a time that a tool did not just give you, and never " +
       "say an appointment is booked until the booking tool has told you it is.",
-    "To book, you need their full name and an email address — ask for whatever " +
-      "you're missing before calling the booking tool.",
+    // Deliberately loose about the name. This line used to demand a "full
+    // name", and both GPT-5.6 Luna and Claude Haiku 4.5 obeyed it to the
+    // letter: given "my name is pepe" they asked for a surname, and Luna asked
+    // a second time after being told "just pepe is fine, book it" — burning two
+    // round trips and, on a real lead, quite possibly the booking. A first name
+    // is what most people give over text and is enough to put in a calendar;
+    // the email is the field that actually has to be right, because the
+    // confirmation goes there.
+    "To book, you need a name and an email address. Ask once for whatever " +
+      "you're missing, then take what they give you — a first name on its own " +
+      "is fine, and asking twice for a fuller one loses bookings.",
+    // Both models also re-ran the slot search on turns where they already had
+    // times in hand. Harmless but not free: it is an extra API round trip and
+    // an extra few seconds before the lead hears back.
+    "If you already have open times from earlier in this conversation and they " +
+      "are still what you are discussing, use them rather than searching again.",
     "All times are Eastern.",
   ];
 
