@@ -6,7 +6,7 @@ import { cachedCostCentsOf } from "@/lib/usage/pricing";
 /**
  * Anthropic's own record of what this account has used, up to the last hour.
  *
- * The companion to `estimateAnthropicSpend`, which prices this app's logged
+ * The companion to `estimateAiSpend`, which prices this app's logged
  * tokens. This reads Anthropic's usage report instead, so it sees every use of
  * the account — the Console playground, Claude Code, anything else holding a
  * key — and it splits input four ways, which is the only way to price a cache

@@ -5,12 +5,16 @@ import { UsageRefreshButton } from "@/components/usage/refresh-button";
 import { CreditForm } from "@/components/usage/credit-form";
 import { ThresholdsForm } from "@/components/usage/thresholds-form";
 import { UsageWarnings } from "@/components/usage/usage-warnings";
-import { AnthropicCard, TwilioCard } from "@/components/usage/provider-cards";
+import {
+  AnthropicCard,
+  OpenAiCard,
+  TwilioCard,
+} from "@/components/usage/provider-cards";
 import { requirePlatformAdmin } from "@/lib/orgs/context";
 import { getSettings } from "@/lib/settings";
 import { createClient } from "@/lib/supabase/server";
 import { fetchLiveUsage } from "@/lib/usage/anthropic-live";
-import { estimateAnthropicSpend } from "@/lib/usage/anthropic";
+import { estimateAiSpend } from "@/lib/usage/ai-spend";
 import { fetchTwilioUsage } from "@/lib/usage/twilio";
 
 export const metadata: Metadata = { title: "Usage · VoltaScales" };
@@ -32,9 +36,18 @@ export default async function UsagePage() {
   // was recorded so it can price the usage since, and that is on the row.
   const settings = await getSettings(supabase);
 
-  const [twilio, anthropic, live] = await Promise.all([
+  const [twilio, anthropic, openai, live] = await Promise.all([
     fetchTwilioUsage(),
-    estimateAnthropicSpend(supabase),
+    estimateAiSpend(supabase, { provider: "anthropic" }),
+    // Priced from this app's own drafts and, unlike Anthropic's, with no live
+    // report to fall back on — see `OpenAiCard`. The credit timestamp is passed
+    // in because the remaining figure is spend *since* it.
+    estimateAiSpend(supabase, {
+      provider: "openai",
+      creditAt: settings?.openai_credit_at
+        ? new Date(settings.openai_credit_at)
+        : null,
+    }),
     // Null without an Admin API key, or if the call fails. The card falls back
     // to the estimate rather than the page failing over its own footnote.
     fetchLiveUsage({
@@ -47,8 +60,12 @@ export default async function UsagePage() {
   const creditCents = settings?.anthropic_credit_cents ?? null;
   const creditAt = settings?.anthropic_credit_at ?? null;
 
+  const openaiCreditCents = settings?.openai_credit_cents ?? null;
+  const openaiCreditAt = settings?.openai_credit_at ?? null;
+
   const lowBalanceCents = settings?.twilio_low_balance_cents ?? 1000;
   const budgetCents = settings?.anthropic_monthly_budget_cents ?? null;
+  const openaiBudgetCents = settings?.openai_monthly_budget_cents ?? null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -60,8 +77,8 @@ export default async function UsagePage() {
           <div className="flex min-w-0 items-center gap-1">
             <span className="text-muted-foreground hidden truncate text-xs sm:inline">
               {live
-                ? "Live from Twilio and Anthropic"
-                : "Live from Twilio · estimated for Anthropic"}
+                ? "Live from Twilio and Anthropic · estimated for OpenAI"
+                : "Live from Twilio · estimated for Anthropic and OpenAI"}
             </span>
             <UsageRefreshButton />
           </div>
@@ -73,11 +90,15 @@ export default async function UsagePage() {
           <UsageWarnings
             twilio={twilio}
             anthropic={anthropic}
+            openai={openai}
             lowBalanceCents={lowBalanceCents}
             budgetCents={budgetCents}
+            openaiBudgetCents={openaiBudgetCents}
           />
 
-          <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+          {/* Three across on a wide screen now that there are three providers,
+              two on a medium one, stacked on a phone. */}
+          <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
             <TwilioCard usage={twilio} lowBalanceCents={lowBalanceCents} />
             <AnthropicCard
               estimate={anthropic}
@@ -85,6 +106,12 @@ export default async function UsagePage() {
               creditCents={creditCents}
               creditAt={creditAt}
               budgetCents={budgetCents}
+            />
+            <OpenAiCard
+              estimate={openai}
+              creditCents={openaiCreditCents}
+              creditAt={openaiCreditAt}
+              budgetCents={openaiBudgetCents}
             />
           </div>
 
@@ -100,10 +127,12 @@ export default async function UsagePage() {
             <ThresholdsForm
               lowBalanceCents={lowBalanceCents}
               budgetCents={budgetCents}
+              openaiBudgetCents={openaiBudgetCents}
             />
 
-            <div className="max-w-md border-t pt-4">
-              <CreditForm creditCents={creditCents} />
+            <div className="grid max-w-3xl gap-4 border-t pt-4 md:grid-cols-2">
+              <CreditForm provider="anthropic" creditCents={creditCents} />
+              <CreditForm provider="openai" creditCents={openaiCreditCents} />
             </div>
           </section>
 
@@ -137,6 +166,21 @@ export default async function UsagePage() {
                   credential from the one this app uses for chat.
                 </span>
               )}
+            </p>
+
+            <p className="text-muted-foreground flex items-start gap-2 text-xs">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                The OpenAI figure is always an estimate, for the same kind of
+                reason: <code>/v1/organization/costs</code> needs a key carrying
+                the <code>api.usage.read</code> scope, and the{" "}
+                <code>sk-proj-…</code> key this app uses for chat is refused
+                with a 403. So it is this app&apos;s own logged tokens priced at
+                published rates — a floor on what was spent, blind to anything
+                else using the same account. Note that OpenAI reports cost but
+                never the prepaid balance left, so even a scoped key would not
+                remove the recorded balance below.
+              </span>
             </p>
           </section>
         </div>

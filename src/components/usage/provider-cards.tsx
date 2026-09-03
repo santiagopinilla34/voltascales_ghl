@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Bot, ExternalLink, Phone } from "lucide-react";
+import { Bot, ExternalLink, Phone, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { formatUsdCents } from "@/lib/usage/pricing";
 import { aiModelLabel } from "@/lib/ai/models";
 import type { LiveUsage } from "@/lib/usage/anthropic-live";
-import type { AnthropicEstimate } from "@/lib/usage/anthropic";
+import type { AiSpendEstimate } from "@/lib/usage/ai-spend";
 import type { TwilioUsageResult } from "@/lib/usage/twilio";
 import { cn } from "@/lib/utils";
 
@@ -144,6 +144,167 @@ export function TwilioCard({
   );
 }
 
+/**
+ * OpenAI spend, from this app's own logged tokens.
+ *
+ * Always an estimate, and says so. The Anthropic card next door can be upgraded
+ * to "Live" by configuring an Admin API key; this one has no equivalent yet,
+ * because `/v1/organization/costs` needs a key carrying the `api.usage.read`
+ * scope and the `sk-proj-…` key this app uses for chat is refused with a 403.
+ * A card that quietly showed a partial number under a "Live" badge would be
+ * worse than one that is honest about being a floor.
+ *
+ * The remaining figure is computed the same way as Anthropic's — balance minus
+ * spend since it was recorded — with one difference worth knowing: Anthropic's
+ * subtraction uses Anthropic's own report of *all* account usage, while this
+ * one can only subtract what this CRM spent. Anything spent on the same account
+ * from elsewhere is invisible to it, so the remaining figure is a ceiling.
+ */
+export function OpenAiCard({
+  estimate,
+  creditCents,
+  creditAt,
+  budgetCents,
+}: {
+  estimate: AiSpendEstimate;
+  creditCents: number | null;
+  creditAt: string | null;
+  budgetCents: number | null;
+}) {
+  const remainingCents =
+    creditCents !== null && estimate.sinceCreditCents !== null
+      ? Math.max(creditCents - estimate.sinceCreditCents, 0)
+      : null;
+
+  const percent =
+    budgetCents !== null && budgetCents > 0
+      ? Math.round((estimate.monthToDateCents / budgetCents) * 100)
+      : null;
+
+  return (
+    <Card
+      icon={Sparkles}
+      title="OpenAI"
+      badge={{ label: "Estimate", live: false }}
+      href="https://platform.openai.com/settings/organization/billing/overview"
+      linkLabel="OpenAI billing"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+        <div>
+          <p className="text-2xl font-semibold tabular-nums">
+            ~{formatUsdCents(estimate.monthToDateCents)}
+          </p>
+          <p className="text-muted-foreground text-xs">
+            estimated spend this month
+            {percent !== null && ` · ${percent}% of budget`}
+          </p>
+        </div>
+
+        {remainingCents !== null && creditCents !== null && (
+          <div className="text-right">
+            <p
+              className={cn(
+                "text-2xl font-semibold tabular-nums",
+                remainingCents === 0 && "text-destructive",
+              )}
+            >
+              ~{formatUsdCents(remainingCents)}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              left of {formatUsdCents(creditCents)}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {budgetCents !== null && (
+        <div
+          className="bg-muted h-1.5 w-full overflow-hidden rounded-full"
+          role="progressbar"
+          aria-valuenow={Math.min(percent ?? 0, 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="OpenAI spend against budget"
+        >
+          <div
+            className={cn(
+              "h-full rounded-full transition-all",
+              (percent ?? 0) >= 100
+                ? "bg-destructive"
+                : (percent ?? 0) >= 80
+                  ? "bg-amber-500"
+                  : "bg-primary",
+            )}
+            style={{ width: `${Math.min(percent ?? 0, 100)}%` }}
+          />
+        </div>
+      )}
+
+      <dl className="flex flex-col gap-1.5 border-t pt-3">
+        <Row
+          label="Budget"
+          value={budgetCents === null ? "Not set" : formatUsdCents(budgetCents)}
+          muted={budgetCents === null}
+        />
+        <Row
+          label="Replies this month"
+          value={estimate.monthDrafts.toLocaleString("en-CA")}
+        />
+        <Row
+          label="Tokens this month"
+          value={`${estimate.monthInputTokens.toLocaleString("en-CA")} in / ${estimate.monthOutputTokens.toLocaleString("en-CA")} out`}
+        />
+        <Row
+          label="All time"
+          value={`~${formatUsdCents(estimate.allTimeCents)} · ${estimate.totalDrafts.toLocaleString("en-CA")} replies`}
+          muted
+        />
+
+        {creditAt && remainingCents !== null && (
+          <Row
+            label="Balance recorded"
+            value={new Date(creditAt).toLocaleString("en-CA", {
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              timeZone: "America/Toronto",
+            })}
+            muted
+          />
+        )}
+      </dl>
+
+      {estimate.models.length > 0 && (
+        <dl className="flex flex-col gap-1.5 border-t pt-3">
+          {estimate.models.map((entry) => (
+            <Row
+              key={entry.model}
+              label={aiModelLabel(entry.model)}
+              value={`~${formatUsdCents(entry.cents)} · ${entry.drafts}`}
+            />
+          ))}
+        </dl>
+      )}
+
+      {estimate.unpricedDrafts > 0 && (
+        <p className="text-muted-foreground text-[11px]">
+          {estimate.unpricedDrafts} replies excluded — no price on file for
+          their model.
+        </p>
+      )}
+
+      {estimate.totalDrafts === 0 && (
+        // The state this card is in on the day it ships. Better than an empty
+        // card that looks broken.
+        <p className="text-muted-foreground text-[11px]">
+          No replies on an OpenAI model yet. Pick one in an agent&apos;s Goals
+          tab and this fills in.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 export function AnthropicCard({
   estimate,
   live,
@@ -151,7 +312,7 @@ export function AnthropicCard({
   creditAt,
   budgetCents,
 }: {
-  estimate: AnthropicEstimate;
+  estimate: AiSpendEstimate;
   /** Anthropic's own usage report, when an Admin API key is configured. */
   live: LiveUsage | null;
   /** The balance as last recorded from the Console, in cents. */

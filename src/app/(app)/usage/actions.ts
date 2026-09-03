@@ -19,6 +19,7 @@ export type ActionResult =
 export async function saveUsageThresholds(input: {
   twilioLowBalanceCents: number;
   anthropicBudgetCents: number | null;
+  openaiBudgetCents: number | null;
 }): Promise<ActionResult> {
   const supabase = await createClient();
   const {
@@ -34,12 +35,16 @@ export async function saveUsageThresholds(input: {
     return { ok: false, error: "The Twilio floor must be zero or more." };
   }
 
-  if (
-    input.anthropicBudgetCents !== null &&
-    (!Number.isInteger(input.anthropicBudgetCents) ||
-      input.anthropicBudgetCents <= 0)
-  ) {
-    return { ok: false, error: "The Anthropic budget must be more than zero." };
+  // Both budgets take the same rule, and both are checked here rather than
+  // trusted from the form: these are Server Actions, so the numbers arrive from
+  // the browser and a zero would mean "warn always".
+  for (const [label, cents] of [
+    ["Anthropic", input.anthropicBudgetCents],
+    ["OpenAI", input.openaiBudgetCents],
+  ] as const) {
+    if (cents !== null && (!Number.isInteger(cents) || cents <= 0)) {
+      return { ok: false, error: `The ${label} budget must be more than zero.` };
+    }
   }
 
   const { error } = await supabase
@@ -47,6 +52,7 @@ export async function saveUsageThresholds(input: {
     .update({
       twilio_low_balance_cents: input.twilioLowBalanceCents,
       anthropic_monthly_budget_cents: input.anthropicBudgetCents,
+      openai_monthly_budget_cents: input.openaiBudgetCents,
     })
     .eq("id", SETTINGS_ID);
 
@@ -71,6 +77,28 @@ export async function saveUsageThresholds(input: {
 export async function saveAnthropicCredit(
   cents: number | null,
 ): Promise<ActionResult> {
+  return saveCredit("anthropic", cents);
+}
+
+/**
+ * The same, for OpenAI.
+ *
+ * A separate exported action rather than one taking a provider string, because
+ * these are Server Actions: the argument arrives from the browser, and a
+ * provider name that decides which column gets written is one more thing to
+ * validate. Two entry points, each naming its own columns, cannot be pointed at
+ * the wrong ones.
+ */
+export async function saveOpenAiCredit(
+  cents: number | null,
+): Promise<ActionResult> {
+  return saveCredit("openai", cents);
+}
+
+async function saveCredit(
+  provider: "anthropic" | "openai",
+  cents: number | null,
+): Promise<ActionResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -82,12 +110,15 @@ export async function saveAnthropicCredit(
     return { ok: false, error: "The balance must be zero or more." };
   }
 
+  const at = cents === null ? null : new Date().toISOString();
+
   const { error } = await supabase
     .from("settings")
-    .update({
-      anthropic_credit_cents: cents,
-      anthropic_credit_at: cents === null ? null : new Date().toISOString(),
-    })
+    .update(
+      provider === "anthropic"
+        ? { anthropic_credit_cents: cents, anthropic_credit_at: at }
+        : { openai_credit_cents: cents, openai_credit_at: at },
+    )
     .eq("id", SETTINGS_ID);
 
   if (error) return { ok: false, error: error.message };

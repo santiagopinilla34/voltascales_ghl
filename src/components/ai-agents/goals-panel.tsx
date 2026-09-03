@@ -23,7 +23,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -34,6 +36,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ProviderIcon } from "@/components/ai-agents/provider-icon";
 import { AI_MODEL_OPTIONS, aiModelLabel } from "@/lib/ai/models";
 import type { BookingCalendar } from "@/types/database";
 import {
@@ -59,6 +62,23 @@ import {
 import { MODEL_PRICES, formatUsdCents } from "@/lib/usage/pricing";
 import { cn } from "@/lib/utils";
 import type { AiModel } from "@/types/database";
+
+/**
+ * The picker's sections, derived from the one list rather than written twice.
+ *
+ * Order follows `AI_MODEL_OPTIONS`, so the file that decides which models exist
+ * also decides which vendor a reader meets first — adding a third provider is a
+ * change in one place.
+ */
+const MODEL_GROUPS = [
+  { provider: "anthropic" as const, label: "Anthropic" },
+  { provider: "openai" as const, label: "OpenAI" },
+].map((group) => ({
+  ...group,
+  options: AI_MODEL_OPTIONS.filter(
+    (option) => option.provider === group.provider,
+  ),
+}));
 
 /**
  * The Goals tab: who the bot is, what it is for, and what it may do.
@@ -503,10 +523,25 @@ function ModelRow({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {AI_MODEL_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
+            {/* Grouped by vendor. With two providers in one list the labels
+                alone stop being self-explanatory — "GPT-5 nano" and "Claude
+                Haiku 4.5" are the same decision but read as unrelated — and the
+                heading is what makes the price ladder legible. */}
+            {MODEL_GROUPS.map((group) => (
+              <SelectGroup key={group.provider}>
+                <SelectLabel>{group.label}</SelectLabel>
+                {group.options.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {/* Inside the item rather than beside it, so the closed
+                        trigger shows the mark too — Radix renders the selected
+                        item's children as the value. */}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ProviderIcon provider={option.provider} />
+                      {option.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             ))}
           </SelectContent>
         </Select>
@@ -530,7 +565,10 @@ function ModelRow({
               (option) => option.value !== goals.model,
             ).map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                Fall back to {option.label}
+                <span className="flex min-w-0 items-center gap-2">
+                  <ProviderIcon provider={option.provider} />
+                  Fall back to {option.label}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>

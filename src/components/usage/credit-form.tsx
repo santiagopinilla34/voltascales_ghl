@@ -5,25 +5,51 @@ import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { saveAnthropicCredit } from "@/app/(app)/usage/actions";
+import {
+  saveAnthropicCredit,
+  saveOpenAiCredit,
+} from "@/app/(app)/usage/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
- * Records what the Console says the credit balance is.
+ * Records what the provider's dashboard says the credit balance is.
  *
- * The one figure on this page that cannot be fetched: Anthropic has no balance
- * endpoint, so the number has to come from a person reading it off the Console.
- * Everything else on the card is measured; this is remembered, and the card
- * says when it was remembered so nobody trusts a stale one.
+ * The one figure on this page that cannot be fetched. Anthropic has no balance
+ * endpoint at all; OpenAI publishes cost but not remaining balance, and only to
+ * an Admin-scoped key. So for both the number has to come from a person reading
+ * it off a dashboard. Everything else on the card is measured; this is
+ * remembered, and the card says when it was remembered so nobody trusts a stale
+ * one.
  *
  * Saving stamps the moment server-side. Usage from that instant is subtracted
  * to get what is left, so the balance only needs touching after buying credits.
  */
-export function CreditForm({ creditCents }: { creditCents: number | null }) {
+
+const PROVIDERS = {
+  anthropic: {
+    label: "Anthropic credit balance",
+    save: saveAnthropicCredit,
+    hint: "Anthropic has no balance API, so copy it from the Console. Usage since you saved is subtracted from it — update after buying credits.",
+  },
+  openai: {
+    label: "OpenAI credit balance",
+    save: saveOpenAiCredit,
+    hint: "OpenAI reports cost but not the balance left, so copy it from the platform dashboard. This app's usage since you saved is subtracted from it — update after buying credits.",
+  },
+} as const;
+
+export function CreditForm({
+  provider = "anthropic",
+  creditCents,
+}: {
+  provider?: keyof typeof PROVIDERS;
+  creditCents: number | null;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const config = PROVIDERS[provider];
 
   const saved = creditCents === null ? "" : (creditCents / 100).toFixed(2);
   const [value, setValue] = useState(saved);
@@ -43,7 +69,7 @@ export function CreditForm({ creditCents }: { creditCents: number | null }) {
     }
 
     startTransition(async () => {
-      const result = await saveAnthropicCredit(cents);
+      const result = await config.save(cents);
 
       if (!result.ok) {
         toast.error("Could not save the balance", {
@@ -59,13 +85,13 @@ export function CreditForm({ creditCents }: { creditCents: number | null }) {
 
   return (
     <form onSubmit={save} className="flex flex-col gap-2">
-      <Label htmlFor="anthropic-credit" className="text-xs">
-        Anthropic credit balance
+      <Label htmlFor={`${provider}-credit`} className="text-xs">
+        {config.label}
       </Label>
 
       <div className="flex items-center gap-2">
         <Input
-          id="anthropic-credit"
+          id={`${provider}-credit`}
           value={value}
           inputMode="decimal"
           placeholder="Leave blank to stop tracking"
@@ -78,10 +104,7 @@ export function CreditForm({ creditCents }: { creditCents: number | null }) {
         </Button>
       </div>
 
-      <p className="text-muted-foreground text-xs">
-        Anthropic has no balance API, so copy it from the Console. Usage since
-        you saved is subtracted from it — update after buying credits.
-      </p>
+      <p className="text-muted-foreground text-xs">{config.hint}</p>
     </form>
   );
 }

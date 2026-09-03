@@ -3,38 +3,42 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { serverEnv } from "@/lib/env";
-import type { AiModel } from "@/types/database";
+import type { AiModel, AnthropicModel } from "@/types/database";
 
 import type { AgentTools } from "./booking-tools";
+import {
+  MAX_RETRIES,
+  MAX_SMS_LENGTH,
+  MAX_TOKENS,
+  MAX_TOOL_ROUNDS,
+  OUTPUT_SCHEMA,
+  REQUEST_TIMEOUT_MS,
+  type Attempt,
+  type AiReplyResult,
+} from "./contract";
+import { attemptOpenAiGeneration } from "./generate-openai";
 import { looksCorrupted } from "./integrity";
 import type { ConversationTurn } from "./prompt";
 
 /**
- * The Claude call behind the SMS chatbot (PRD 5).
+ * The Claude call behind the SMS chatbot (PRD 5), and the front door for every
+ * other provider.
  *
  * Generates only. Nothing in this module talks to Twilio or writes to the
  * database — deciding whether a generated reply is allowed to be sent is the
  * caller's job, and keeping that decision out of here means there is exactly
  * one place to audit it.
+ *
+ * `generateAiReply` is provider-agnostic: it owns the retry policy and the
+ * side-effect veto, then hands one attempt to whichever module speaks the
+ * chosen model's API. Everything below that function is the Anthropic
+ * implementation; OpenAI's lives in `generate-openai.ts`. The retry rules stay
+ * here rather than being duplicated because they are the part that, done twice
+ * and slightly differently, books somebody two meetings.
  */
 
-/** Twilio's hard limit; the system prompt asks for far shorter than this. */
-const MAX_SMS_LENGTH = 1600;
-
-/**
- * Covers thinking *and* the reply — `max_tokens` caps both together, and a
- * tight budget truncates mid-sentence. Unused output tokens aren't billed, so
- * this is generous on purpose, and it matters more now that thinking is on.
- */
-const MAX_TOKENS = 4000;
-
-/**
- * Per attempt. Two attempts worst case, so ~60s of wall clock — comfortably
- * inside the function budget, and far below the point where a lead has given
- * up on getting an answer.
- */
-const REQUEST_TIMEOUT_MS = 30_000;
-const MAX_RETRIES = 1;
+/** Re-exported so callers keep importing the result type from here. */
+export type { AiReplyResult };
 
 /**
  * Per-model request shaping.
@@ -45,7 +49,7 @@ const MAX_RETRIES = 1;
  *
  * Thinking is off everywhere — see THINKING below.
  */
-const MODEL_SUPPORTS_EFFORT: Record<AiModel, boolean> = {
+const MODEL_SUPPORTS_EFFORT: Record<AnthropicModel, boolean> = {
   "claude-sonnet-5": true,
   "claude-opus-4-8": true,
   // Older generation: `effort` errors on this model.
@@ -87,7 +91,7 @@ const MODEL_SUPPORTS_EFFORT: Record<AiModel, boolean> = {
  * the presence of a `thinking` block answers on its own — and asking for
  * summaries would be output tokens spent on something nobody looks at.
  */
-const THINKING: Record<AiModel, Anthropic.ThinkingConfigParam> = {
+const THINKING: Record<AnthropicModel, Anthropic.ThinkingConfigParam> = {
   "claude-sonnet-5": { type: "adaptive" },
   "claude-opus-4-8": { type: "adaptive" },
   // The minimum the API accepts, and more than one text message needs. It has
@@ -95,68 +99,26 @@ const THINKING: Record<AiModel, Anthropic.ThinkingConfigParam> = {
   "claude-haiku-4-5-20251001": { type: "enabled", budget_tokens: 1024 },
 };
 
+/**
+ * Whether this module is the one that should answer.
+ *
+ * Keyed off `THINKING` rather than off the model id's prefix or a second list,
+ * because `THINKING` is already required to name every Anthropic model — so the
+ * check cannot drift from the table it is guarding. Adding a Claude model
+ * without a thinking shape fails to compile; adding one and forgetting to teach
+ * this function about it is not possible.
+ */
+function isAnthropicModel(model: AiModel): model is AnthropicModel {
+  return model in THINKING;
+}
+
 /** Reply sanity checks live in `integrity.ts`, kept pure so they're testable. */
 
 /**
- * The model's output contract.
- *
- * Structured rather than free text so the handover signal is machine-readable.
- * `needs_human` is what flips `ai_enabled` off, and PRD 5 calls that the single
- * most important rule in the app — far too important to detect by string
- * matching the reply.
- *
- * The system prompt is Santiago's, sent verbatim; the shape is carried by these
- * descriptions rather than by appending instructions to his text.
+ * The output schema, the SMS limit and the tool-round cap now live in
+ * `contract.ts` — both providers answer to them, and a rule that applied to
+ * only one of them would be a rule with a hole in it.
  */
-const OUTPUT_SCHEMA = {
-  type: "object",
-  properties: {
-    reply: {
-      type: "string",
-      description:
-        "The text message to send back. Plain text only — no markdown, no formatting, no quotes around it.",
-    },
-    needs_human: {
-      type: "boolean",
-      description:
-        "True when a real person should take over: pricing negotiation, an angry or upset customer, anything you were told not to handle, or anything you are unsure about.",
-    },
-  },
-  required: ["reply", "needs_human"],
-  additionalProperties: false,
-} as const;
-
-/**
- * How many times the model may call tools before the turn is cut short.
- *
- * Booking a meeting is three calls at most — find the times, look up their
- * existing appointments, write one — so this is generous. It exists because a
- * model that loops calling `find_available_times` forever would sit on the
- * webhook's tail until the function is torn down, and a lead would get silence.
- *
- * Hitting it is not an error: whatever the model has learned so far is kept and
- * it is asked, without tools, to answer with what it has.
- */
-const MAX_TOOL_ROUNDS = 6;
-
-export type AiReplyResult =
-  | {
-      ok: true;
-      reply: string;
-      needsHuman: boolean;
-      model: AiModel;
-      /** Summed across every turn, so a booking's tool round trips are billed
-       *  and logged as the one reply they produced. */
-      inputTokens: number;
-      outputTokens: number;
-      /** Prefix served from the cache. Non-zero is a hit. */
-      cachedTokens: number;
-      /** Prefix written to the cache, billed at about 1.25x. */
-      cacheWriteTokens: number;
-      /** Which tools ran, in order. Empty when the model just talked. */
-      toolsUsed: string[];
-    }
-  | { ok: false; error: string; retryable: boolean };
 
 let cachedClient: Anthropic | null = null;
 
@@ -223,6 +185,7 @@ export async function generateAiReply({
   model,
   conversation,
   cachePrompt,
+  cacheKey,
   tools,
 }: {
   systemPrompt: string;
@@ -238,6 +201,15 @@ export async function generateAiReply({
    * and a single unanswered text is slightly dearer.
    */
   cachePrompt: boolean;
+  /**
+   * Which prompts should share a cache, for providers that pool rather than
+   * mark. Ignored on the Anthropic path, which places its own breakpoint.
+   *
+   * The agent's id is the natural value: every conversation this agent has
+   * opens with the identical prompt, and two agents share nothing worth
+   * pooling. Optional so the preview routes can leave it out.
+   */
+  cacheKey?: string;
   /**
    * What the agent may do besides talk, or nothing.
    *
@@ -282,15 +254,27 @@ export async function generateAiReply({
   // failure would be an exclusion violation — but a retry that picks a
   // different time books twice for real. `sideEffects` is the answer: once
   // anything has been written, the reply stands as generated, however it reads.
+  //
+  // Which provider answers is decided here and nowhere else. Both return the
+  // same `Attempt`, so everything below this line — the discard, the veto, the
+  // logging — is identical whoever generated the reply.
   let lastError = "";
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const result = await attemptGeneration({
-      systemPrompt,
-      model,
-      conversation,
-      cachePrompt,
-      tools,
-    });
+    const result = isAnthropicModel(model)
+      ? await attemptGeneration({
+          systemPrompt,
+          model,
+          conversation,
+          cachePrompt,
+          tools,
+        })
+      : await attemptOpenAiGeneration({
+          systemPrompt,
+          model,
+          conversation,
+          cacheKey,
+          tools,
+        });
 
     if (result.ok || !result.regenerate) {
       return result.ok
@@ -312,20 +296,6 @@ export async function generateAiReply({
   return { ok: false, error: lastError, retryable: true };
 }
 
-type Attempt =
-  | (Extract<AiReplyResult, { ok: true }> & {
-      regenerate?: false;
-      sideEffects?: boolean;
-    })
-  | {
-      ok: false;
-      error: string;
-      retryable: boolean;
-      regenerate: boolean;
-      /** Whether a tool in this attempt wrote something. Blocks the retry. */
-      sideEffects: boolean;
-    };
-
 async function attemptGeneration({
   systemPrompt,
   model,
@@ -334,7 +304,7 @@ async function attemptGeneration({
   tools,
 }: {
   systemPrompt: string;
-  model: AiModel;
+  model: AnthropicModel;
   conversation: ConversationTurn[];
   cachePrompt: boolean;
   tools?: AgentTools;

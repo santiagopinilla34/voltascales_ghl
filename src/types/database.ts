@@ -66,11 +66,36 @@ export type AutomationTriggerType =
 export type AutomationRunStatus = "success" | "failed" | "skipped";
 /** Mirrors `settings_ai_mode_check`. */
 export type AiMode = "off" | "draft" | "live";
-/** Mirrors `settings_ai_model_check`. Adding one needs a migration. */
-export type AiModel =
+/**
+ * Every model an agent may be set to.
+ *
+ * The legacy `settings.ai_model` column still carries `settings_ai_model_check`
+ * and still lists only the three Claude ids — but nothing writes that column
+ * any more (Conversation AI owns the model, and it lives in `chatbots.goals` as
+ * jsonb with no constraint on it, deliberately, see `queries.ts`). So adding a
+ * model here no longer needs a migration; it needs the API to actually serve it,
+ * which is a stronger requirement and one the constraint never checked.
+ */
+/**
+ * Split by vendor rather than written as one flat union, because the request
+ * shaping is per-vendor and the compiler should be the thing that notices. Each
+ * generator keys an exhaustive `Record` off its own union, so adding a model
+ * without saying how it wants thinking configured is a build error rather than
+ * a 400 in the middle of a live conversation.
+ */
+export type AnthropicModel =
   | "claude-sonnet-5"
   | "claude-opus-4-8"
   | "claude-haiku-4-5-20251001";
+
+export type OpenAiModel =
+  | "gpt-5.6-luna"
+  | "gpt-5.4-mini"
+  | "gpt-5.4-nano"
+  | "gpt-5-mini"
+  | "gpt-5-nano";
+
+export type AiModel = AnthropicModel | OpenAiModel;
 /** Mirrors `ai_drafts_source_check`. */
 export type AiDraftSource = "shadow" | "preview";
 /** Mirrors `pipeline_entries_stage_check`. Adding one needs a migration. */

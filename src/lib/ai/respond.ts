@@ -205,6 +205,9 @@ export async function respondToInbound(
       model: bot.goals.model,
       conversation,
       cachePrompt: bot.settings.prompt_caching,
+    // Groups every conversation this agent has onto one cache. Ignored by the
+    // Anthropic path, which marks its own breakpoint.
+    cacheKey: bot.id,
       // Undefined when there is no ability, and also when the ability is
       // "send them the link" — that one is a sentence in the prompt with
       // nothing to call.

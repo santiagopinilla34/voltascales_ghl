@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Alert } from "@/lib/alerts";
 import { getSettings } from "@/lib/settings";
-import { estimateAnthropicSpend, type AnthropicEstimate } from "@/lib/usage/anthropic";
+import { estimateAiSpend, type AiSpendEstimate } from "@/lib/usage/ai-spend";
 import { formatUsdCents } from "@/lib/usage/pricing";
 import { fetchTwilioUsage, type TwilioUsageResult } from "@/lib/usage/twilio";
 import type { Database } from "@/types/database";
@@ -25,10 +25,73 @@ import type { Database } from "@/types/database";
 const BILLING = {
   twilio: "https://console.twilio.com/us1/billing/manage-billing/billing-overview",
   anthropic: "https://console.anthropic.com/settings/billing",
+  openai: "https://platform.openai.com/settings/organization/billing/overview",
 } as const;
 
-/** Fraction of budget at which the Anthropic warning appears. */
+/** Fraction of budget at which a model-spend warning appears. */
 const BUDGET_WARN_AT = 0.8;
+
+/** The model providers that can carry a budget. Twilio is a balance, not a budget. */
+const MODEL_PROVIDERS = {
+  anthropic: { label: "Anthropic", billing: BILLING.anthropic },
+  openai: { label: "OpenAI", billing: BILLING.openai },
+} as const;
+
+type ModelProvider = keyof typeof MODEL_PROVIDERS;
+
+/**
+ * Budget warnings for one model provider.
+ *
+ * Written once and called per provider rather than copied. The rule is not
+ * provider-specific — it is "spend against a ceiling the operator set" — and
+ * two hand-maintained copies of it would eventually warn at different
+ * percentages, which is exactly the drift the module docstring above exists to
+ * prevent.
+ */
+function budgetWarnings(
+  provider: ModelProvider,
+  estimate: AiSpendEstimate,
+  budgetCents: number | null,
+): Warning[] {
+  if (budgetCents === null || budgetCents <= 0) return [];
+
+  const { label, billing } = MODEL_PROVIDERS[provider];
+  const used = estimate.monthToDateCents / budgetCents;
+
+  if (used >= 1) {
+    return [
+      {
+        id: `${provider}-over`,
+        level: "critical",
+        title: `${label} estimate is over budget`,
+        detail:
+          `About ${formatUsdCents(estimate.monthToDateCents)} estimated this ` +
+          `month against a ${formatUsdCents(budgetCents)} budget. This is an ` +
+          `estimate from logged token usage, not a bill.`,
+        href: billing,
+        cta: `Open ${label} billing`,
+      },
+    ];
+  }
+
+  if (used >= BUDGET_WARN_AT) {
+    return [
+      {
+        id: `${provider}-near`,
+        level: "warn",
+        title: `${label} estimate near budget`,
+        detail:
+          `About ${Math.round(used * 100)}% of your ` +
+          `${formatUsdCents(budgetCents)} monthly budget, estimated from logged ` +
+          `token usage.`,
+        href: billing,
+        cta: `Open ${label} billing`,
+      },
+    ];
+  }
+
+  return [];
+}
 
 export type Warning = {
   id: string;
@@ -49,12 +112,23 @@ export type Warning = {
  * budget the operator set — and with no budget there is simply no warning
  * rather than one invented from a made-up ceiling.
  */
-export function buildWarnings(
-  twilio: TwilioUsageResult,
-  anthropic: AnthropicEstimate,
-  lowBalanceCents: number,
-  budgetCents: number | null,
-): Warning[] {
+export function buildWarnings({
+  twilio,
+  anthropic,
+  openai,
+  lowBalanceCents,
+  budgetCents,
+  openaiBudgetCents,
+}: {
+  twilio: TwilioUsageResult;
+  anthropic: AiSpendEstimate;
+  openai: AiSpendEstimate;
+  lowBalanceCents: number;
+  /** The Anthropic ceiling. Null means no budget and no warning. */
+  budgetCents: number | null;
+  /** The OpenAI one, tracked separately — different account, different credit. */
+  openaiBudgetCents: number | null;
+}): Warning[] {
   const warnings: Warning[] = [];
 
   if (!twilio.ok) {
@@ -93,35 +167,8 @@ export function buildWarnings(
     });
   }
 
-  if (budgetCents !== null) {
-    const used = anthropic.monthToDateCents / budgetCents;
-
-    if (used >= 1) {
-      warnings.push({
-        id: "anthropic-over",
-        level: "critical",
-        title: "Anthropic estimate is over budget",
-        detail:
-          `About ${formatUsdCents(anthropic.monthToDateCents)} estimated this ` +
-          `month against a ${formatUsdCents(budgetCents)} budget. This is an ` +
-          `estimate from logged token usage, not a bill.`,
-        href: BILLING.anthropic,
-        cta: "Open Anthropic billing",
-      });
-    } else if (used >= BUDGET_WARN_AT) {
-      warnings.push({
-        id: "anthropic-near",
-        level: "warn",
-        title: "Anthropic estimate near budget",
-        detail:
-          `About ${Math.round(used * 100)}% of your ` +
-          `${formatUsdCents(budgetCents)} monthly budget, estimated from logged ` +
-          `token usage.`,
-        href: BILLING.anthropic,
-        cta: "Open Anthropic billing",
-      });
-    }
-  }
+  warnings.push(...budgetWarnings("anthropic", anthropic, budgetCents));
+  warnings.push(...budgetWarnings("openai", openai, openaiBudgetCents));
 
   return warnings;
 }
@@ -186,20 +233,23 @@ async function cachedTwilioUsage(): Promise<TwilioUsageResult> {
 export async function getUsageAlerts(
   supabase: SupabaseClient<Database>,
 ): Promise<Alert[]> {
-  const [settings, twilio, anthropic] = await Promise.all([
+  const [settings, twilio, anthropic, openai] = await Promise.all([
     getSettings(supabase),
     cachedTwilioUsage(),
-    estimateAnthropicSpend(supabase),
+    estimateAiSpend(supabase, { provider: "anthropic" }),
+    estimateAiSpend(supabase, { provider: "openai" }),
   ]);
 
   const checkedAt = new Date().toISOString();
 
-  return buildWarnings(
+  return buildWarnings({
     twilio,
     anthropic,
-    settings?.twilio_low_balance_cents ?? 1000,
-    settings?.anthropic_monthly_budget_cents ?? null,
-  ).map((warning) => ({
+    openai,
+    lowBalanceCents: settings?.twilio_low_balance_cents ?? 1000,
+    budgetCents: settings?.anthropic_monthly_budget_cents ?? null,
+    openaiBudgetCents: settings?.openai_monthly_budget_cents ?? null,
+  }).map((warning) => ({
     id: `usage-${warning.id}`,
     kind: "usage" as const,
     level: warning.level,

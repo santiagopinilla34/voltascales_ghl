@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ExternalLink, TriangleAlert } from "lucide-react";
 
-import type { AnthropicEstimate } from "@/lib/usage/anthropic";
+import type { AiSpendEstimate } from "@/lib/usage/ai-spend";
 import type { TwilioUsageResult } from "@/lib/usage/twilio";
 import { buildWarnings } from "@/lib/usage/warnings";
 import { cn } from "@/lib/utils";
@@ -18,15 +18,26 @@ import { cn } from "@/lib/utils";
 export function UsageWarnings({
   twilio,
   anthropic,
+  openai,
   lowBalanceCents,
   budgetCents,
+  openaiBudgetCents,
 }: {
   twilio: TwilioUsageResult;
-  anthropic: AnthropicEstimate;
+  anthropic: AiSpendEstimate;
+  openai: AiSpendEstimate;
   lowBalanceCents: number;
   budgetCents: number | null;
+  openaiBudgetCents: number | null;
 }) {
-  const warnings = buildWarnings(twilio, anthropic, lowBalanceCents, budgetCents);
+  const warnings = buildWarnings({
+    twilio,
+    anthropic,
+    openai,
+    lowBalanceCents,
+    budgetCents,
+    openaiBudgetCents,
+  });
 
   if (warnings.length === 0) return null;
 

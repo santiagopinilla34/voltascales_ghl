@@ -68,6 +68,34 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
     input: 1,
     output: 5,
   },
+  // OpenAI's budget tier. Same caveat as everything above — hand-copied from
+  // the public price list, no pricing endpoint exists, and the figures here are
+  // what make every number in the UI an estimate rather than a bill.
+  "gpt-5.6-luna": {
+    label: "GPT-5.6 Luna",
+    input: 0.2,
+    output: 1.2,
+  },
+  "gpt-5.4-mini": {
+    label: "GPT-5.4 mini",
+    input: 0.75,
+    output: 4.5,
+  },
+  "gpt-5.4-nano": {
+    label: "GPT-5.4 nano",
+    input: 0.2,
+    output: 1.25,
+  },
+  "gpt-5-mini": {
+    label: "GPT-5 mini",
+    input: 0.25,
+    output: 2,
+  },
+  "gpt-5-nano": {
+    label: "GPT-5 nano",
+    input: 0.05,
+    output: 0.4,
+  },
 };
 
 export type TokenUse = {

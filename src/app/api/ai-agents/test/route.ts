@@ -137,6 +137,9 @@ export async function POST(request: Request) {
     model: bot.goals.model,
     conversation: turns,
     cachePrompt: bot.settings.prompt_caching,
+    // Groups every conversation this agent has onto one cache. Ignored by the
+    // Anthropic path, which marks its own breakpoint.
+    cacheKey: bot.id,
     // `dryRun`: the reads are real, so the panel offers this account's actually
     // open times and a full booking conversation can be rehearsed — the three
     // writes come back as "nothing happened, reply as though it had". The

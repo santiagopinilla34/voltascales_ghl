@@ -69,6 +69,19 @@ export const serverEnv = {
     return required("ANTHROPIC_API_KEY", process.env.ANTHROPIC_API_KEY);
   },
   /**
+   * Required, like the Anthropic key, but only ever read when an agent is
+   * actually set to an OpenAI model.
+   *
+   * Throwing at the point of use is the right failure here: an account running
+   * entirely on Claude never touches this getter and does not need the variable
+   * set, while an agent switched to GPT with no key gets one clear message
+   * naming the variable instead of an opaque 401 from a vendor it was never
+   * told it was calling.
+   */
+  get openaiApiKey() {
+    return required("OPENAI_API_KEY", process.env.OPENAI_API_KEY);
+  },
+  /**
    * Firecrawl, which renders a page's JavaScript before reading it.
    *
    * Deliberately not `required`. Half the sites the crawler is pointed at are
