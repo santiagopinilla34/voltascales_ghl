@@ -85,9 +85,23 @@ export type Amount = { amount: string; unit: TimeUnit };
 export type Duration = { id: string } & Amount;
 
 export type CalendarDraft = {
-  /** An object URL from the file picker. Nothing is uploaded anywhere. */
+  /**
+   * What the drop zone shows: an object URL while a new file is pending, or the
+   * stored public URL once one has been uploaded.
+   */
   logo: string | null;
   logoName: string | null;
+  /**
+   * The picked file, held until Save. A logo used to be an object URL and
+   * nothing else, which is why it vanished on reload — this is what actually
+   * gets uploaded.
+   */
+  logoFile: File | null;
+  /** Cleared the existing logo but has not saved yet. Distinct from never
+   *  having had one, which needs no write at all. */
+  logoRemoved: boolean;
+  /** Follow the operator own hours instead of this calendar own. */
+  syncAvailabilityFromUser: boolean;
   name: string;
   description: string;
   slug: string;
@@ -195,8 +209,11 @@ export function fromCalendar(
   timeZone: string,
 ): CalendarDraft {
   return {
-    logo: null,
+    logo: calendar.logo_url,
     logoName: null,
+    logoFile: null,
+    logoRemoved: false,
+    syncAvailabilityFromUser: calendar.sync_availability_from_user,
     name: calendar.name,
     description: calendar.description ?? "",
     slug: calendar.slug,

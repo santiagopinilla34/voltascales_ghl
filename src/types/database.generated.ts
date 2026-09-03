@@ -212,6 +212,57 @@ export type Database = {
           },
         ]
       }
+      app_errors: {
+        Row: {
+          contact_id: string | null
+          created_at: string
+          detail: string | null
+          href: string | null
+          id: string
+          org_id: string
+          seen_at: string | null
+          source: string
+          summary: string
+        }
+        Insert: {
+          contact_id?: string | null
+          created_at?: string
+          detail?: string | null
+          href?: string | null
+          id?: string
+          org_id: string
+          seen_at?: string | null
+          source: string
+          summary: string
+        }
+        Update: {
+          contact_id?: string | null
+          created_at?: string
+          detail?: string | null
+          href?: string | null
+          id?: string
+          org_id?: string
+          seen_at?: string | null
+          source?: string
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_errors_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "app_errors_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       automation_runs: {
         Row: {
           automation_id: string
@@ -571,6 +622,7 @@ export type Database = {
           group_id: string | null
           host_name: string | null
           id: string
+          logo_url: string | null
           meeting_link: string | null
           members: string[]
           min_notice_minutes: number
@@ -578,6 +630,7 @@ export type Database = {
           notify_number: string | null
           org_id: string
           slug: string
+          sync_availability_from_user: boolean
           type: string
           updated_at: string
         }
@@ -590,6 +643,7 @@ export type Database = {
           group_id?: string | null
           host_name?: string | null
           id?: string
+          logo_url?: string | null
           meeting_link?: string | null
           members?: string[]
           min_notice_minutes?: number
@@ -597,6 +651,7 @@ export type Database = {
           notify_number?: string | null
           org_id: string
           slug: string
+          sync_availability_from_user?: boolean
           type?: string
           updated_at?: string
         }
@@ -609,6 +664,7 @@ export type Database = {
           group_id?: string | null
           host_name?: string | null
           id?: string
+          logo_url?: string | null
           meeting_link?: string | null
           members?: string[]
           min_notice_minutes?: number
@@ -616,6 +672,7 @@ export type Database = {
           notify_number?: string | null
           org_id?: string
           slug?: string
+          sync_availability_from_user?: boolean
           type?: string
           updated_at?: string
         }
@@ -1789,6 +1846,44 @@ export type Database = {
             foreignKeyName: "settings_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_availability_rules: {
+        Row: {
+          active: boolean
+          created_at: string
+          day_of_week: number
+          end_time: string
+          id: string
+          org_id: string
+          start_time: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          day_of_week: number
+          end_time: string
+          id?: string
+          org_id: string
+          start_time: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          day_of_week?: number
+          end_time?: string
+          id?: string
+          org_id?: string
+          start_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_availability_rules_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },

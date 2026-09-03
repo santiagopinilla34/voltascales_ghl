@@ -44,12 +44,41 @@ import {
 
 export async function listAvailabilityRules(
   supabase: SupabaseClient<Database>,
-  calendarId: string,
+  calendar: { id: string; sync_availability_from_user?: boolean },
 ): Promise<AvailabilityRule[]> {
+  // A calendar following the operator's own hours reads a different table.
+  //
+  // Resolved here rather than at each call site because this function is the
+  // single place a calendar's hours are read — the booking page, the slot
+  // generator, the AI's `find_available_times`, and troubleshooting all come
+  // through it. Deciding it anywhere else would mean the toggle worked on some
+  // of those and not others, and the ones it missed would be the ones a
+  // customer sees.
+  if (calendar.sync_availability_from_user) {
+    const { data, error } = await supabase
+      .from("user_availability_rules")
+      .select("*")
+      .order("day_of_week")
+      .order("start_time");
+
+    if (error) {
+      throw new Error(`Failed to load your hours: ${error.message}`);
+    }
+
+    // Shaped like a calendar's own rule so every caller downstream is unaware
+    // of which table answered. The id is the user rule's, which nothing
+    // downstream persists — a booking records its own start and end, not the
+    // rule that offered it.
+    return (data ?? []).map((rule) => ({
+      ...rule,
+      calendar_id: calendar.id,
+    }));
+  }
+
   const { data, error } = await supabase
     .from("calendar_availability_rules")
     .select("*")
-    .eq("calendar_id", calendarId)
+    .eq("calendar_id", calendar.id)
     .order("day_of_week")
     .order("start_time");
 
@@ -58,6 +87,26 @@ export async function listAvailabilityRules(
   }
 
   return data ?? [];
+}
+
+/** The operator's own weekly hours, for the editor that sets them. */
+export async function listUserAvailabilityRules(
+  supabase: SupabaseClient<Database>,
+): Promise<AvailabilityRule[]> {
+  const { data, error } = await supabase
+    .from("user_availability_rules")
+    .select("*")
+    .order("day_of_week")
+    .order("start_time");
+
+  if (error) {
+    throw new Error(`Failed to load your hours: ${error.message}`);
+  }
+
+  // Same shape as a calendar rule so the same editor component can drive both.
+  // `calendar_id` is empty because these belong to no calendar — that is the
+  // entire point of them.
+  return (data ?? []).map((rule) => ({ ...rule, calendar_id: "" }));
 }
 
 /**
@@ -163,7 +212,7 @@ export async function getCalendarWeek(
   const [first, last] = [days[0], days[6]];
 
   const [rules, blockedRows, busy] = await Promise.all([
-    listAvailabilityRules(supabase, calendar.id),
+    listAvailabilityRules(supabase, calendar),
     listBlockedDates(supabase, calendar.id, first),
     listBusyBookings(supabase, calendar.id, first, last),
   ]);
@@ -235,7 +284,7 @@ export async function getCalendarMonth(
   const [first, last] = [days[0], days[days.length - 1]];
 
   const [rules, blockedRows, busy] = await Promise.all([
-    listAvailabilityRules(supabase, calendar.id),
+    listAvailabilityRules(supabase, calendar),
     listBlockedDates(supabase, calendar.id, first),
     listBusyBookings(supabase, calendar.id, first, last),
   ]);
@@ -288,7 +337,7 @@ export async function getDaySlots(
   ignoreBookingId?: string,
 ): Promise<DaySlots> {
   const [rules, blockedRows, busy] = await Promise.all([
-    listAvailabilityRules(supabase, calendar.id),
+    listAvailabilityRules(supabase, calendar),
     listBlockedDates(supabase, calendar.id, dayKey),
     listBusyBookings(supabase, calendar.id, dayKey, dayKey, ignoreBookingId),
   ]);

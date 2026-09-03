@@ -3,12 +3,17 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 
 import { AvailabilitySchedule } from "@/components/booking/availability-schedule";
+import { UserAvailabilitySchedule } from "@/components/booking/user-availability-schedule";
 import { CalendarList } from "@/components/booking/calendar-list";
 import {
   listCalendarGroups,
   listCalendars,
 } from "@/lib/booking/calendars";
-import { listAvailabilityRules, listBlockedDates } from "@/lib/booking/queries";
+import {
+  listAvailabilityRules,
+  listBlockedDates,
+  listUserAvailabilityRules,
+} from "@/lib/booking/queries";
 import { appBaseUrl } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -150,13 +155,25 @@ async function AvailabilityTab({
   }
 
   const supabase = await createClient();
-  const [rules, blocked] = await Promise.all([
-    listAvailabilityRules(supabase, selected.id),
+  const [rules, blocked, userRules] = await Promise.all([
+    listAvailabilityRules(supabase, selected),
     listBlockedDates(supabase, selected.id),
+    listUserAvailabilityRules(supabase),
   ]);
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {/* Above the per-calendar hours, because a calendar following these
+          ignores its own — reading them in the other order would leave you
+          wondering why the hours below have no effect. */}
+      <UserAvailabilitySchedule
+        rules={userRules}
+        followerCount={
+          calendars.filter((calendar) => calendar.sync_availability_from_user)
+            .length
+        }
+      />
+
       {calendars.length > 1 && (
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="text-muted-foreground mr-1 text-xs">Calendar</span>

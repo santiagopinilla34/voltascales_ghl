@@ -611,7 +611,7 @@ export async function troubleshootDay(
   if (!calendar) return { ok: false, error: "That calendar no longer exists." };
 
   const [rules, blocked, busy] = await Promise.all([
-    listAvailabilityRules(supabase, calendar.id),
+    listAvailabilityRules(supabase, calendar),
     listBlockedDates(supabase, calendar.id, dayKey),
     listBusyBookings(supabase, calendar.id, dayKey, dayKey),
   ]);
@@ -754,4 +754,238 @@ export async function createOneTimeBookingLink(
       error: error instanceof Error ? error.message : "Could not create the link.",
     };
   }
+}
+
+/**
+ * The Basic details section of the calendar editor.
+ *
+ * Until now that whole screen was a draft in React that a reload threw away —
+ * it said so, in a notice at the top. This is the half of it that has columns
+ * to land in: the name, the description, the handle the public link hangs off,
+ * and which group it belongs to.
+ *
+ * The logo is separate (`saveCalendarLogo`) because it is a file upload and
+ * cannot travel in the same JSON payload. Meeting invite title and meeting
+ * colour are deliberately not here: nothing stores them, and the editor marks
+ * them as not built rather than accepting text that would vanish.
+ */
+export async function saveCalendarBasics(
+  calendarId: string,
+  input: {
+    name: string;
+    description: string;
+    slug: string;
+    groupId: string | null;
+  },
+): Promise<ActionResult> {
+  const supabase = await session();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: "A calendar needs a name." };
+
+  // Run through the same slugifier `createCalendar` uses rather than trusting
+  // what was typed: this ends up in a public URL, and a handle with a space or
+  // a slash in it produces a link that 404s.
+  const slug = slugify(input.slug.trim() || name);
+  if (!slug) {
+    return {
+      ok: false,
+      error: "That custom URL has no usable characters. Try letters and numbers.",
+    };
+  }
+
+  const { error } = await supabase
+    .from("calendars")
+    .update({
+      name,
+      description: input.description.trim() || null,
+      slug,
+      group_id: input.groupId,
+    })
+    .eq("id", calendarId);
+
+  if (error) {
+    if (error.code === UNIQUE_VIOLATION) {
+      return {
+        ok: false,
+        error: `Another calendar already uses "${slug}". Pick a different custom URL.`,
+      };
+    }
+    return { ok: false, error: `Could not save: ${error.message}` };
+  }
+
+  revalidateCalendars();
+  return { ok: true, value: null };
+}
+
+/** What the logo may be. Mirrors the hint under the drop zone. */
+const LOGO_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/gif"];
+
+/** 2MB. A logo is a small square; anything larger is a photo by mistake. */
+const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Uploads a calendar's logo and records where it went.
+ *
+ * Stored at `<org_id>/<calendar_id>.<ext>` in the public `calendar-logos`
+ * bucket. The path is derived rather than taken from the caller for two
+ * reasons: the storage policies key off that first segment being an org you
+ * belong to, and a caller-supplied name is how one account overwrites
+ * another's file.
+ *
+ * `upsert`, because replacing a logo is the ordinary case and a second upload
+ * should not fail on the object already being there.
+ *
+ * Public URL rather than a signed one: the booking page is public, and a signed
+ * URL that expires would break the page for whoever opened it an hour ago.
+ */
+export async function saveCalendarLogo(
+  calendarId: string,
+  formData: FormData,
+): Promise<ActionResult<string | null>> {
+  const supabase = await session();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  const context = await requireOrgContext();
+  const file = formData.get("logo");
+
+  // No file means "remove it" — the drop zone's clear button posts an empty
+  // form rather than needing an action of its own.
+  if (!(file instanceof File) || file.size === 0) {
+    const { error } = await supabase
+      .from("calendars")
+      .update({ logo_url: null })
+      .eq("id", calendarId);
+
+    if (error) {
+      return { ok: false, error: `Could not remove the logo: ${error.message}` };
+    }
+
+    revalidateCalendars();
+    return { ok: true, value: null };
+  }
+
+  if (!LOGO_TYPES.includes(file.type)) {
+    return { ok: false, error: "The logo has to be a PNG, JPEG, JPG or GIF." };
+  }
+  if (file.size > LOGO_MAX_BYTES) {
+    return { ok: false, error: "That image is over 2MB. Try a smaller one." };
+  }
+
+  const extension =
+    file.type === "image/png" ? "png" : file.type === "image/gif" ? "gif" : "jpg";
+  const path = `${context.orgId}/${calendarId}.${extension}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("calendar-logos")
+    .upload(path, file, { upsert: true, contentType: file.type });
+
+  if (uploadError) {
+    return { ok: false, error: `Could not upload the logo: ${uploadError.message}` };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("calendar-logos").getPublicUrl(path);
+
+  // Cache-busted, because the path is stable across replacements — without
+  // this, uploading a new logo leaves every browser showing the old one.
+  const url = `${publicUrl}?v=${Date.now()}`;
+
+  const { error } = await supabase
+    .from("calendars")
+    .update({ logo_url: url })
+    .eq("id", calendarId);
+
+  if (error) {
+    return { ok: false, error: `Uploaded, but could not save: ${error.message}` };
+  }
+
+  revalidateCalendars();
+  return { ok: true, value: url };
+}
+
+/**
+ * Points a calendar at the operator's own hours, or back at its own.
+ *
+ * Separate from `saveAvailability` because it changes *which* set of rules the
+ * calendar reads rather than editing a set — and because turning it on must not
+ * destroy the calendar's own hours. They stay in
+ * `calendar_availability_rules`, ignored, and come back when it is turned off.
+ */
+export async function setSyncAvailabilityFromUser(
+  calendarId: string,
+  sync: boolean,
+): Promise<ActionResult> {
+  const supabase = await session();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  const { error } = await supabase
+    .from("calendars")
+    .update({ sync_availability_from_user: sync })
+    .eq("id", calendarId);
+
+  if (error) return { ok: false, error: `Could not save: ${error.message}` };
+
+  revalidateCalendars();
+  return { ok: true, value: null };
+}
+
+/**
+ * Replaces the operator's own weekly hours.
+ *
+ * Same delete-then-insert as `saveAvailability`, for the same reasons, and the
+ * same honest caveat: PostgREST cannot send a transaction, so a failure between
+ * the two leaves the hours empty and the error message says so.
+ *
+ * Scoped by organization rather than by user — see the table's comment for why
+ * "the user" is the account here.
+ */
+export async function saveUserAvailability(
+  rules: AvailabilityRuleInput[],
+): Promise<ActionResult> {
+  const supabase = await session();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  const context = await requireOrgContext();
+
+  for (const rule of rules) {
+    if (rule.day_of_week < 0 || rule.day_of_week > 6) {
+      return { ok: false, error: `${rule.day_of_week} is not a day of the week` };
+    }
+    if (parseTimeOfDay(rule.end_time) <= parseTimeOfDay(rule.start_time)) {
+      return {
+        ok: false,
+        error: `${rule.start_time}-${rule.end_time} ends before it starts.`,
+      };
+    }
+  }
+
+  const { error: deleteError } = await supabase
+    .from("user_availability_rules")
+    .delete()
+    .eq("org_id", context.orgId);
+
+  if (deleteError) {
+    return { ok: false, error: `Could not clear your hours: ${deleteError.message}` };
+  }
+
+  if (rules.length > 0) {
+    const { error: insertError } = await supabase
+      .from("user_availability_rules")
+      .insert(rules.map((rule) => ({ ...rule, org_id: context.orgId })));
+
+    if (insertError) {
+      return {
+        ok: false,
+        error:
+          `Your hours were cleared but not saved: ${insertError.message}. ` +
+          "Calendars following them have no availability until you save again.",
+      };
+    }
+  }
+
+  revalidateCalendars();
+  return { ok: true, value: null };
 }

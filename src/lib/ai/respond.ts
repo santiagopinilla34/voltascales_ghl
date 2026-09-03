@@ -9,6 +9,7 @@ import { isOrgSuspended } from "@/lib/orgs/suspension";
 import { debit, hasCredit } from "@/lib/billing/credit";
 import { RATES } from "@/lib/billing/rates";
 import { notifyHandoff } from "@/lib/notify/handoff";
+import { recordAppError } from "@/lib/app-errors";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import type { Contact, Database } from "@/types/database";
@@ -220,6 +221,17 @@ export async function respondToInbound(
       console.log(
         `[ai] no reply for message ${messageId}: generation failed — ${result.error}`,
       );
+      // The bot going quiet mid-conversation is invisible from outside: the
+      // lead simply stops being answered, and until now the only trace was this
+      // log line. This is what turns it into something the operator can see.
+      await recordAppError({
+        orgId: contact.org_id,
+        source: "ai_reply",
+        summary: `${bot.name} could not answer a message`,
+        detail: result.error,
+        href: `/inbox/${contact.id}`,
+        contactId: contact.id,
+      });
       return;
     }
 

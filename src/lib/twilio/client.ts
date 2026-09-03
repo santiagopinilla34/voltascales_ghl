@@ -9,6 +9,7 @@ import {
 } from "@/lib/billing/credit";
 import { RATES } from "@/lib/billing/rates";
 import { serverEnv } from "@/lib/env";
+import { recordAppError } from "@/lib/app-errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -46,6 +47,16 @@ export async function sendSms(to: string, body: string, orgId?: string) {
   // of the suspension check two lines away in every caller. The reasoning for
   // the difference is in `lib/billing/credit.ts`.
   if (orgId && !(await hasCredit(admin, orgId))) {
+    // Recorded before it throws. Callers handle this differently — some retry,
+    // some go quiet — and without a row here the operator's first sign that
+    // texts stopped is a customer asking why nobody replied.
+    await recordAppError({
+      orgId,
+      source: "credit",
+      summary: "A text was not sent — this account is out of credit",
+      detail: `Sending to ${to} was refused. Top up to start sending again; nothing is queued.`,
+      href: "/billing",
+    });
     throw new InsufficientCreditError();
   }
 
@@ -55,11 +66,30 @@ export async function sendSms(to: string, body: string, orgId?: string) {
     ? twilio(credentials.accountSid, credentials.authToken)
     : createTwilioClient();
 
-  const message = await client.messages.create({
-    to,
-    from: credentials?.from ?? serverEnv.twilioPhoneNumber,
-    body,
-  });
+  // Twilio's rejections are the ones worth surfacing: an unreachable number, a
+  // number that has not passed A2P registration, a carrier block. Every one of
+  // those is silent from the operator's side — the text simply never arrives —
+  // so it is recorded and then rethrown unchanged, leaving the caller's own
+  // error handling exactly as it was.
+  let message;
+  try {
+    message = await client.messages.create({
+      to,
+      from: credentials?.from ?? serverEnv.twilioPhoneNumber,
+      body,
+    });
+  } catch (error) {
+    if (orgId) {
+      await recordAppError({
+        orgId,
+        source: "send",
+        summary: `A text to ${to} was rejected`,
+        detail: error instanceof Error ? error.message : String(error),
+        href: "/phone",
+      });
+    }
+    throw error;
+  }
 
   if (orgId) {
     // Charged per segment, not per message: Twilio splits anything over 160

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ChevronRight, Clock, Lightbulb, Share2, Wrench } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -25,6 +26,12 @@ import {
 import { FrontEndOnlyNotice } from "@/components/booking/front-end-only-notice";
 import { ShareCalendarDialog } from "@/components/booking/share-calendar-dialog";
 import { TroubleshootCalendarDialog } from "@/components/booking/troubleshoot-calendar-dialog";
+import {
+  saveAvailability,
+  saveCalendarBasics,
+  saveCalendarLogo,
+  setSyncAvailabilityFromUser,
+} from "@/app/(app)/calendar/settings/actions";
 import { cn } from "@/lib/utils";
 import type {
   AvailabilityRule,
@@ -41,15 +48,19 @@ import type {
  * and the rules around that — with the hours as one section of it rather than
  * as the destination.
  *
- * ## Front end only, and saying so
+ * ## What saves, and what says it does not
  *
- * Nothing here writes. The draft lives in React and goes away on reload, which
- * is what the notice at the top of the page says and what Save changes repeats
- * rather than pretending otherwise. Two of these sections *do* have working
- * server actions already — the hours and the buffer are saved by the
- * Availability tab next door — and they are deliberately not wired up here
- * yet: a screen where two sections persist and three do not, with one Save
- * button over the lot, is a worse lie than a screen that saves nothing.
+ * Basic details and Availability write, as of 2026-09-03. The name, the
+ * description, the custom URL, the group, the logo and the weekly hours all
+ * land in real columns, and Save changes reports what actually happened.
+ *
+ * Meeting location and Booking rules still do not, because no column stores a
+ * meeting location, a maximum per slot or a look-busy percentage. Rather than
+ * one banner over the whole page claiming nothing saves — which is now a lie
+ * about two of the four sections — each unsaveable section carries its own
+ * notice, and the two fields in Basic details with nowhere to go (the invite
+ * title and the colour) are badged individually. The rule this follows: a
+ * control that cannot persist must say so where it is, not somewhere else.
  *
  * The draft is seeded from the real row, so the form opens on this calendar's
  * actual name, handle, hours, length and buffer rather than on defaults.
@@ -73,6 +84,7 @@ const SECTIONS = [
   {
     id: "location",
     label: "Meeting location",
+    soon: true,
     tip: "When “Ask the booker” is selected, the person booking types the location in during booking.",
   },
   {
@@ -83,6 +95,7 @@ const SECTIONS = [
   {
     id: "rules",
     label: "Booking rules",
+    soon: true,
     tip: "Use maximum bookings per slot to control how many meetings can happen at the same time.",
   },
 ] as const;
@@ -109,9 +122,103 @@ export function CalendarEditor({
     fromCalendar(calendar, rules, timeZone),
   );
   const [dialog, setDialog] = useState<"share" | "troubleshoot" | null>(null);
+  const [saving, startSaving] = useTransition();
+  const router = useRouter();
 
   function patch(changes: Partial<CalendarDraft>) {
     setDraft((current) => ({ ...current, ...changes }));
+  }
+
+  /**
+   * Writes the parts of this screen that have somewhere to be written.
+   *
+   * Three calls rather than one, because they are three different shapes: a row
+   * update, a whole-week replacement, and a file. They run in sequence and stop
+   * at the first failure — a half-saved calendar is confusing, and continuing
+   * after the name was rejected would report success for the hours while the
+   * name silently reverted.
+   *
+   * What is deliberately *not* here: the meeting invite title, the colour, the
+   * meeting locations, and everything under Booking rules. No column stores any
+   * of them. Those sections say so on their face rather than accepting input
+   * this function would quietly drop.
+   */
+  function save() {
+    startSaving(async () => {
+      const basics = await saveCalendarBasics(calendar.id, {
+        name: draft.name,
+        description: draft.description,
+        slug: draft.slug,
+        groupId: draft.groupId,
+      });
+      if (!basics.ok) {
+        toast.error(basics.error);
+        return;
+      }
+
+      // Only checked days are sent. The action replaces the whole pattern, so
+      // an unchecked day is expressed by its rows not being in the payload.
+      const rulePayload = draft.days.flatMap((day, index) =>
+        day.active
+          ? day.ranges.map((range) => ({
+              day_of_week: index,
+              start_time: range.start,
+              end_time: range.end,
+              active: true,
+            }))
+          : [],
+      );
+
+      // Skipped entirely while the calendar is following the operator's own
+      // hours: the rows on screen are then *their* hours, and writing them back
+      // to this calendar would copy them in and make the toggle look like it
+      // had done nothing when it was switched off again.
+      if (!draft.syncAvailabilityFromUser) {
+        const hours = await saveAvailability(calendar.id, rulePayload);
+        if (!hours.ok) {
+          toast.error(hours.error);
+          return;
+        }
+      }
+
+      if (draft.syncAvailabilityFromUser !== calendar.sync_availability_from_user) {
+        const synced = await setSyncAvailabilityFromUser(
+          calendar.id,
+          draft.syncAvailabilityFromUser,
+        );
+        if (!synced.ok) {
+          toast.error(synced.error);
+          return;
+        }
+      }
+
+      // Only when a file was actually picked. Re-uploading the existing logo on
+      // every save would cost a round trip and a new cache-busting URL each
+      // time, for no change.
+      if (draft.logoFile) {
+        const form = new FormData();
+        form.set("logo", draft.logoFile);
+        const logo = await saveCalendarLogo(calendar.id, form);
+        if (!logo.ok) {
+          toast.error(logo.error);
+          return;
+        }
+        patch({ logoFile: null });
+      } else if (draft.logoRemoved) {
+        const logo = await saveCalendarLogo(calendar.id, new FormData());
+        if (!logo.ok) {
+          toast.error(logo.error);
+          return;
+        }
+        patch({ logoRemoved: false });
+      }
+
+      toast.success(`${draft.name.trim() || "Calendar"} saved`);
+      // The header shows the name from the row rather than the draft, and the
+      // handle in the Share dialog comes from the row too, so both are stale
+      // until the server sends this page again.
+      router.refresh();
+    });
   }
 
   const tip = SECTIONS.find((entry) => entry.id === section)?.tip ?? "";
@@ -155,16 +262,8 @@ export function CalendarEditor({
             >
               <Wrench />
             </HeaderAction>
-            <Button
-              size="sm"
-              onClick={() =>
-                toast("Nothing was saved", {
-                  description:
-                    "This editor is front end only for now — reloading the page will lose these changes.",
-                })
-              }
-            >
-              Save changes
+            <Button size="sm" disabled={saving} onClick={save}>
+              {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>
         </div>
@@ -193,7 +292,18 @@ export function CalendarEditor({
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                {entry.label}
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate">{entry.label}</span>
+                  {"soon" in entry && entry.soon && (
+                    <Badge
+                      variant="outline"
+                      className="text-muted-foreground ml-auto shrink-0"
+                    >
+                      <Clock />
+                      Soon
+                    </Badge>
+                  )}
+                </span>
               </button>
             ))}
 
@@ -232,19 +342,10 @@ export function CalendarEditor({
           </nav>
 
           <div className="flex min-w-0 flex-col gap-4">
-            <FrontEndOnlyNotice>
-              This editor keeps nothing yet. The fields are filled in from the
-              real calendar, but Save changes does not write — the hours and the
-              buffer are still saved from the{" "}
-              <Link
-                href={`/calendar/settings?tab=availability&calendar=${calendar.id}`}
-                className="underline underline-offset-2"
-              >
-                Availability tab
-              </Link>
-              .
-            </FrontEndOnlyNotice>
-
+            {/* Only the two sections that still have nowhere to write say so,
+                and they say it on themselves. A banner over the whole page
+                claiming nothing saves would now be a lie about Basic details
+                and Availability, which do. */}
             {section === "basics" && (
               <BasicDetailsSection
                 draft={draft}
@@ -255,13 +356,41 @@ export function CalendarEditor({
               />
             )}
             {section === "location" && (
-              <MeetingLocationSection draft={draft} patch={patch} />
+              <>
+                <FrontEndOnlyNotice>
+                  Meeting location isn&apos;t built yet. Nothing stores where a
+                  meeting happens, so anything set here is lost on reload — the
+                  meeting link on the{" "}
+                  <Link
+                    href={`/calendar/settings?tab=availability&calendar=${calendar.id}`}
+                    className="underline underline-offset-2"
+                  >
+                    Availability tab
+                  </Link>{" "}
+                  is what actually reaches the person booking.
+                </FrontEndOnlyNotice>
+                <MeetingLocationSection draft={draft} patch={patch} />
+              </>
             )}
             {section === "availability" && (
               <AvailabilitySection draft={draft} patch={patch} />
             )}
             {section === "rules" && (
-              <BookingRulesSection draft={draft} patch={patch} />
+              <>
+                <FrontEndOnlyNotice>
+                  Booking rules aren&apos;t built yet. Meeting length, minimum
+                  notice and the buffer are real and saved — but from the{" "}
+                  <Link
+                    href={`/calendar/settings?tab=availability&calendar=${calendar.id}`}
+                    className="underline underline-offset-2"
+                  >
+                    Availability tab
+                  </Link>
+                  . The rest of this section has no column behind it and is lost
+                  on reload.
+                </FrontEndOnlyNotice>
+                <BookingRulesSection draft={draft} patch={patch} />
+              </>
             )}
           </div>
         </div>

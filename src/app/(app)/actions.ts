@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { SNOOZE_HOURS, isCondition, type AlertKind } from "@/lib/alerts";
+import { markErrorsSeen } from "@/lib/app-errors";
 import { createClient } from "@/lib/supabase/server";
 
 export async function signOut() {
@@ -18,6 +19,8 @@ const ALERT_KINDS: readonly AlertKind[] = [
   "reply",
   "missed_call",
   "booking",
+  "lead",
+  "error",
   "usage",
   "automation",
 ];
@@ -78,6 +81,11 @@ export async function dismissAlerts(
     console.error("[alerts] failed to record dismissal", error);
     return;
   }
+
+  // Failures carry their own acknowledgement on the row, because they are the
+  // one kind that is stored rather than derived — a dismissal keyed by alert id
+  // would leave the table growing with rows nothing ever clears.
+  await markErrorsSeen(supabase, entries.map((entry) => entry.id));
 
   // Opportunistic cleanup, so lapsed snoozes don't accumulate forever. Cheap,
   // indexed, and it only runs when something was dismissed anyway.

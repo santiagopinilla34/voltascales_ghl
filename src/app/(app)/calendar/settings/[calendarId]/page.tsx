@@ -38,7 +38,7 @@ export default async function EditCalendarPage({
   if (!calendar) notFound();
 
   const [rules, groups] = await Promise.all([
-    listAvailabilityRules(supabase, calendar.id),
+    listAvailabilityRules(supabase, calendar),
     listCalendarGroups(supabase),
   ]);
 

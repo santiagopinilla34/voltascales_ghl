@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isOrgSuspended } from "@/lib/orgs/suspension";
 import { pipelineStageLabel } from "@/lib/pipeline-stages";
 import { hasCredit } from "@/lib/billing/credit";
+import { recordAppError } from "@/lib/app-errors";
 import type {
   Automation,
   AutomationRunStatus,
@@ -457,6 +458,21 @@ async function logRun(
       `[automations] failed to log ${status} run of "${automation.name}"`,
       error,
     );
+  }
+
+  // A rule that threw has stopped doing whatever it was set up to do, and
+  // nothing else says so — the runs list has to be opened to find out. Only
+  // errors are raised: a rule that correctly matched nothing is not news, and
+  // a bell that reported every successful run would be unreadable within a day.
+  if (status === "failed") {
+    await recordAppError({
+      orgId: automation.org_id,
+      source: "automation",
+      summary: `Automation "${automation.name}" failed`,
+      detail: trimmed,
+      href: `/automations/${automation.id}`,
+      contactId: contact?.id ?? null,
+    });
   }
 
   return {

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import {
   CalendarClock,
   Check,
+  Clock,
   Copy,
   Plus,
   Trash2,
@@ -182,23 +183,46 @@ export function BasicDetailsSection({
             )}
           </Field>
 
-          <Field
-            id="calendar-invite-title"
-            label="Meeting invite title"
-            hint="The title on the calendar invite. Merge fields are substituted when the meeting is booked."
-          >
+          {/* No column stores this, so it is shown as not built rather than
+              taking text that Save would silently drop. */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <FieldLabel hint="The title on the calendar invite. Merge fields would be substituted when the meeting is booked.">
+                Meeting invite title
+              </FieldLabel>
+              <Badge
+                variant="outline"
+                className="text-muted-foreground shrink-0"
+              >
+                <Clock />
+                Soon
+              </Badge>
+            </div>
             <Input
               id="calendar-invite-title"
               value={draft.inviteTitle}
-              onChange={(event) => patch({ inviteTitle: event.target.value })}
+              disabled
+              readOnly
             />
-          </Field>
+            <p className="text-muted-foreground text-xs">
+              Invites go out with the calendar&apos;s own name for now.
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-col gap-2">
-          <FieldLabel hint="How meetings from this calendar are coloured wherever they are drawn.">
-            Meeting color
-          </FieldLabel>
+          <div className="flex items-center gap-2">
+            <FieldLabel hint="How meetings from this calendar would be coloured wherever they are drawn.">
+              Meeting color
+            </FieldLabel>
+            {/* Same as the invite title: nothing stores it. Left interactive
+                because picking a swatch is harmless and the label says it does
+                not stick, where a row of dead swatches just looks broken. */}
+            <Badge variant="outline" className="text-muted-foreground shrink-0">
+              <Clock />
+              Soon
+            </Badge>
+          </div>
           <div className="flex flex-wrap gap-2">
             {MEETING_COLORS.map((color) => (
               <button
@@ -257,14 +281,26 @@ function LogoField({ draft, patch }: { draft: CalendarDraft; patch: Patch }) {
   function take(file: File | undefined) {
     if (!file || !file.type.startsWith("image/")) return;
     // Released before it is replaced, so opening the picker ten times does not
-    // leave ten blobs pinned for the life of the page.
-    if (draft.logo) URL.revokeObjectURL(draft.logo);
-    patch({ logo: URL.createObjectURL(file), logoName: file.name });
+    // leave ten blobs pinned for the life of the page. Only object URLs are
+    // revoked — a stored logo is a real https URL, and revoking that is a
+    // no-op that would be confusing to read here.
+    if (draft.logo?.startsWith("blob:")) URL.revokeObjectURL(draft.logo);
+    // The File itself is kept, not just a preview of it. Holding nothing but
+    // the object URL is why a logo used to disappear on reload: there was
+    // nothing left to upload when Save was pressed.
+    patch({
+      logo: URL.createObjectURL(file),
+      logoName: file.name,
+      logoFile: file,
+      logoRemoved: false,
+    });
   }
 
   function clear() {
-    if (draft.logo) URL.revokeObjectURL(draft.logo);
-    patch({ logo: null, logoName: null });
+    if (draft.logo?.startsWith("blob:")) URL.revokeObjectURL(draft.logo);
+    // Distinguishes "cleared it, save that" from "never had one", which needs
+    // no write at all.
+    patch({ logo: null, logoName: null, logoFile: null, logoRemoved: true });
   }
 
   return (
@@ -569,8 +605,48 @@ export function AvailabilitySection({
         />
       </SectionHeader>
 
+      {/* Above the grid, not inside it: it decides whether the hours below are
+          this calendar's at all, so it has to be read first. */}
+      <div className="flex min-w-0 items-start justify-between gap-4 border-b px-5 py-4">
+        <div className="min-w-0">
+          <Label
+            htmlFor="sync-availability"
+            className="text-sm font-medium"
+          >
+            Sync availability from user
+          </Label>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Follow your own working hours instead of setting hours for this
+            calendar. Change them once, under Availability in Calendar settings,
+            and every calendar following them moves with you. This calendar
+            keeps its own hours while it is off — they come back if you switch
+            this off again.
+          </p>
+        </div>
+        <Switch
+          id="sync-availability"
+          checked={draft.syncAvailabilityFromUser}
+          onCheckedChange={(syncAvailabilityFromUser) =>
+            patch({ syncAvailabilityFromUser })
+          }
+          className="mt-0.5 shrink-0"
+        />
+      </div>
+
       <div className="grid min-w-0 items-start gap-6 p-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <section className="flex min-w-0 flex-col gap-1">
+        <section
+          className={cn(
+            "flex min-w-0 flex-col gap-1",
+            // Dimmed and inert rather than hidden. Hiding it would make the
+            // toggle look like it deleted the hours, and the point is that they
+            // are still there, just not the ones being used.
+            draft.syncAvailabilityFromUser && "pointer-events-none opacity-50",
+          )}
+          // `inert` rather than aria-disabled: a <section> is a region, which
+          // does not support that attribute, and inert actually takes the
+          // fields out of the tab order instead of only announcing that it did.
+          inert={draft.syncAvailabilityFromUser || undefined}
+        >
           <FieldLabel hint="The working days and hours that decide when slots appear on this calendar.">
             Weekly available hours
           </FieldLabel>

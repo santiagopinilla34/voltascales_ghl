@@ -172,3 +172,67 @@ export async function listMessages(
 
   return data ?? [];
 }
+
+/**
+ * Contacts who have just texted you for the first time.
+ *
+ * Santiago's definition of a lead, chosen over "a new contact row" on
+ * 2026-09-03: a lead is somebody who made contact, not somebody who exists in
+ * the table. That distinction matters here because contacts arrive from a
+ * .vcf import three hundred at a time, and none of those is a lead.
+ *
+ * The window is deliberate. A first message is an event, and an event that
+ * happened last month is history rather than a notification — without a bound
+ * the bell would carry every first contact the account has ever had. Anything
+ * older has either been answered or been abandoned, and neither is news.
+ */
+const LEAD_WINDOW_HOURS = 72;
+
+export async function getLeadAlerts(
+  supabase: SupabaseClient<Database>,
+): Promise<Alert[]> {
+  const since = new Date(
+    Date.now() - LEAD_WINDOW_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+
+  // Every message for contacts with recent activity, oldest first, so the
+  // first inbound one is identifiable. Asking for "the first message" per
+  // contact is a lateral join PostgREST will not write, and the row counts
+  // here are small enough that filtering in JS is the honest trade.
+  const { data, error } = await supabase
+    .from("contacts")
+    .select(`id, name, phone, created_at, messages ( id, body, direction, created_at )`)
+    .gte("created_at", since)
+    .order("created_at", { referencedTable: "messages", ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to load new leads: ${error.message}`);
+  }
+
+  const alerts: Alert[] = [];
+
+  for (const { messages, ...contact } of data ?? []) {
+    // "in", not "inbound" — see MessageDirection in src/types/database.ts.
+    const first = messages.find((message) => message.direction === "in");
+    if (!first || first.created_at < since) continue;
+
+    // A contact who texted first is a lead; one we texted first is an outreach
+    // we already knew about, so it is not news even if they replied.
+    if (messages.at(0)?.id !== first.id) continue;
+
+    alerts.push({
+      id: `lead-${contact.id}`,
+      kind: "lead",
+      level: "info",
+      title: `New lead: ${contactLabel(contact)}`,
+      detail: first.body?.trim()
+        ? truncate(first.body.trim(), 140)
+        : "Got in touch for the first time.",
+      href: `/inbox/${contact.id}`,
+      at: first.created_at,
+      read: false,
+    });
+  }
+
+  return alerts;
+}

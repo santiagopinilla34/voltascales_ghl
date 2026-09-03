@@ -9,6 +9,8 @@ import {
   MessageSquare,
   PhoneMissed,
   TriangleAlert,
+  UserPlus,
+  CircleAlert,
 } from "lucide-react";
 
 import { dismissAlerts } from "@/app/(app)/actions";
@@ -33,6 +35,8 @@ const ICONS: Record<AlertKind, typeof Bell> = {
   reply: MessageSquare,
   missed_call: PhoneMissed,
   booking: CalendarPlus,
+  lead: UserPlus,
+  error: CircleAlert,
   usage: TriangleAlert,
   automation: Bot,
 };
@@ -151,8 +155,31 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
     });
   }
 
+  /**
+   * Opening the panel is reading it.
+   *
+   * This is the fix for a notification that sat flagged unread for days: read
+   * state was only ever recorded when a specific row was *clicked*, so glancing
+   * at the bell — which is what people actually do — cleared nothing, and the
+   * same alert greeted you every morning until you happened to press it.
+   *
+   * Marked on close rather than on open, matching the What's new bubble: it
+   * means opening the panel and reading it are one gesture, and the rows do not
+   * grey out from under you while your eyes are still on them. The count is
+   * gone by the time the panel is shut, which is what "it stays unflagged"
+   * asks for.
+   *
+   * Usage alerts are snoozed rather than dismissed forever — `isCondition`
+   * decides that, server-side — so a low balance still comes back tomorrow
+   * instead of being silenced by a glance.
+   */
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) dismiss(items.filter((entry) => !entry.read));
+  }
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -212,8 +239,8 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
         {/* Says what is *not* watched yet, so a quiet bell is not mistaken for
             "nothing has happened". Delete a clause as each one is wired. */}
         <p className="text-muted-foreground border-t px-3 py-2 text-[11px]">
-          Watching your inbox and your Twilio and Anthropic balances. Missed
-          calls, new bookings and failed automations aren&apos;t wired up yet.
+          Watching replies, new leads, meetings in the next day, failures across
+          the app, and your balances. Missed calls aren&apos;t wired up yet.
         </p>
       </PopoverContent>
     </Popover>

@@ -1,23 +1,35 @@
 /**
  * Shapes for the notification bubble.
  *
- * Two of the five kinds are live and read real data. The other three are
- * defined but never produced yet — nothing fabricates them, because a
- * notification list that mixes real rows with invented ones is worse than a
- * short list. You cannot tell which is which, and the first thing you do is
- * act on a booking that never happened.
+ * Nothing fabricates an alert. A list that mixes real rows with invented ones
+ * is worse than a short list — you cannot tell which is which, and the first
+ * thing you do is act on a booking that never happened.
  *
  * | kind          | status | source                                          |
  * |---------------|--------|-------------------------------------------------|
  * | `usage`       | live   | `getUsageAlerts` in `src/lib/usage/warnings.ts`  |
  * | `reply`       | live   | `getReplyAlerts` in `src/lib/conversations.ts`   |
+ * | `lead`        | live   | `getLeadAlerts` — a contact's first inbound text |
+ * | `booking`     | live   | `getBookingAlerts` in `src/lib/booking/alerts.ts`|
+ * | `error`       | live   | `getErrorAlerts` in `src/lib/app-errors.ts`      |
  * | `missed_call` | to do  | `calls` where the call was not answered          |
- * | `booking`     | to do  | `bookings` created since the operator last looked|
- * | `automation`  | to do  | `automation_runs` where the run failed           |
+ * | `automation`  | to do  | folded into `error` — kept so old dismissals resolve |
  *
- * No alert has persistent read state: `read` is set by the panel for the
- * session and is not stored anywhere. See the comment on `getReplyAlerts` for
- * what giving it real read state would cost.
+ * ## Derived, except where it cannot be
+ *
+ * Most of these are computed on every read rather than stored: who is waiting
+ * on a reply is a question about `messages`, and a table duplicating it would
+ * be a second copy to keep in step. Failures are the exception — a rejected
+ * text or an AI reply that 400ed happened once, inside a request that has
+ * ended, and if nothing writes it down there is nothing left to query. Those go
+ * to `app_errors`.
+ *
+ * ## Read state
+ *
+ * `read` comes from `notification_dismissals`, keyed by the alert's own id.
+ * Opening the panel marks everything in it read — see the bubble — which is
+ * what stops a notification sitting unread for days because nobody happened to
+ * click that particular row.
  *
  * Client-safe.
  */
@@ -26,6 +38,8 @@ export type AlertKind =
   | "reply"
   | "missed_call"
   | "booking"
+  | "lead"
+  | "error"
   | "usage"
   | "automation";
 

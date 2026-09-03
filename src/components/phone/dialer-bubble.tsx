@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   ChevronDown,
   Clock,
@@ -137,6 +137,87 @@ function Keypad({
   );
 }
 
+/**
+ * The number display, the keypad and the call row.
+ *
+ * Extracted so the live-call view can keep a copy of it mounted and invisible
+ * purely to hold the panel's height — see the comment where that happens. Two
+ * copies of this JSX inline would drift within a week.
+ */
+function KeypadPane({
+  dialed,
+  setDialed,
+  inputRef,
+  press,
+  call,
+  target,
+}: {
+  dialed: string;
+  setDialed: React.Dispatch<React.SetStateAction<string>>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  press: (digit: string) => void;
+  call: () => void;
+  target: string | null;
+}) {
+  return (
+    <>
+      {/* The display. Fixed height so the panel does not jump between an empty
+          field and a full number. */}
+      <div className="flex h-14 items-center justify-center px-4">
+        <input
+          ref={inputRef}
+          value={dialed}
+          onChange={(event) =>
+            setDialed(event.target.value.replace(/[^\d+*#]/g, ""))
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && target) {
+              event.preventDefault();
+              call();
+            }
+          }}
+          placeholder="Enter a number"
+          inputMode="tel"
+          aria-label="Number to call"
+          className="placeholder:text-muted-foreground w-full bg-transparent text-center text-xl tabular-nums outline-none"
+        />
+      </div>
+
+      <Keypad onPress={press} />
+
+      <div className="grid grid-cols-3 items-center px-4 pt-1 pb-3">
+        <span />
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            size="icon-lg"
+            disabled={!target}
+            onClick={call}
+            aria-label={
+              target ? `Call ${formatPhone(target)}` : "Enter a number to call"
+            }
+            className="size-12 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+          >
+            <Phone className="size-5" />
+          </Button>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={dialed.length === 0}
+            onClick={() => setDialed((current) => current.slice(0, -1))}
+            aria-label="Delete last digit"
+          >
+            <Delete />
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function DialerBubble({
   numbers,
   configured,
@@ -147,6 +228,8 @@ export function DialerBubble({
 }) {
   const [open, setOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("keypad");
+  /** The number field, so the panel can put the caret in it and keep it there. */
+  const dialedRef = useRef<HTMLInputElement | null>(null);
   const [dialed, setDialed] = useState("");
   const [from, setFrom] = useState(numbers[0] ?? "");
 
@@ -247,7 +330,55 @@ export function DialerBubble({
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-80 p-0">
+      <PopoverContent
+        align="end"
+        className="w-80 p-0"
+        /**
+         * Open with the caret already in the number field.
+         *
+         * Radix otherwise focuses the panel itself, which meant the dialer
+         * opened with nowhere for a keystroke to go: you had to click the field
+         * before you could type a number. That reads as "the keyboard does not
+         * work", and it is worst with the number pad, because the number pad is
+         * how anybody actually types a phone number.
+         */
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          dialedRef.current?.focus();
+        }}
+        /**
+         * And keep typing working once focus has moved on — after pressing a
+         * keypad button, or tabbing to the call button. A real phone does not
+         * care where you are looking when you press a digit.
+         *
+         * Keyed off `event.key`, never `event.code`: the number pad reports
+         * `Numpad4` where the top row reports `Digit4`, and the two share only
+         * `key`. Anything reading `code` here would work for one row of the
+         * keyboard and silently ignore the other.
+         */
+        onKeyDown={(event) => {
+          if (busy || pane !== "keypad") return;
+          if (event.target === dialedRef.current) return;
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+          if (/^[0-9*#+]$/.test(event.key)) {
+            event.preventDefault();
+            press(event.key);
+            return;
+          }
+
+          if (event.key === "Backspace") {
+            event.preventDefault();
+            setDialed((current) => current.slice(0, -1));
+            return;
+          }
+
+          if (event.key === "Enter" && target) {
+            event.preventDefault();
+            call();
+          }
+        }}
+      >
         {/* Window chrome. Inert for now — see the component comment. */}
         <div className="text-muted-foreground flex items-center gap-1 border-b px-2 py-1.5">
           <span className="flex-1 text-[10px] tracking-widest select-none">
@@ -317,10 +448,36 @@ export function DialerBubble({
         )}
 
         {busy ? (
-          /* A live call takes the whole panel. Leaving the keypad up while
+          /* A live call takes the whole panel. Leaving the keypad usable while
              connected invites dialling a second number into the same leg,
-             which is not a thing that can happen. */
-          <div className="flex min-h-64 flex-col items-center justify-center gap-4 px-6 py-8 text-center">
+             which is not a thing that can happen — so it is hidden, not
+             unmounted.
+
+             Unmounting it is what used to happen, and it made the whole widget
+             collapse the moment a call connected: the keypad pane is ~520px
+             tall and this one was `min-h-64`, so answering a call shrank the
+             panel to less than half its size. Keeping the keypad mounted under
+             `invisible` holds the height open without a magic number that would
+             drift the first time a key or a font size changed. `visibility:
+             hidden` also takes it out of hit-testing and the tab order, so it
+             cannot be clicked or tabbed into behind the call. */
+          <div className="grid">
+            <div
+              className="invisible [grid-area:1/1]"
+              aria-hidden="true"
+              inert
+            >
+              <KeypadPane
+                dialed={dialed}
+                setDialed={setDialed}
+                inputRef={dialedRef}
+                press={press}
+                call={call}
+                target={target}
+              />
+            </div>
+
+            <div className="flex flex-col items-center justify-center gap-4 px-6 py-8 text-center [grid-area:1/1]">
             <div className="flex flex-col gap-1">
               <p className="text-lg font-medium tabular-nums">
                 {target ? formatPhone(target) : dialed}
@@ -360,56 +517,17 @@ export function DialerBubble({
                 <PhoneOff className="size-6" />
               </Button>
             </div>
+            </div>
           </div>
         ) : pane === "keypad" ? (
-          <>
-            {/* The display. Fixed height so the panel does not jump between
-                an empty field and a full number. */}
-            <div className="flex h-14 items-center justify-center px-4">
-              <input
-                value={dialed}
-                onChange={(event) =>
-                  setDialed(event.target.value.replace(/[^\d+*#]/g, ""))
-                }
-                placeholder="Enter a number"
-                inputMode="tel"
-                aria-label="Number to call"
-                className="placeholder:text-muted-foreground w-full bg-transparent text-center text-xl tabular-nums outline-none"
-              />
-            </div>
-
-            <Keypad onPress={press} />
-
-            <div className="grid grid-cols-3 items-center px-4 pt-1 pb-3">
-              <span />
-              <div className="flex justify-center">
-                <Button
-                  type="button"
-                  size="icon-lg"
-                  disabled={!target}
-                  onClick={call}
-                  aria-label={
-                    target ? `Call ${formatPhone(target)}` : "Enter a number to call"
-                  }
-                  className="size-12 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                >
-                  <Phone className="size-5" />
-                </Button>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={dialed.length === 0}
-                  onClick={() => setDialed((current) => current.slice(0, -1))}
-                  aria-label="Delete last digit"
-                >
-                  <Delete />
-                </Button>
-              </div>
-            </div>
-          </>
+          <KeypadPane
+            dialed={dialed}
+            setDialed={setDialed}
+            inputRef={dialedRef}
+            press={press}
+            call={call}
+            target={target}
+          />
         ) : pane === "voicemail" ? (
           <div className="flex min-h-56 flex-col items-center justify-center gap-1 px-6 text-center">
             <p className="text-sm font-medium">Voicemail</p>

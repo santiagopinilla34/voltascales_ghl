@@ -545,7 +545,7 @@ async function findTimes(
   for (let day = start; day <= last; day = addDays(day, 1)) days.push(day);
 
   const [rules, blockedRows, busy] = await Promise.all([
-    listAvailabilityRules(supabase, calendar.id),
+    listAvailabilityRules(supabase, calendar),
     listBlockedDates(supabase, calendar.id, start),
     listBusyBookings(supabase, calendar.id, start, last),
   ]);

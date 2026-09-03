@@ -4,7 +4,9 @@ import { NotificationsBubble } from "@/components/topbar/notifications-bubble";
 import { WhatsNewBubble } from "@/components/topbar/whats-new-bubble";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { sortAlerts, type Alert } from "@/lib/alerts";
-import { getReplyAlerts } from "@/lib/conversations";
+import { getErrorAlerts } from "@/lib/app-errors";
+import { getBookingAlerts } from "@/lib/booking/alerts";
+import { getLeadAlerts, getReplyAlerts } from "@/lib/conversations";
 import { applyDismissals } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
 import { voiceConfigured } from "@/lib/twilio/voice";
@@ -44,14 +46,17 @@ function configuredNumbers(): string[] {
 async function collectAlerts(): Promise<Alert[]> {
   const supabase = await createClient();
 
-  const [usage, replies] = await Promise.allSettled([
+  const results = await Promise.allSettled([
     getUsageAlerts(supabase),
     getReplyAlerts(supabase),
+    getLeadAlerts(supabase),
+    getBookingAlerts(supabase),
+    getErrorAlerts(supabase),
   ]);
 
   const alerts: Alert[] = [];
 
-  for (const result of [usage, replies]) {
+  for (const result of results) {
     if (result.status === "fulfilled") {
       alerts.push(...result.value);
     } else {
