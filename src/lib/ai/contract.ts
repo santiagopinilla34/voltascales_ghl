@@ -59,6 +59,17 @@ export const MAX_TOOL_ROUNDS = 6;
  * The system prompt is the operator's, sent verbatim; the shape is carried by
  * these descriptions rather than by appending instructions to their text.
  *
+ * **These descriptions describe the fields. They must not decide behaviour.**
+ * `needs_human` used to name the triggers itself — "pricing negotiation, an
+ * angry or upset customer, ..." — which made this schema a second, invisible
+ * prompt that the operator could not see in the Goals tab and could not edit.
+ * When Santiago changed his mind about pricing negotiation on 2026-09-03 the
+ * prompt said one thing and this said the opposite, and the model was left
+ * holding both. When *what* the bot should do lives here instead of in the
+ * prompt boxes, the eval measures this file rather than his agent. Anything
+ * that is a judgement call belongs in the prompt; this description says only
+ * what the field means and points at the instructions for the rule.
+ *
  * Both providers accept this same JSON Schema, and both are given it with
  * strict validation on. `additionalProperties: false` and a complete `required`
  * list are not stylistic here — OpenAI's structured outputs reject a schema
@@ -75,7 +86,7 @@ export const OUTPUT_SCHEMA = {
     needs_human: {
       type: "boolean",
       description:
-        "True when a real person should take over: pricing negotiation, an angry or upset customer, anything you were told not to handle, or anything you are unsure about.",
+        "True when a real person should take over this conversation, by the rules in your instructions. False otherwise.",
     },
   },
   required: ["reply", "needs_human"],
@@ -88,6 +99,17 @@ export type AiReplyResult =
       reply: string;
       needsHuman: boolean;
       model: AiModel;
+      /**
+       * What the API says actually answered, from the response rather than the
+       * request.
+       *
+       * Normally the same string, or the dated snapshot an alias resolves to.
+       * When it is neither — a provider reroute, a capacity fallback — nothing
+       * else in the system would ever say so: the reply arrives, the draft
+       * saves, and the bill lands under a model nobody chose. Cheap to carry,
+       * and the one thing that makes a cross-model comparison mean anything.
+       */
+      servedModel: string;
       /** Summed across every turn, so a booking's tool round trips are billed
        *  and logged as the one reply they produced. */
       inputTokens: number;

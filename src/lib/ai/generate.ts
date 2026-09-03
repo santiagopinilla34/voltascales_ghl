@@ -100,6 +100,74 @@ const THINKING: Record<AnthropicModel, Anthropic.ThinkingConfigParam> = {
 };
 
 /**
+ * A 400 that means "ask again", not "your request is wrong".
+ *
+ * Replaying a `thinking` block to `claude-haiku-4-5-20251001` is rejected
+ * roughly a quarter of the time with a 400 whose entire message is "Invalid
+ * request data" — no field, no detail. It is **not** the request body. The same
+ * bytes sent five times in a row returned 400, 200, 200, 200, 200, and swapping
+ * a request that failed for one that had just succeeded reversed which one
+ * failed. Measured over 12 identical requests per arm on 2026-09-03:
+ *
+ * - thinking on, block replayed  → 4/12 rejected
+ * - thinking on, block stripped  → 0/12
+ * - thinking off, block stripped → 0/12
+ *
+ * So the trigger is the replayed thinking block, but the rejection is not
+ * deterministic and nothing we could send instead would prevent it. (`caller`
+ * on the `tool_use` block, the cache breakpoint and `output_config` were each
+ * ruled out the same way.) It failed 10 of 30 Haiku booking attempts, and
+ * because `describeError` classes a 400 as non-retryable it abandoned the whole
+ * reply — a bot going silent mid-booking, having already told the lead it was
+ * looking up times.
+ *
+ * Stripping the thinking blocks also clears it, and was tried first, but that
+ * is a real cost: it drops the record of the model's own reasoning across
+ * turns, and `book-first-name-only` — the case that turns on remembering a
+ * decision made earlier in the conversation — fell from 9/9 to 3/5 with it on.
+ * Retrying keeps what Anthropic's guidance says to send and pays a second
+ * request on the rare rejection instead.
+ *
+ * Deliberately narrow. A genuinely malformed request reports this same generic
+ * message, so it will burn the retries and then fail exactly as before — a
+ * bounded cost, and 400s are not billed.
+ */
+const TRANSIENT_BAD_REQUEST = /Invalid request data/i;
+
+/** Attempts per request, not per reply. Three takes ~25% down to under 2%. */
+const BAD_REQUEST_ATTEMPTS = 3;
+
+/**
+ * `messages.create`, retrying only the flake described on
+ * `TRANSIENT_BAD_REQUEST`. Every other error is raised on the first try — the
+ * SDK's own `maxRetries` already covers 429s and 5xx, and it does not retry
+ * 400s at all, which is right for every 400 but this one.
+ */
+async function createWithRetry(
+  params: Anthropic.MessageCreateParamsNonStreaming,
+): Promise<Anthropic.Message> {
+  let last: unknown;
+
+  for (let attempt = 1; attempt <= BAD_REQUEST_ATTEMPTS; attempt++) {
+    try {
+      return await client().messages.create(params);
+    } catch (error) {
+      const transient =
+        error instanceof Anthropic.BadRequestError &&
+        TRANSIENT_BAD_REQUEST.test(error.message);
+      if (!transient) throw error;
+
+      last = error;
+      console.warn(
+        `[ai] transient 400 from ${params.model}, attempt ${attempt}/${BAD_REQUEST_ATTEMPTS}`,
+      );
+    }
+  }
+
+  throw last;
+}
+
+/**
  * Whether this module is the one that should answer.
  *
  * Keyed off `THINKING` rather than off the model id's prefix or a second list,
@@ -330,7 +398,7 @@ async function attemptGeneration({
         tools.definitions.length > 0 &&
         round < MAX_TOOL_ROUNDS;
 
-      const response = await client().messages.create({
+      const response = await createWithRetry({
         model,
         max_tokens: MAX_TOKENS,
         // Rendered before `system`, so this is the front of the cached prefix.
@@ -389,7 +457,30 @@ async function attemptGeneration({
           };
         }
 
-        messages.push({ role: "assistant", content: response.content });
+        // Echoed back so the next turn can see what it just did — minus any
+        // empty text block.
+        //
+        // Found by the eval, not by a customer, which is the only reason it is
+        // written down here rather than being a mystery in the logs. Claude
+        // Haiku 4.5 sometimes emits `{type: "text", text: ""}` alongside its
+        // `tool_use` blocks on a booking turn. Replaying that verbatim is a 400
+        // on the *next* request — `messages: text content blocks must be
+        // non-empty` — which `describeError` reports as non-retryable, so the
+        // whole reply is abandoned. In production that is a bot that goes
+        // silent halfway through booking a meeting, having already told the
+        // lead it was looking up times. It failed 3 of 30 booking attempts on
+        // Haiku before this line existed; the other 7 were the separate flake
+        // that `TRANSIENT_BAD_REQUEST` covers.
+        //
+        // Dropping the block loses nothing: it carries no text, and thinking
+        // and `tool_use` blocks pass through untouched — those the API does
+        // require back exactly as they came.
+        messages.push({
+          role: "assistant",
+          content: response.content.filter(
+            (block) => block.type !== "text" || block.text.trim().length > 0,
+          ),
+        });
 
         // Sequentially, not in parallel. Two of these write to the same
         // calendar, and "find times" followed by "book" in one turn has to see
@@ -561,6 +652,7 @@ function finish(
     // direction when the flag is missing is towards a human.
     needsHuman: parsed.needs_human !== false,
     model,
+    servedModel: response.model,
     inputTokens,
     outputTokens,
     cachedTokens,

@@ -158,3 +158,8 @@ next-env.d.ts
 # Firecrawl onboarding doc. Carries a live API key in its last section, and
 # lives at the repo root where "git add ." would sweep it in.
 SKILL.md
+
+# Eval results — transcripts and scores from a paid run, regenerated on demand.
+# The harness is the artefact worth keeping; a results directory is one
+# afternoon of it and would only make the diff noisy.
+evals/results/

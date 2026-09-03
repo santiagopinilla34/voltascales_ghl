@@ -509,6 +509,7 @@ function finish(
     // direction when the flag is missing is towards a human.
     needsHuman: parsed.needs_human !== false,
     model,
+    servedModel: response.model,
     inputTokens,
     outputTokens,
     cachedTokens,
