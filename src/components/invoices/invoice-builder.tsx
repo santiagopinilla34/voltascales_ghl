@@ -1,12 +1,28 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { Check, Copy, FileText, Loader2 } from "lucide-react";
+import {
+  Check,
+  Copy,
+  FileText,
+  Loader2,
+  Package as PackageIcon,
+  PlusCircle,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { generateInvoice } from "@/app/(app)/invoices/actions";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,16 +32,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { contactLabel, formatPhone } from "@/lib/format";
 import { formatCents, parsePriceToCents } from "@/lib/invoices/money";
 import type { DepositChoice, OngoingChoice } from "@/lib/invoices/render";
-import { cn } from "@/lib/utils";
 import type { Contact, Package } from "@/types/database";
 
 type ContactOption = Pick<
   Contact,
   "id" | "name" | "phone" | "email" | "business_name"
 >;
+
+/** Every field on this form is this tall, so the column reads as one rhythm. */
+const FIELD = "h-11";
 
 export function InvoiceBuilder({
   contacts,
@@ -53,25 +72,32 @@ export function InvoiceBuilder({
 
   const contact = contacts.find((entry) => entry.id === contactId) ?? null;
 
-  // Mirrors the server's arithmetic so the figures on screen match the ones
-  // that will be rendered. The server recomputes rather than trusting these.
-  const subtotalCents = useMemo(
+  // The packages on the invoice, in the order they were added, and the ones
+  // still on offer. Two derived lists rather than a flag per package: the form
+  // shows what is on the invoice, and the menu shows what could join it.
+  const chosen = useMemo(
     () =>
-      selected.reduce((sum, id) => {
-        const found = packages.find((item) => item.id === id);
-        return sum + (found?.price_cents ?? 0);
-      }, 0),
+      selected
+        .map((id) => packages.find((item) => item.id === id))
+        .filter((item): item is Package => Boolean(item)),
     [selected, packages],
   );
+  const available = packages.filter((item) => !selected.includes(item.id));
+
+  // Mirrors the server's arithmetic so the figures on screen match the ones
+  // that will be rendered. The server recomputes rather than trusting these.
+  const subtotalCents = chosen.reduce((sum, item) => sum + item.price_cents, 0);
   const depositCents =
     deposit === "fifty_fifty" ? Math.round(subtotalCents / 2) : subtotalCents;
 
-  function toggle(id: string) {
+  function add(id: string) {
     setSelected((current) =>
-      current.includes(id)
-        ? current.filter((entry) => entry !== id)
-        : [...current, id],
+      current.includes(id) ? current : [...current, id],
     );
+  }
+
+  function drop(id: string) {
+    setSelected((current) => current.filter((entry) => entry !== id));
   }
 
   function generate(event: React.FormEvent) {
@@ -137,22 +163,48 @@ export function InvoiceBuilder({
         </p>
       )}
 
-      <form onSubmit={generate} className="flex flex-col gap-5">
+      <form onSubmit={generate} className="flex flex-col gap-6">
         <div className="grid gap-2">
           <Label htmlFor="invoice-contact">Client</Label>
-          <Select value={contactId} onValueChange={setContactId} disabled={pending}>
-            <SelectTrigger id="invoice-contact" className="w-full">
-              <SelectValue placeholder="Pick a contact" />
-            </SelectTrigger>
-            <SelectContent>
-              {contacts.map((entry) => (
-                <SelectItem key={entry.id} value={entry.id}>
-                  {contactLabel(entry)}
-                  {entry.business_name ? ` · ${entry.business_name}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+
+          <div className="flex items-start gap-2">
+            <Select
+              value={contactId}
+              onValueChange={setContactId}
+              disabled={pending}
+            >
+              <SelectTrigger
+                id="invoice-contact"
+                className={`${FIELD} min-w-0 flex-1`}
+              >
+                <SelectValue placeholder="Pick a contact" />
+              </SelectTrigger>
+              <SelectContent>
+                {contacts.map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>
+                    {contactLabel(entry)}
+                    {entry.business_name ? ` · ${entry.business_name}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Invoicing someone who is not a contact yet is a dead end on this
+                form — the client block is built from the contact record. This
+                is the way out of it. */}
+            <Button
+              asChild
+              variant="outline"
+              size="icon"
+              className={`${FIELD} w-11 shrink-0`}
+              aria-label="Add a contact"
+              title="Add a contact"
+            >
+              <Link href="/contacts">
+                <UserPlus className="size-4" />
+              </Link>
+            </Button>
+          </div>
 
           {contact && (
             <div className="text-muted-foreground rounded-md border p-2 text-xs">
@@ -176,36 +228,30 @@ export function InvoiceBuilder({
 
         <div className="grid gap-2">
           <Label>Packages</Label>
+
           {packages.length === 0 ? (
             <p className="text-muted-foreground rounded-lg border border-dashed p-4 text-center text-xs">
               No packages yet. Add them on the My Business page.
             </p>
           ) : (
-            <ul className="flex flex-col gap-1.5">
-              {packages.map((item) => {
-                const on = selected.includes(item.id);
-
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => toggle(item.id)}
-                      disabled={pending}
-                      aria-pressed={on}
-                      className={cn(
-                        "flex w-full items-center gap-3 rounded-md border p-2.5 text-left transition-colors",
-                        on ? "border-primary bg-primary/5" : "hover:bg-muted/50",
-                      )}
+            <>
+              {/* What is on the invoice, one row each. A list you add to and
+                  take from, rather than a checklist to read past: the rows are
+                  the invoice, so the ones that aren't on it aren't here. */}
+              {chosen.length > 0 && (
+                <ul className="flex flex-col gap-2">
+                  {chosen.map((item) => (
+                    <li
+                      key={item.id}
+                      className="bg-muted/30 flex items-center gap-3 rounded-lg border p-3"
                     >
                       <span
-                        className={cn(
-                          "flex size-4 shrink-0 items-center justify-center rounded border",
-                          on && "bg-primary border-primary text-primary-foreground",
-                        )}
+                        className="bg-background flex size-9 shrink-0 items-center justify-center rounded-lg border"
                         aria-hidden
                       >
-                        {on && <Check className="size-3" />}
+                        <PackageIcon className="text-muted-foreground size-4" />
                       </span>
+
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">
                           {item.name}
@@ -216,14 +262,58 @@ export function InvoiceBuilder({
                           </span>
                         )}
                       </span>
+
                       <span className="shrink-0 text-sm tabular-nums">
                         {formatCents(item.price_cents)}
                       </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 shrink-0"
+                        disabled={pending}
+                        onClick={() => drop(item.id)}
+                        aria-label={`Remove ${item.name}`}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={pending || available.length === 0}
+                    className="bg-muted/30 hover:bg-muted/50 focus-visible:ring-ring/50 flex h-12 w-full items-center gap-2 rounded-lg border px-3 text-sm font-medium text-emerald-500 transition-colors outline-none focus-visible:ring-3 disabled:pointer-events-none disabled:opacity-50 disabled:text-muted-foreground"
+                  >
+                    <PlusCircle className="size-4" />
+                    {available.length === 0
+                      ? "Every package is on this invoice"
+                      : "Add another package"}
+                  </button>
+                </DropdownMenuTrigger>
+
+                <DropdownMenuContent align="start" className="w-72">
+                  {available.map((item) => (
+                    <DropdownMenuItem
+                      key={item.id}
+                      onSelect={() => add(item.id)}
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {item.name}
+                      </span>
+                      <span className="text-muted-foreground shrink-0 tabular-nums">
+                        {formatCents(item.price_cents)}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           )}
         </div>
 
@@ -235,7 +325,7 @@ export function InvoiceBuilder({
               onValueChange={(value) => setDeposit(value as DepositChoice)}
               disabled={pending}
             >
-              <SelectTrigger id="invoice-deposit" className="w-full">
+              <SelectTrigger id="invoice-deposit" className={`${FIELD} w-full`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -252,7 +342,7 @@ export function InvoiceBuilder({
               onValueChange={(value) => setOngoing(value as OngoingChoice)}
               disabled={pending}
             >
-              <SelectTrigger id="invoice-ongoing" className="w-full">
+              <SelectTrigger id="invoice-ongoing" className={`${FIELD} w-full`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -264,26 +354,26 @@ export function InvoiceBuilder({
         </div>
 
         {ongoing === "retainer" ? (
-          <div className="grid max-w-48 gap-2">
+          <div className="grid max-w-56 gap-2">
             <Label htmlFor="invoice-retainer">Retainer per month (CAD)</Label>
             <Input
               id="invoice-retainer"
               value={retainer}
               onChange={(event) => setRetainer(event.target.value)}
               inputMode="decimal"
-              className="tabular-nums"
+              className={`${FIELD} tabular-nums`}
               disabled={pending}
             />
           </div>
         ) : (
-          <div className="grid max-w-48 gap-2">
+          <div className="grid max-w-56 gap-2">
             <Label htmlFor="invoice-commission">Commission (%)</Label>
             <Input
               id="invoice-commission"
               value={commission}
               onChange={(event) => setCommission(event.target.value)}
               inputMode="numeric"
-              className="tabular-nums"
+              className={`${FIELD} tabular-nums`}
               disabled={pending}
             />
           </div>
@@ -291,12 +381,13 @@ export function InvoiceBuilder({
 
         <div className="grid gap-2">
           <Label htmlFor="invoice-notes">Notes (optional)</Label>
-          <Input
+          <Textarea
             id="invoice-notes"
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
             placeholder="Anything else the client should see"
             disabled={pending}
+            className="min-h-20"
           />
           <p className="text-muted-foreground text-xs">
             Left blank, the notes row is left off the invoice entirely.
@@ -304,7 +395,7 @@ export function InvoiceBuilder({
         </div>
 
         {selected.length > 0 && (
-          <dl className="bg-muted/40 grid gap-1 rounded-md p-3 text-sm">
+          <dl className="bg-muted/40 grid gap-1 rounded-lg p-3 text-sm">
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Total</dt>
               <dd className="tabular-nums">{formatCents(subtotalCents)}</dd>
@@ -325,7 +416,11 @@ export function InvoiceBuilder({
         )}
 
         <div>
-          <Button type="submit" disabled={!ready || pending}>
+          <Button
+            type="submit"
+            disabled={!ready || pending}
+            className="h-11 gap-2 bg-emerald-600 px-4 text-white hover:bg-emerald-500"
+          >
             {pending ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
@@ -360,9 +455,9 @@ export function InvoiceBuilder({
           />
 
           <p className="text-muted-foreground text-xs">
-            Saved to the history below. <strong>Copy for email</strong> puts the
-            formatted invoice on your clipboard — paste it straight into the
-            body of an email.
+            Saved to the history beside this form.{" "}
+            <strong>Copy for email</strong> puts the formatted invoice on your
+            clipboard — paste it straight into the body of an email.
           </p>
         </section>
       )}

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { BackButton } from "@/components/invoices/back-button";
 import { InvoiceBuilder } from "@/components/invoices/invoice-builder";
 import { InvoiceHistory } from "@/components/invoices/invoice-history";
 import { businessDetailsOf, listPackages } from "@/lib/business";
@@ -38,13 +39,34 @@ export default async function InvoicesPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="h-20 shrink-0 border-b">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center pr-52 pl-14 md:pl-6 lg:pl-10 gap-3">
-          <h1 className="text-sm font-semibold tracking-tight">Invoices</h1>
+      {/*
+        A titled header rather than the one-line bar the other pages carry.
+        This screen is a form with a job — the eyebrow says which section you
+        are in, the title says what you are about to do, and the line under it
+        says what happens when you finish. No bottom rule: the two panels below
+        already draw their own edges, and a third line above them only crowds.
+
+        Same padding and max width as those panels, so the arrow lines up with
+        the left edge of the form rather than floating off it, and the inner
+        row reserves the space the top-bar buttons occupy.
+      */}
+      <header className="shrink-0 px-4 pt-8 pb-5 sm:px-6 lg:px-10">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1400px] items-start gap-2 pr-52">
+          <BackButton />
+
+          <div className="min-w-0">
+            <p className="text-muted-foreground text-xs">Invoices</p>
+            <h1 className="truncate text-xl font-semibold tracking-tight">
+              Create invoice
+            </h1>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Fill in the details and generate your invoice.
+            </p>
+          </div>
         </div>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6 lg:px-10">
         {/*
           Builder on the left, history on the right, from `xl` up.
 
@@ -56,22 +78,18 @@ export default async function InvoicesPage() {
           gives back holds the history you are about to add to, so the two
           things you look at while invoicing are on screen together.
         */}
-        <div className="mx-auto grid w-full min-w-0 max-w-[1400px] gap-8 pb-4 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-          <InvoiceBuilder
-            contacts={contactsResult.data ?? []}
-            packages={packages}
-            businessConfigured={Boolean(business.name.trim())}
-          />
+        <div className="mx-auto grid w-full min-w-0 max-w-[1400px] gap-6 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+          <div className="rounded-xl border p-6">
+            <InvoiceBuilder
+              contacts={contactsResult.data ?? []}
+              packages={packages}
+              businessConfigured={Boolean(business.name.trim())}
+            />
+          </div>
 
-          <section className="flex min-w-0 flex-col gap-3">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">History</h2>
-              <p className="text-muted-foreground text-xs">
-                Every invoice generated, exactly as it was sent.
-              </p>
-            </div>
+          <div className="rounded-xl border p-6">
             <InvoiceHistory invoices={invoicesResult.data ?? []} />
-          </section>
+          </div>
         </div>
       </div>
     </div>
