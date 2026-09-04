@@ -176,7 +176,29 @@ export function AppSidebar({
   })).filter((section) => section.items.length > 0);
 
   return (
-    <Sidebar collapsible="icon">
+    // `dark` on the panel, not on the page: the nav column keeps the dark
+    // theme whatever the app is set to, and only the content beside it
+    // follows the toggle.
+    //
+    // A class rather than a second set of tokens, because everything in here
+    // is already written against the theme — `border`, `text-muted-foreground`,
+    // the account and footer cards, the `dark:` variants on the active pill.
+    // Redefining the eight `--sidebar-*` variables would have repainted the
+    // panel and left all of that reading as light-on-light. This way the
+    // subtree resolves every variable the way it does in dark mode, which is
+    // the mode it was designed in.
+    //
+    // Menus and tooltips opened from here are portalled to the body and so
+    // still follow the app's theme. That is deliberate: they overlay the
+    // content, not the panel.
+    //
+    // `text-sidebar-foreground` is repeated here on purpose. The primitive
+    // sets it on the wrapper *above* the element this class lands on, so it
+    // resolves against the light palette and every label that inherits its
+    // colour — the nav, the account name, the wordmark — arrives near-black
+    // on a near-black panel. Declaring it again inside the scope re-resolves
+    // it against the dark one.
+    <Sidebar collapsible="icon" className="dark text-sidebar-foreground">
       {/* The brand's one green, used as light rather than as paint. It hangs
           off the top-right corner so it reads as arriving from outside the
           panel, and it goes first so everything else stacks over it —

@@ -443,12 +443,18 @@
       transparent 68%
     ),
     linear-gradient(to bottom, oklch(1 0 0 / 0.04), transparent 42%);
-  opacity: 0.45;
+  /* Full strength in both themes, because the panel it lights is dark in both
+     — see the `dark` class on the Sidebar in app-sidebar.tsx. It used to be
+     halved for the light theme, back when the column went white with the rest
+     of the app and green over white was a much louder event than green over
+     near-black. That is no longer the situation this is drawn on. */
+  opacity: 1;
 }
 
+/* The aurora, unlike the glow above, sits on a page that does still change,
+   so it keeps the half-strength light treatment. */
 .dark .agent-aurora,
-.dark .agent-spark,
-.dark .sidebar-glow {
+.dark .agent-spark {
   opacity: 1;
 }
 
