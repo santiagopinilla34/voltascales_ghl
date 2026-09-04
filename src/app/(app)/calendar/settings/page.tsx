@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 
 import { AvailabilitySchedule } from "@/components/booking/availability-schedule";
+import { CalendarTabLink } from "@/components/booking/calendar-tab-link";
 import { UserAvailabilitySchedule } from "@/components/booking/user-availability-schedule";
 import { CalendarList } from "@/components/booking/calendar-list";
 import {
@@ -64,8 +65,11 @@ export default async function CalendarSettingsPage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="h-20 shrink-0 border-b">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center pr-52 pl-14 md:pl-6 lg:pl-10 gap-4">
+      {/* Stacks below `md` and starts under the app's bubble strip, for the
+          same reason as the calendar header next door — see the comment
+          there. */}
+      <header className="shrink-0 border-b">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col gap-1 px-4 pt-20 pb-2 md:h-20 md:flex-row md:items-center md:gap-4 md:px-0 md:pt-0 md:pb-0 md:pr-52 md:pl-6 lg:pl-10">
           <div className="flex min-w-0 items-center gap-1.5">
             {/* The way back is a link rather than history.back(): this page is
                 reachable straight from a URL, and a back button that depends on
@@ -86,23 +90,16 @@ export default async function CalendarSettingsPage({
               reason: they navigate, so they have to be links. */}
           <nav className="flex min-w-0 items-center gap-3 overflow-x-auto">
             {TABS.map((entry) => (
-              <Link
+              <CalendarTabLink
                 key={entry.id}
                 href={
                   entry.id === "availability" && selected
                     ? `?tab=availability&calendar=${selected.id}`
                     : `?tab=${entry.id}`
                 }
-                scroll={false}
-                className={cn(
-                  "shrink-0 border-b-2 px-1 pt-1 pb-1.5 text-xs whitespace-nowrap transition-colors",
-                  tab === entry.id
-                    ? "border-primary text-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground border-transparent",
-                )}
-              >
-                {entry.label}
-              </Link>
+                label={entry.label}
+                active={tab === entry.id}
+              />
             ))}
           </nav>
         </div>

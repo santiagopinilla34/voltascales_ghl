@@ -14,16 +14,24 @@ import {
   CalendarX2,
   ChevronLeft,
   ChevronRight,
+  CalendarDays,
   ExternalLink,
   Loader2,
   MessageSquare,
   Phone,
   Plus,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { cancelBookingAsOperator } from "@/app/(app)/calendar/actions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +81,37 @@ const DAY_HEIGHT = HOUR_HEIGHT * 24;
 /** Where the time grid scrolls to on open — the start of a working day. */
 const OPENING_HOUR = 7;
 
+/** The hour gutter's width, shared by the headings row and the grid below it. */
+const GUTTER = "3.5rem";
+
+/**
+ * The narrowest a day column is allowed to get before the week scrolls.
+ *
+ * `1fr` alone was doing two wrong things at once. It is `minmax(auto, 1fr)`,
+ * and `auto` floors at min-content — so on a phone the columns came out
+ * *unequal*, between 33px and 53px, sized by whichever weekday label happened
+ * to be widest. A calendar whose columns are different widths misreads at a
+ * glance, because column width is how you judge the shape of a week.
+ *
+ * `minmax(0, …)` fixes the equality and `5.5rem` sets the floor: below it the
+ * grid stops shrinking and scrolls sideways instead, with the hour gutter
+ * pinned. Seven columns at 88px is 672px, so a phone scrolls — which is the
+ * honest outcome. Squeezing a week into 386px produces columns too narrow to
+ * put a name in.
+ */
+const MIN_COLUMN = "5.5rem";
+
+/**
+ * Slack left above the opening hour when the grid scrolls itself.
+ *
+ * The column headings are sticky *inside* the scroller, so scrolling to
+ * exactly `OPENING_HOUR * HOUR_HEIGHT` puts the 7 AM rule at the top of the
+ * viewport and the headings then cover it — the label is centred on its own
+ * rule, so half of it disappeared behind the row of day names. This is the
+ * heading's height and a little air.
+ */
+const HEADING_CLEARANCE = 40;
+
 const timeLabel = new Intl.DateTimeFormat("en-CA", {
   hour: "numeric",
   minute: "2-digit",
@@ -80,7 +119,15 @@ const timeLabel = new Intl.DateTimeFormat("en-CA", {
   timeZone: TIME_ZONE,
 });
 
-const hourLabel = new Intl.DateTimeFormat("en-CA", {
+/**
+ * "7 AM", not en-CA's "7 a.m.".
+ *
+ * The gutter is a column of two- and three-character stamps read at a glance
+ * and never as prose, and the periods are four extra glyphs of noise in every
+ * one of twenty-four rows. en-US is the only difference from the formatters
+ * around it, which all stay en-CA because they render dates in sentences.
+ */
+const hourLabel = new Intl.DateTimeFormat("en-US", {
   hour: "numeric",
   hour12: true,
   timeZone: "UTC",
@@ -160,7 +207,9 @@ function TimeGrid({
   // window changes. Not state: this is a one-off push to a DOM node, which is
   // what an effect is actually for.
   useEffect(() => {
-    scroller.current?.scrollTo({ top: OPENING_HOUR * HOUR_HEIGHT });
+    scroller.current?.scrollTo({
+      top: OPENING_HOUR * HOUR_HEIGHT - HEADING_CLEARANCE,
+    });
   }, [firstDay]);
 
   const byDay = useMemo(() => groupByDay(bookings), [bookings]);
@@ -173,54 +222,107 @@ function TimeGrid({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
+      {/* Scrolls both ways now: down through the day, and sideways when the
+          week will not fit. The hour gutter and the zone label above it are
+          pinned to the left edge, so the times stay beside whichever day you
+          have scrolled to — a time grid whose clock has scrolled off the side
+          is a block of anonymous cells. */}
+      <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
         {/* Column headings live inside the scroller and stick to its top. Kept
             outside it they stayed put too, but they measured a scrollbar wider
             than the body, so every column boundary drifted. Sharing the
             scroller's content box is what keeps the two grids on one scale. */}
+        {/* `min-w-max` on both grids, or the sticky gutter comes unstuck part
+            way across. A grid is a block and takes its width from its parent,
+            so with columns wider than the scroller these boxes stayed at the
+            scroller's width while their tracks overflowed — and a sticky item
+            is clamped to its containing block, which was that too-narrow box.
+            The gutter held for 281px of a 335px scroll and then slid away.
+            Sized to the tracks, the containing block is the full week and it
+            holds all the way across. */}
         <div
-          className="bg-background sticky top-0 z-20 grid border-b"
-          style={{ gridTemplateColumns: `3.5rem repeat(${days.length}, 1fr)` }}
+          className="bg-background sticky top-0 z-20 grid min-w-max border-b"
+          style={{
+            gridTemplateColumns: `${GUTTER} repeat(${days.length}, minmax(${MIN_COLUMN}, 1fr))`,
+          }}
         >
-          <div className="text-muted-foreground flex items-end justify-center pb-1 text-[10px] leading-tight">
+          <div className="bg-background text-muted-foreground sticky left-0 z-10 flex items-end justify-center pb-1 text-[10px] leading-tight">
             {zoneLabel()}
           </div>
           {days.map((day) => {
             const isToday = day === today;
+            const dayNumber = day.slice(8).replace(/^0/, "");
+            const weekday =
+              WEEKDAY_LABELS[
+                (new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7
+              ];
+
             return (
               <div
                 key={day}
                 className={[
                   "border-l py-1.5 text-center",
-                  isWeekend(day) ? "bg-muted/30" : "",
+                  // Today gets a rule of its own under the heading, which is
+                  // what ties the tinted column below to the date above it.
+                  isToday ? "border-b-destructive -mb-px border-b-2" : "",
                 ].join(" ")}
               >
-                <p
-                  className={[
-                    "text-xs",
-                    isToday ? "text-destructive font-semibold" : "",
-                  ].join(" ")}
-                >
-                  {days.length === 1
-                    ? fullDay.format(new Date(`${day}T00:00:00Z`))
-                    : `${day.slice(8).replace(/^0/, "")} ${
-                        WEEKDAY_LABELS[(new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7]
-                      }`}
-                </p>
+                {days.length === 1 ? (
+                  <p
+                    className={[
+                      "text-xs",
+                      isToday ? "text-destructive font-semibold" : "",
+                    ].join(" ")}
+                  >
+                    {fullDay.format(new Date(`${day}T00:00:00Z`))}
+                  </p>
+                ) : (
+                  <p className="flex items-center justify-center gap-1.5 text-xs">
+                    <span
+                      className={[
+                        "tabular-nums",
+                        isToday ? "text-destructive font-semibold" : "",
+                      ].join(" ")}
+                    >
+                      {dayNumber}
+                    </span>
+                    <span
+                      className={isToday ? "text-destructive font-semibold" : ""}
+                    >
+                      {weekday}
+                    </span>
+                    {/* Today's date again, in a filled disc after the label.
+                        It repeats the number to its left, which is the one
+                        thing here I would not have drawn unprompted — but it
+                        is what the design asks for, and at 18px it reads as a
+                        marker rather than as a second reading of the date.
+                        `text-white` rather than `text-destructive-foreground`:
+                        that token is not defined in this theme, so the digit
+                        would inherit its way to whatever the row happened to
+                        be, on a saturated red disc. */}
+                    {isToday && (
+                      <span className="bg-destructive grid size-[18px] shrink-0 place-items-center rounded-full text-[10px] font-semibold text-white tabular-nums">
+                        {dayNumber}
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
             );
           })}
         </div>
 
         <div
-          className="relative grid"
+          className="relative grid min-w-max"
           style={{
-            gridTemplateColumns: `3.5rem repeat(${days.length}, 1fr)`,
+            gridTemplateColumns: `${GUTTER} repeat(${days.length}, minmax(${MIN_COLUMN}, 1fr))`,
             height: DAY_HEIGHT,
           }}
         >
-          {/* Hour gutter. */}
-          <div className="relative">
+          {/* Hour gutter. Pinned left, and above the booking blocks — those
+              are absolutely positioned inside their columns and would slide
+              under it and reappear over the times as the week scrolls. */}
+          <div className="bg-background sticky left-0 z-20">
             {Array.from({ length: 24 }, (_, hour) => (
               <div
                 key={hour}
@@ -242,14 +344,22 @@ function TimeGrid({
                 key={day}
                 className={[
                   "relative border-l",
-                  isWeekend(day) ? "bg-muted/30" : "",
+                  // Today is the only column that gets a wash. The weekend
+                  // used to get one too, and with both on, the eye had three
+                  // shades to sort out and no idea which meant "now" — the two
+                  // labelled "Sat" and "Sun" say weekend perfectly well on
+                  // their own.
+                  day === today ? "bg-muted/25" : "",
                 ].join(" ")}
               >
-                {/* Hour rules. */}
+                {/* Hour rules, dashed: twenty-four solid lines across seven
+                    columns is a lot of drawn furniture for something that only
+                    needs to be a readable position. Dashes recede far enough
+                    that a booking block sits on top of them. */}
                 {Array.from({ length: 24 }, (_, hour) => (
                   <div
                     key={hour}
-                    className="border-border/60 absolute inset-x-0 border-t"
+                    className="border-border/50 absolute inset-x-0 border-t border-dashed"
                     style={{ top: hour * HOUR_HEIGHT }}
                   />
                 ))}
@@ -580,6 +690,7 @@ export function CalendarView({
   const nowMinute = useNowMinute();
   const nowMs = nowMinute === null ? null : nowMinute * 60_000;
   const [selected, setSelected] = useState<BookingWithContact | null>(null);
+  const [search, setSearch] = useState("");
 
   function hrefFor(nextView: CalendarViewMode, nextAnchor: string) {
     return `?view=${nextView}&date=${nextAnchor}`;
@@ -587,10 +698,32 @@ export function CalendarView({
 
   const days = view === "day" ? [anchor] : weekOf(anchor);
 
+  // What the grid actually draws. Everything downstream — the blocks, the
+  // month cells, the count in the search popover — reads this rather than
+  // `bookings`, so there is one answer to "what is on screen".
+  const shown = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (needle === "") return bookings;
+
+    return bookings.filter((booking) =>
+      [
+        booking.client_name,
+        booking.client_email,
+        booking.client_phone,
+        booking.calendar?.name,
+        booking.contact?.business_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [bookings, search]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
-        <Button asChild variant="outline" size="sm">
+        <Button asChild variant="outline" size="lg">
           <Link href={hrefFor(view, today)} scroll={false}>
             Today
           </Link>
@@ -606,9 +739,6 @@ export function CalendarView({
               <ChevronLeft />
             </Link>
           </Button>
-          <span className="min-w-40 text-center text-sm font-medium">
-            {rangeLabel(view, anchor)}
-          </span>
           <Button asChild variant="ghost" size="icon-sm">
             <Link
               href={hrefFor(view, shiftAnchor(view, anchor, 1))}
@@ -620,6 +750,19 @@ export function CalendarView({
           </Button>
         </div>
 
+        {/* The range reads as a control rather than as a caption floating
+            between two arrows: it is the thing the arrows move, so it gets an
+            edge of its own and the icon that says what it is. */}
+        <div className="flex h-9 items-center gap-2 rounded-lg border px-2.5">
+          <CalendarDays
+            aria-hidden
+            className="text-muted-foreground size-3.5 shrink-0"
+          />
+          <span className="text-sm font-medium whitespace-nowrap">
+            {rangeLabel(view, anchor)}
+          </span>
+        </div>
+
         <Select
           value={view}
           onValueChange={(value) =>
@@ -628,7 +771,7 @@ export function CalendarView({
             })
           }
         >
-          <SelectTrigger size="sm">
+          <SelectTrigger className="data-[size=default]:h-9">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -640,23 +783,74 @@ export function CalendarView({
           </SelectContent>
         </Select>
 
-        {/* Goes to the public booking page, which is the only thing that can
-            actually create a booking — it checks availability and sends the
-            confirmations. An operator-side "add appointment" that skipped all
-            that would produce meetings the client never heard about. */}
-        <Button asChild size="sm" className="ml-auto">
-          <a href="/book" target="_blank" rel="noopener noreferrer">
-            <Plus className="size-4" />
-            New
-            <ExternalLink className="size-3" />
-          </a>
-        </Button>
+        {/* Pushed to the far edge, away from the controls that move the date.
+            These two do something to the calendar; everything to the left
+            changes which part of it you are looking at, and the gap is what
+            says so. */}
+        <div className="ml-auto flex items-center gap-2">
+          {/* Narrows what the grid draws rather than jumping to a result: on a
+              calendar "where is that meeting" is a question about a position
+              in the week, and a list of hits would throw away the one thing
+              the page is for. Non-matching bookings leave the grid, so what
+              remains is where they sit. It searches the window you are looking
+              at — paging is how you search another week. */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon-lg"
+                aria-label="Search appointments"
+                className={search ? "border-primary/50 text-foreground" : ""}
+              >
+                <Search className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 p-2">
+              <Input
+                autoFocus
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search this view…"
+                aria-label="Search appointments in view"
+                className="h-8"
+              />
+              <p className="text-muted-foreground mt-1.5 px-1 text-xs">
+                {search
+                  ? `${shown.length} of ${bookings.length} showing`
+                  : `${bookings.length} in view`}
+              </p>
+            </PopoverContent>
+          </Popover>
+
+          {/* Goes to the public booking page, which is the only thing that can
+              actually create a booking — it checks availability and sends the
+              confirmations. An operator-side "add appointment" that skipped
+              all that would produce meetings the client never heard about.
+
+              Green, and specifically the dialer bubble's green, because
+              `--primary` in the dark theme is a near-white grey — the default
+              variant came out as another pale button in a row of pale buttons,
+              with nothing marking the one action on the screen that creates
+              something. This is the brand's one green, so it is the same
+              value here as on the call button above it. */}
+          <Button
+            asChild
+            size="lg"
+            className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+          >
+            <a href="/book" target="_blank" rel="noopener noreferrer">
+              <Plus className="size-4" />
+              New
+              <ExternalLink className="size-3" />
+            </a>
+          </Button>
+        </div>
       </div>
 
       {view === "month" ? (
         <MonthView
           anchor={anchor}
-          bookings={bookings}
+          bookings={shown}
           today={today}
           nowMs={nowMs}
           onSelect={setSelected}
@@ -664,7 +858,7 @@ export function CalendarView({
       ) : (
         <TimeGrid
           days={days}
-          bookings={bookings}
+          bookings={shown}
           today={today}
           nowMs={nowMs}
           onSelect={setSelected}

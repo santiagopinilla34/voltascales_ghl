@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 import { BookingsList } from "@/components/booking/bookings-list";
+import { CalendarTabLink } from "@/components/booking/calendar-tab-link";
 import { CalendarView } from "@/components/booking/calendar-view";
 import {
   isDayKey,
@@ -12,7 +12,6 @@ import {
 import { getBookingsView, listBookingsBetween } from "@/lib/booking/queries";
 import { todayDayKey } from "@/lib/booking/time";
 import { createClient } from "@/lib/supabase/server";
-import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Calendar · VoltaScales" };
 
@@ -102,8 +101,17 @@ function Shell({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="h-20 shrink-0 border-b">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center pr-52 pl-14 md:pl-6 lg:pl-10 gap-4">
+      {/* Below `md` the title and the tabs stack, and the whole block starts
+          below the app's bubble strip rather than sharing the row with it.
+
+          Squeezed into what the strip and the menu button left, this header
+          had 126px for a title and three tabs: the word "Calendar" measured
+          three pixels wide, and the nav had 88px to show 351px of tabs. Since
+          the strip is exactly the 80px this `pt-20` skips, dropping below it
+          buys back the full width — and then neither row needs the left and
+          right clearances a header sharing that row has to carry. */}
+      <header className="shrink-0 border-b">
+        <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col gap-1 px-4 pt-20 pb-2 md:h-20 md:flex-row md:items-center md:gap-4 md:px-0 md:pt-0 md:pb-0 md:pr-52 md:pl-6 lg:pl-10">
           <div className="flex min-w-0 items-baseline gap-2">
             <h1 className="truncate text-sm font-semibold tracking-tight">
               Calendar
@@ -116,31 +124,28 @@ function Shell({
           {/* Underlined tabs rather than the pill TabsList: these navigate, so
               they have to be links, and a link styled as a tab trigger reads as
               a control that does not move the URL. */}
-          <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
+          <nav className="flex min-w-0 items-center gap-3 overflow-x-auto">
             {TABS.map((entry) => (
-              <Link
+              <CalendarTabLink
                 key={entry.id}
                 href={`?tab=${entry.id}&view=${view}&date=${anchor}`}
-                scroll={false}
-                className={cn(
-                  "shrink-0 border-b-2 px-1 pt-1 pb-1.5 text-xs whitespace-nowrap transition-colors",
-                  tab === entry.id
-                    ? "border-primary text-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground border-transparent",
-                )}
-              >
-                {entry.label}
-              </Link>
+                label={entry.label}
+                active={tab === entry.id}
+              />
             ))}
             {/* The calendar's own settings, not the app's. This used to point
                 at /settings, which meant clicking "Calendar settings" landed
-                you on a page that is mostly about other things. */}
-            <Link
+                you on a page that is mostly about other things.
+
+                Never active from here — it navigates to a page with a header
+                of its own, which is where it lights up. It goes through the
+                same component anyway so the row's three tabs cannot drift
+                apart in their spacing or their hover. */}
+            <CalendarTabLink
               href="/calendar/settings"
-              className="text-muted-foreground hover:text-foreground shrink-0 border-b-2 border-transparent px-1 pt-1 pb-1.5 text-xs whitespace-nowrap"
-            >
-              Calendar settings
-            </Link>
+              label="Calendar settings"
+              active={false}
+            />
           </nav>
         </div>
       </header>
