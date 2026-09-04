@@ -4,68 +4,82 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Contact, Database, PipelineStage } from "@/types/database";
 
-import { PIPELINE_STAGES } from "./pipeline-stages";
-
 export type PipelineCard = {
   entryId: string;
   stage: PipelineStage;
   stageChangedAt: string;
+  /**
+   * What this card is worth, in cents: everything invoiced to the contact.
+   *
+   * Derived rather than stored, because a deal value someone types into a card
+   * is a guess that goes stale the moment an invoice is raised — the invoices
+   * are the number the business already agreed on. A contact with none is a
+   * real zero, not missing data.
+   */
+  valueCents: number;
   contact: Pick<
     Contact,
     "id" | "name" | "phone" | "business_name" | "status" | "tags"
   >;
 };
 
-/** Every stage, in board order, with the cards sitting in it. */
-export type PipelineColumn = {
-  stage: PipelineStage;
-  label: string;
-  cards: PipelineCard[];
-};
-
 /**
- * The whole board in one round trip.
+ * Every card on the board, most recently moved first.
  *
- * Every stage is returned whether or not it has cards — an empty column is a
- * place to drop something, so the board can't be built from the rows alone.
+ * Flat rather than pre-grouped: the board can group by stage or by status, and
+ * only one of those is the shape the database stores. Grouping is a view of
+ * this list, so it belongs where the view is.
  */
 export async function listPipeline(
   supabase: SupabaseClient<Database>,
-): Promise<PipelineColumn[]> {
-  const { data, error } = await supabase
-    .from("pipeline_entries")
-    .select(
-      `id, stage, stage_changed_at,
-       contacts ( id, name, phone, business_name, status, tags )`,
-    )
-    .order("stage_changed_at", { ascending: false });
+): Promise<PipelineCard[]> {
+  const [entries, invoices] = await Promise.all([
+    supabase
+      .from("pipeline_entries")
+      .select(
+        `id, stage, stage_changed_at,
+         contacts ( id, name, phone, business_name, status, tags )`,
+      )
+      .order("stage_changed_at", { ascending: false }),
+    // Every invoice, not one query per card: the board is small and this is one
+    // round trip instead of N.
+    supabase.from("invoices").select("contact_id, total_cents"),
+  ]);
 
-  if (error) {
-    throw new Error(`Failed to load the pipeline: ${error.message}`);
+  if (entries.error) {
+    throw new Error(`Failed to load the pipeline: ${entries.error.message}`);
+  }
+  if (invoices.error) {
+    throw new Error(`Failed to load deal values: ${invoices.error.message}`);
   }
 
-  const byStage = new Map<PipelineStage, PipelineCard[]>(
-    PIPELINE_STAGES.map((stage) => [stage.value, []]),
-  );
+  const valueByContact = new Map<string, number>();
 
-  for (const row of data ?? []) {
+  for (const invoice of invoices.data ?? []) {
+    if (!invoice.contact_id) continue;
+    valueByContact.set(
+      invoice.contact_id,
+      (valueByContact.get(invoice.contact_id) ?? 0) + invoice.total_cents,
+    );
+  }
+
+  const cards: PipelineCard[] = [];
+
+  for (const row of entries.data ?? []) {
     // The embed is typed as possibly-null because the FK is nullable in
     // general; here it can't be, since the column is `not null` and cascades.
     if (!row.contacts) continue;
 
-    byStage.get(row.stage)?.push({
+    cards.push({
       entryId: row.id,
       stage: row.stage,
       stageChangedAt: row.stage_changed_at,
+      valueCents: valueByContact.get(row.contacts.id) ?? 0,
       contact: row.contacts,
     });
   }
 
-  return PIPELINE_STAGES.map((stage) => ({
-    stage: stage.value,
-    label: stage.label,
-    cards: byStage.get(stage.value) ?? [],
-  }));
+  return cards;
 }
 
 /**

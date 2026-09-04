@@ -143,6 +143,25 @@ export function dayKeyOf(iso: string): string {
 }
 
 /**
+ * Money, as the pipeline board shows it: `CA$1,200`, no cents.
+ *
+ * `en-US` rather than the `en-CA` the rest of this file uses, and that is the
+ * whole point — `en-CA` renders Canadian dollars as a bare dollar sign, which
+ * on a board sitting beside Stripe amounts is exactly the ambiguity worth two
+ * characters to remove. Cents are dropped because a stage total is a figure
+ * someone glances at, not one that has to reconcile.
+ */
+const money = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "CAD",
+  maximumFractionDigits: 0,
+});
+
+export function formatMoney(cents: number): string {
+  return money.format(cents / 100);
+}
+
+/**
  * Renders E.164 as a North American number when it looks like one, and returns
  * anything else untouched — a `+44` number formatted with NANP grouping would
  * be worse than leaving it alone.

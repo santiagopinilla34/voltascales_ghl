@@ -2,22 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { addToPipeline } from "@/app/(app)/pipeline/actions";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { contactLabel, formatPhone } from "@/lib/format";
-import type { Contact } from "@/types/database";
+import { pipelineStageLabel } from "@/lib/pipeline-stages";
+import type { Contact, PipelineStage } from "@/types/database";
 
 type Candidate = Pick<Contact, "id" | "name" | "phone" | "business_name">;
 
@@ -27,10 +26,24 @@ type Candidate = Pick<Contact, "id" | "name" | "phone" | "business_name">;
  * The list is pre-filtered server-side to contacts not already on the pipeline,
  * so every row here is a valid choice — the unique constraint can't be hit by
  * clicking something the dialog offered.
+ *
+ * Controlled, and with no trigger of its own: the board opens it from three
+ * places — the toolbar button, the split menu, and the "Add deal" foot of each
+ * column — and only the last of those knows which stage the card should land
+ * in. One dialog told where to put things beats three dialogs.
  */
-export function AddToPipelineDialog({ candidates }: { candidates: Candidate[] }) {
+export function AddToPipelineDialog({
+  candidates,
+  stage,
+  open,
+  onOpenChange,
+}: {
+  candidates: Candidate[];
+  stage: PipelineStage;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -49,7 +62,7 @@ export function AddToPipelineDialog({ candidates }: { candidates: Candidate[] })
 
   function add(contact: Candidate) {
     startTransition(async () => {
-      const result = await addToPipeline(contact.id);
+      const result = await addToPipeline(contact.id, stage);
 
       if (!result.ok) {
         toast.error("Could not add to the pipeline", {
@@ -58,9 +71,11 @@ export function AddToPipelineDialog({ candidates }: { candidates: Candidate[] })
         return;
       }
 
-      setOpen(false);
+      onOpenChange(false);
       setQuery("");
-      toast.success(`${contactLabel(contact)} added to Interested`);
+      toast.success(
+        `${contactLabel(contact)} added to ${pipelineStageLabel(stage)}`,
+      );
       router.refresh();
     });
   }
@@ -69,23 +84,16 @@ export function AddToPipelineDialog({ candidates }: { candidates: Candidate[] })
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        setOpen(next);
+        onOpenChange(next);
         if (!next) setQuery("");
       }}
     >
-      <DialogTrigger asChild>
-        <Button size="sm" disabled={candidates.length === 0}>
-          <Plus className="size-4" />
-          Add to pipeline
-        </Button>
-      </DialogTrigger>
-
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add a contact to the pipeline</DialogTitle>
           <DialogDescription>
-            They land in <strong>Interested</strong>. Drag the card, or use its
-            menu, to move it from there.
+            They land in <strong>{pipelineStageLabel(stage)}</strong>. Drag the
+            card, or use its menu, to move it from there.
           </DialogDescription>
         </DialogHeader>
 
