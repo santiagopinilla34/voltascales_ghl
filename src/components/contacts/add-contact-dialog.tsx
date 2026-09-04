@@ -58,7 +58,7 @@ export function AddContactDialog() {
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button size="lg">
           <Plus className="size-4" />
           Add contact
         </Button>

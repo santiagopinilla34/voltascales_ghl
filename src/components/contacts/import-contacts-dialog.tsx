@@ -297,7 +297,7 @@ export function ImportContactsDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="lg" variant="outline">
           <Upload className="size-4" />
           Import
         </Button>
