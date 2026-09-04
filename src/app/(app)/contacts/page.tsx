@@ -14,8 +14,8 @@ export default async function ContactsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="h-14 shrink-0 border-b px-4 sm:px-6 lg:px-10">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center justify-between gap-3">
+      <header className="h-20 shrink-0 border-b">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center pr-52 pl-14 md:pl-6 lg:pl-10 justify-between gap-3">
           <div className="flex min-w-0 items-baseline gap-2">
             <h1 className="truncate text-sm font-semibold tracking-tight">
               Contacts

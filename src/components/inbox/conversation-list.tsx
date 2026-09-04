@@ -25,7 +25,7 @@ export function ConversationList({
 
   return (
     <div className="flex h-full w-full flex-col md:w-80 lg:w-96">
-      <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+      <div className="flex h-20 shrink-0 items-center justify-between border-b pr-4 pl-14 md:pl-4">
         <h1 className="text-sm font-semibold tracking-tight">Inbox</h1>
         <span className="text-muted-foreground text-xs tabular-nums">
           {conversations.length}

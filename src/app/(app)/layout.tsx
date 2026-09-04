@@ -126,7 +126,10 @@ export default async function AppLayout({
             )
           }
         />
-        <SidebarInset className="h-dvh min-w-0 overflow-hidden">
+        {/* `relative` so the topbar can anchor to this box: it is no longer a
+            row of its own but a transparent strip laid over the top of
+            whichever page is open. See components/topbar/app-topbar.tsx. */}
+        <SidebarInset className="relative h-dvh min-w-0 overflow-hidden">
           <AppTopbar />
           {context.isViewingOther && <OrgBanner orgName={context.orgName} />}
           <PageTransition>{children}</PageTransition>

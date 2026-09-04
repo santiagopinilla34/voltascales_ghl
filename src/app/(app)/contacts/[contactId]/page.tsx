@@ -62,7 +62,7 @@ export default async function ContactDetailPage({ params }: PageProps) {
           live updates. */}
       <RealtimeRefresh channel="contact-detail" />
 
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 md:px-4">
+      <header className="reserve-topbar flex h-20 shrink-0 items-center gap-3 border-b pl-14 md:pl-4">
         <Button
           asChild
           variant="ghost"

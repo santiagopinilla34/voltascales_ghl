@@ -45,9 +45,12 @@ export function AgentTabs() {
     // line, which the h-14 header has no room for. `-mx-*` lets the row bleed
     // into the header's padding so the last tab does not look cut off mid-word
     // when it overflows.
+    // pt-2 pb-3 rather than the links running the full height of the row: the
+    // underline is an indicator, and one welded to the bottom edge of the bar
+    // reads as a second border rather than as a mark against a tab.
     <nav
       aria-label="AI Agents sections"
-      className="-mx-4 flex h-full min-w-0 flex-1 items-stretch gap-4 overflow-x-auto px-4 sm:mx-0 sm:gap-5 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="-mx-4 flex h-full min-w-0 flex-1 items-stretch gap-4 overflow-x-auto px-4 pt-2 pb-3 sm:mx-0 sm:gap-5 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {TABS.map((tab) => {
         const active = segment === tab.segment;
@@ -62,8 +65,13 @@ export function AgentTabs() {
               // than a floating bar, so it can never drift out of line with
               // the label it belongs to.
               "flex shrink-0 items-center border-b-2 text-sm whitespace-nowrap transition-colors",
+              // The indicator is green and the label is not. Colouring both
+              // would make the current tab the loudest text in the row, which
+              // it does not need to be — it is already the only one underlined
+              // and the only one at full contrast. The rule carries the brand;
+              // the word stays a word.
               active
-                ? "border-foreground text-foreground font-medium"
+                ? "text-foreground border-emerald-500 font-medium dark:border-emerald-400"
                 : "text-muted-foreground hover:text-foreground border-transparent",
             )}
           >

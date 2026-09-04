@@ -112,8 +112,7 @@ export function GettingStarted() {
 
   return (
     <div className="relative isolate">
-      {/* Scenery, behind everything and out of the accessibility tree. */}
-      <div aria-hidden className="agent-grid absolute inset-0 -z-10" />
+      <Backdrop />
 
       <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col px-4 py-5 sm:px-6 lg:px-10">
         <div className="flex items-center gap-1.5">
@@ -137,7 +136,12 @@ export function GettingStarted() {
           className="page-enter grid flex-1 items-center gap-10 py-8 lg:grid-cols-2 lg:gap-12 lg:py-12"
         >
           <div className="flex min-w-0 flex-col items-start">
-            <span className="text-muted-foreground flex items-center gap-2 text-[0.6875rem] font-medium tracking-[0.14em] uppercase">
+            {/* The only coloured text on the screen, and it names the thing the
+                phone beside it is demonstrating. Green here rather than on the
+                headline because an eyebrow is a label — it can afford to be
+                loud at eleven pixels in a way a forty-four pixel headline
+                cannot. */}
+            <span className="flex items-center gap-2 text-[0.6875rem] font-medium tracking-[0.14em] text-emerald-600 uppercase dark:text-emerald-400">
               <slide.eyebrowIcon className="size-3.5" />
               {slide.eyebrow}
             </span>
@@ -174,21 +178,114 @@ export function GettingStarted() {
         </div>
 
         {/* Under the fold on a laptop, and deliberately so — the slide above
-            makes the case, this is for whoever wants it in three lines. */}
-        <div className="grid gap-6 border-t pt-8 pb-6 sm:grid-cols-3 sm:gap-8">
+            makes the case, this is for whoever wants it in three lines.
+
+            Boxed rather than left as three bare columns: the slide above is one
+            argument that happens to span the width, and without an edge around
+            them these three read as its last paragraph rather than as three
+            separate claims. The icon sits on the title's line so each card
+            opens with a sentence instead of with a decoration. */}
+        <div className="grid gap-5 border-t pt-8 pb-8 sm:grid-cols-3">
           {PROMISES.map((promise) => (
-            <div key={promise.title} className="flex min-w-0 flex-col gap-2">
-              <span className="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-lg">
-                <promise.icon className="size-4" />
-              </span>
-              <h3 className="text-sm font-medium">{promise.title}</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">
+            <div
+              key={promise.title}
+              className="bg-card/40 flex min-w-0 flex-col gap-3 rounded-xl border p-7"
+            >
+              <div className="flex min-w-0 items-center gap-4">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <promise.icon className="size-[1.125rem]" />
+                </span>
+                <h3 className="min-w-0 text-[0.9375rem] font-semibold">
+                  {promise.title}
+                </h3>
+              </div>
+              <p className="text-muted-foreground text-[0.8125rem] leading-relaxed">
                 {promise.body}
               </p>
             </div>
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Where the sparks sit, as percentages of the backdrop. */
+const SPARKS = [
+  { left: "34%", top: "16%", size: 5 },
+  { left: "58%", top: "23%", size: 4 },
+  { left: "5%", top: "72%", size: 6 },
+];
+
+/**
+ * The curves, in the backdrop's 1400x900 space.
+ *
+ * Seven rather than three, and unevenly spaced: two loose ones across the top
+ * third, then a tighter bundle low and left. Evenly spread they read as a
+ * pattern — wallpaper — and a pattern is a thing you look at. Bunched, with
+ * gaps between the bunches, they read as one surface catching light at an
+ * angle, which is a thing you look past. The two in each bundle that run
+ * closest together are the ones that sell it; a lone curve just looks like a
+ * stray stroke.
+ */
+const CURVES = [
+  "M-80 205 C 260 140 480 250 780 190 S 1250 60 1480 130",
+  "M-80 268 C 240 214 500 322 800 252 S 1260 128 1480 196",
+  "M-80 430 C 300 372 540 470 860 398 S 1290 288 1480 350",
+  "M-80 640 C 240 578 470 700 780 606 S 1230 470 1480 545",
+  "M-80 676 C 260 616 500 730 820 640 S 1255 512 1480 586",
+  "M-80 762 C 300 706 520 802 840 726 S 1280 618 1480 682",
+  "M-80 838 C 280 796 540 868 860 800 S 1300 704 1480 762",
+];
+
+/**
+ * Scenery: two washes of green, a few long curves, four specks of light. Behind
+ * everything, out of the accessibility tree, and inert to the pointer.
+ *
+ * The curves are what is left of the ruled grid that used to sit here. A grid
+ * is a claim about precision, which is not what this screen is arguing; these
+ * are slow and off-axis and read as the edge of something moving, which is
+ * closer to it. Drawn as one `viewBox` stretched with
+ * `preserveAspectRatio="none"` because none of it is a shape anybody will look
+ * at directly — distortion at an unusual window size costs nothing here and
+ * saves the curves having to be responsive.
+ */
+function Backdrop() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+    >
+      <div className="agent-aurora absolute inset-0" />
+
+      <svg
+        className="absolute inset-0 size-full text-emerald-500/20"
+        viewBox="0 0 1400 900"
+        preserveAspectRatio="none"
+        fill="none"
+      >
+        {/* `vectorEffect` keeps the stroke a hairline no matter how far the
+            viewBox is stretched — without it the non-uniform scale thickens
+            these into visible ribbons on a wide window. */}
+        <g stroke="currentColor" strokeWidth="1" vectorEffect="non-scaling-stroke">
+          {CURVES.map((d) => (
+            <path key={d} d={d} vectorEffect="non-scaling-stroke" />
+          ))}
+        </g>
+      </svg>
+
+      {SPARKS.map((spark) => (
+        <span
+          key={`${spark.left}-${spark.top}`}
+          className="agent-spark absolute rounded-full"
+          style={{
+            left: spark.left,
+            top: spark.top,
+            width: spark.size,
+            height: spark.size,
+          }}
+        />
+      ))}
     </div>
   );
 }

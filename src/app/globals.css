@@ -107,7 +107,13 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
+  /* Level with the page rather than a shade lighter than it. A lifted panel
+     puts a soft edge down the middle of every screen, which is a lot of
+     emphasis to spend on furniture; flat, the `border-r` does the separating
+     and the only thing left standing out of the dark is the row you are on —
+     `--sidebar-accent` below is now three steps up from its surroundings
+     instead of one. */
+  --sidebar: oklch(0.145 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
@@ -308,16 +314,20 @@
 /* ---------------------------------------------------------------------------
    AI Agents
    ---------------------------------------------------------------------------
-   Two pieces of scenery for the Getting Started screen, kept here rather than
-   inlined as arbitrary Tailwind values because both are long enough that in a
-   class attribute they would be unreadable, and both need to answer the theme.
+   Scenery for the Getting Started screen, kept here rather than inlined as
+   arbitrary Tailwind values because these are long enough that in a class
+   attribute they would be unreadable, and they need to answer the theme.
 
-   The grid is drawn from `--border`, so it is a hairline on white and a faint
-   lift out of near-black without a second rule. It fades out towards the
-   bottom: a grid that runs edge to edge reads as graph paper, one that
-   dissolves reads as depth behind the content. `mask-image` rather than a
-   gradient overlay so it works over whatever the page background happens to
-   be.
+   The aurora replaces the ruled grid that used to sit behind this screen. The
+   grid was legible but generic — it said "technical product" and nothing
+   about this one — where two soft washes of the brand green say the same thing
+   the phone mockup and the eyebrow say, in the same colour. Both are placed to
+   sit behind the copy rather than over it: one under the headline, one off the
+   top-right corner, neither strong enough to cost the paragraph any contrast.
+
+   Green over white is a much louder event than green over near-black, so the
+   light theme takes the same gradients at less than half strength rather than
+   a second set of colours to keep in sync.
 
    The orb is what a voice agent looks like when it is listening, and it is the
    one thing on the page that moves on its own. Three rings on a long stagger,
@@ -327,13 +337,99 @@
    kind that makes some people ill.
    --------------------------------------------------------------------------- */
 
-.agent-grid {
-  background-image:
-    linear-gradient(to right, var(--border) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
-  background-size: 44px 44px;
+/* ---------------------------------------------------------------------------
+   The room a page header leaves for the floating app controls
+   ---------------------------------------------------------------------------
+   The three bubbles are not pinned to the window edge; they ride at the right
+   of the same 1400px column the page content sits in, so on a wide monitor
+   they come inboard with it rather than stranding themselves out in the
+   margin. That makes the space a header has to keep clear a moving target: 168
+   pixels for the bubbles, plus however far the column's edge is from the
+   window's.
+
+   Headers that already centre their contents in that column only owe the 168 —
+   `pr-52` on the container, which is the 40 of column padding plus the rest.
+   The ones below are the full-bleed screens whose contents deliberately are
+   not in the column, so they have to work the offset out themselves.
+   --------------------------------------------------------------------------- */
+
+.reserve-topbar {
+  padding-right: calc(10.5rem + max(2.5rem, (100% - 1400px) / 2 + 2.5rem));
+}
+
+/* Same idea for a header that is not the full width of the shell. The inbox
+   thread sits beside the conversation list, so the column the bubbles centre
+   themselves in is this header *plus* that list — and the list is 20rem from
+   `md`, 24rem from `lg`, and not there at all below that. */
+.reserve-topbar-thread {
+  padding-right: calc(10.5rem + 2.5rem);
+}
+
+@media (width >= 48rem) {
+  .reserve-topbar-thread {
+    padding-right: calc(10.5rem + max(2.5rem, (100% + 20rem - 1400px) / 2 + 2.5rem));
+  }
+}
+
+@media (width >= 64rem) {
+  .reserve-topbar-thread {
+    padding-right: calc(10.5rem + max(2.5rem, (100% + 24rem - 1400px) / 2 + 2.5rem));
+  }
+}
+
+.agent-aurora {
+  background:
+    radial-gradient(
+      40% 36% at 20% 32%,
+      oklch(0.7 0.17 162 / 0.11),
+      transparent 70%
+    ),
+    radial-gradient(
+      32% 42% at 88% 10%,
+      oklch(0.7 0.17 162 / 0.08),
+      transparent 72%
+    );
+  opacity: 0.4;
+}
+
+/* The specks of light scattered over the aurora. Small enough that the glow is
+   most of what you see of them, which is the point — they read as depth in the
+   background rather than as dots drawn on top of it. */
+.agent-spark {
+  background: oklch(0.8 0.16 162);
+  box-shadow: 0 0 10px 2px oklch(0.7 0.17 162 / 0.5);
   opacity: 0.5;
-  mask-image: linear-gradient(to bottom, black, transparent 70%);
+}
+
+/* The same green down the right edge of the sidebar, as light rather than
+   paint. Two layers, and the order matters: a hairline that lights the border
+   itself from the top down, and the bloom that hairline throws back into the
+   panel. The line alone reads as a coloured border — a decision about the
+   divider — where the line plus its bloom reads as something glowing just off
+   the top corner, which is the point. Both die out around the halfway mark so
+   the bottom of the nav is left alone. */
+.sidebar-glow {
+  background:
+    linear-gradient(
+        to bottom,
+        transparent,
+        oklch(0.78 0.18 162 / 0.65) 17%,
+        oklch(0.78 0.18 162 / 0.2) 42%,
+        transparent 64%
+      )
+      right / 1px 100% no-repeat,
+    radial-gradient(
+      34% 24% at 100% 19%,
+      oklch(0.7 0.17 162 / 0.18),
+      transparent 72%
+    );
+  opacity: 0.45;
+}
+
+.dark .agent-aurora,
+.dark .agent-spark,
+.dark .sidebar-glow {
+  opacity: 1;
 }
 
 .agent-orb-ring {

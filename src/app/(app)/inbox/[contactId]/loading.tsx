@@ -52,7 +52,7 @@ export default function ThreadLoading() {
     <div className="loading-enter flex min-h-0 flex-1 flex-col">
       {/* Same height and border as the real header, so the pane doesn't
           shift by a pixel when the conversation arrives. */}
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 md:px-4">
+      <header className="reserve-topbar-thread flex h-20 shrink-0 items-center gap-3 border-b pl-14 md:pl-4">
         <Skeleton className="size-8 shrink-0 rounded-md md:hidden" />
         <div className="min-w-0 flex-1 space-y-1.5">
           <Skeleton className="h-4 w-40 max-w-[60%]" />

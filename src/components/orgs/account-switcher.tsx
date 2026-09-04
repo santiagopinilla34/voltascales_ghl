@@ -29,11 +29,29 @@ import { subAccountInitials, type SubAccount } from "@/lib/orgs/sub-accounts";
  * and the sidebar only renders it for a platform admin.
  */
 
-function Avatar({ initials, tinted }: { initials: string; tinted: boolean }) {
+/**
+ * `size` because the trigger in the sidebar and the rows in the popover are
+ * not the same object: the trigger is the account you are in and carries the
+ * top of the column, where a row in a list is one of twenty and should not.
+ * A round avatar reads as a person; these are businesses, so the corners are
+ * only rounded off.
+ */
+function Avatar({
+  initials,
+  tinted,
+  size = "sm",
+}: {
+  initials: string;
+  tinted: boolean;
+  size?: "sm" | "lg";
+}) {
   return (
     <span
       className={[
-        "flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+        "flex shrink-0 items-center justify-center font-semibold",
+        size === "lg"
+          ? "size-8 rounded-lg text-[11px]"
+          : "size-6 rounded-md text-[10px]",
         tinted ? "bg-violet-600 text-white" : "bg-muted text-muted-foreground",
       ].join(" ")}
     >
@@ -89,17 +107,18 @@ export function AccountSwitcher({
           type="button"
           disabled={pending}
           className={[
-            "flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 text-left transition-colors",
-            "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:px-0",
+            "flex w-full min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors",
+            "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-0",
             isViewingOther
               ? "border-violet-300 bg-violet-100 text-violet-900 hover:bg-violet-200 dark:border-violet-900 dark:bg-violet-950/60 dark:text-violet-200 dark:hover:bg-violet-950"
               : "hover:bg-muted/60",
           ].join(" ")}
         >
           {pending ? (
-            <Loader2 className="size-6 shrink-0 animate-spin p-1" />
+            <Loader2 className="size-8 shrink-0 animate-spin p-2" />
           ) : (
             <Avatar
+              size="lg"
               initials={
                 isViewingOther ? subAccountInitials(currentOrgName) : "VS"
               }
@@ -108,10 +127,10 @@ export function AccountSwitcher({
           )}
 
           <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-            <span className="block truncate text-xs font-medium">
+            <span className="block truncate text-[13px] leading-tight font-semibold">
               {currentOrgName}
             </span>
-            <span className="block truncate text-[10px] opacity-75">
+            <span className="mt-0.5 block truncate text-[11px] leading-tight opacity-70">
               {isViewingOther ? "Client account" : "Agency account"}
             </span>
           </span>

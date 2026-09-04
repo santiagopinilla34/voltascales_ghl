@@ -28,16 +28,22 @@ export function AccountBadge({
   isPlatformAdmin: boolean;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:px-0">
-      <span className="bg-muted text-muted-foreground flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold">
-        {isPlatformAdmin ? <Building2 className="size-3.5" /> : subAccountInitials(name)}
+    // Deliberately the same box as the switcher's trigger, down to the radius:
+    // a client should not be able to tell that the agency's version of this
+    // corner opens and theirs does not.
+    <div className="flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-0">
+      <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold">
+        {isPlatformAdmin ? <Building2 className="size-4" /> : subAccountInitials(name)}
       </span>
 
       <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-        <span className="block truncate text-xs font-medium" title={name}>
+        <span
+          className="block truncate text-[13px] leading-tight font-semibold"
+          title={name}
+        >
           {name}
         </span>
-        <span className="text-muted-foreground block truncate text-[10px]">
+        <span className="text-muted-foreground mt-0.5 block truncate text-[11px] leading-tight">
           {isPlatformAdmin ? "Agency account" : "Your account"}
         </span>
       </span>

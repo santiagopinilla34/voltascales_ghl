@@ -288,7 +288,7 @@ export function WorkflowBuilder({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Top bar */}
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3">
+      <header className="reserve-topbar flex h-20 shrink-0 items-center gap-3 border-b pl-14 md:pl-3">
         <Button asChild variant="ghost" size="icon-sm" className="shrink-0">
           <Link href="/automations" aria-label="Back to workflows">
             <ArrowLeft />

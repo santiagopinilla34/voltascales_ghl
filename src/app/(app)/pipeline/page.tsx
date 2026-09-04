@@ -20,7 +20,7 @@ export default async function PipelinePage() {
     // Same shape as the Contacts page: a fixed header over a single scrolling
     // region. The board scrolls horizontally inside it rather than the page.
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4">
+      <header className="reserve-topbar flex h-20 shrink-0 items-center justify-between gap-3 border-b pl-14 md:pl-4">
         <div className="flex min-w-0 items-baseline gap-2">
           <h1 className="truncate text-sm font-semibold tracking-tight">
             Pipeline
