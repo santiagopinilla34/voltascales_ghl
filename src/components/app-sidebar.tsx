@@ -184,8 +184,69 @@ export function AppSidebar({
           here to cover the nav. */}
       <div
         aria-hidden
-        className="sidebar-glow pointer-events-none absolute inset-0"
-      />
+        className="sidebar-glow pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        {/* Three arcs of one circle whose centre is off the panel entirely,
+            past the right edge and above the top — so what you get inside the
+            column is three near-parallel sweeps rather than anything that
+            reads as a ring. They are the same shape as the bloom above them,
+            drawn instead of blurred, which is what stops the lower half of the
+            column being an unbroken sheet.
+
+            `slice` and a viewBox taller than most windows, so the curvature is
+            the same on a laptop as on a 27-inch monitor: with `none` the arcs
+            would flatten or bow as the window changed height, and a decoration
+            that reshapes itself while you resize draws exactly the attention
+            it is trying not to.
+
+            Gone on the icon rail. At 48px the arcs are three short diagonal
+            scratches behind the icons, which is noise, not depth. */}
+        <svg
+          viewBox="0 0 256 1000"
+          preserveAspectRatio="xMinYMin slice"
+          className="absolute inset-0 size-full group-data-[collapsible=icon]:hidden"
+        >
+          <defs>
+            <linearGradient
+              id="sidebar-arc"
+              gradientUnits="userSpaceOnUse"
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="1000"
+            >
+              <stop
+                offset="0%"
+                stopColor="oklch(0.8 0.17 162)"
+                stopOpacity="0.3"
+              />
+              <stop
+                offset="55%"
+                stopColor="oklch(0.8 0.17 162)"
+                stopOpacity="0.14"
+              />
+              <stop
+                offset="100%"
+                stopColor="oklch(0.8 0.17 162)"
+                stopOpacity="0.03"
+              />
+            </linearGradient>
+          </defs>
+
+          {/* The centre sits level with the middle of the column, not with the
+              top of it. An arc is closest to the panel at its centre's height,
+              and with the centre up by the header the innermost one crossed
+              the wordmark — a hairline through the logo, which is the one
+              thing here that has to stay clean. At this height the arcs reach
+              their leftmost point around the section headings and leave both
+              the brand and the footer card alone. */}
+          <g fill="none" stroke="url(#sidebar-arc)" strokeWidth="1">
+            <circle cx="392" cy="400" r="268" />
+            <circle cx="392" cy="400" r="404" />
+            <circle cx="392" cy="400" r="560" />
+          </g>
+        </svg>
+      </div>
 
       {/* No rule under the header and none over the footer. Both cards below
           are bordered, so the lines were drawing the same boundary twice —

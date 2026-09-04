@@ -401,13 +401,27 @@
   opacity: 0.5;
 }
 
-/* The same green down the right edge of the sidebar, as light rather than
-   paint. Two layers, and the order matters: a hairline that lights the border
-   itself from the top down, and the bloom that hairline throws back into the
-   panel. The line alone reads as a coloured border — a decision about the
-   divider — where the line plus its bloom reads as something glowing just off
-   the top corner, which is the point. Both die out around the halfway mark so
-   the bottom of the nav is left alone. */
+/* The same green down the sidebar, as light rather than paint.
+ *
+ * Four layers, and the order matters, because each one is the consequence of
+ * the one above it: a hairline that lights the right border from the top down,
+ * the bloom that hairline throws back into the panel, a second and much
+ * weaker pool where the light has settled in the bottom corner, and under all
+ * of it a plain white lift that makes the top of the column read as nearer
+ * than the bottom.
+ *
+ * The hairline alone reads as a coloured border — a decision about the
+ * divider — where the line plus its bloom reads as something glowing just off
+ * the top corner, which is the point.
+ *
+ * It used to be only the first two, both dying out by the halfway mark, and
+ * the bottom two thirds of a 256px column were left as flat sheet with a
+ * footer card floating on it. The pool is what closes that: far too dim to be
+ * a second light source, just enough that the panel has a floor.
+ *
+ * The contour arcs are a separate layer, drawn as SVG in app-sidebar.tsx —
+ * strokes, and CSS gradients don't do strokes. They live inside this element
+ * so the two dim together. */
 .sidebar-glow {
   background:
     linear-gradient(
@@ -419,10 +433,16 @@
       )
       right / 1px 100% no-repeat,
     radial-gradient(
-      34% 24% at 100% 19%,
-      oklch(0.7 0.17 162 / 0.18),
+      38% 26% at 100% 17%,
+      oklch(0.7 0.17 162 / 0.2),
       transparent 72%
-    );
+    ),
+    radial-gradient(
+      88% 34% at 6% 104%,
+      oklch(0.62 0.15 162 / 0.13),
+      transparent 68%
+    ),
+    linear-gradient(to bottom, oklch(1 0 0 / 0.04), transparent 42%);
   opacity: 0.45;
 }
 
