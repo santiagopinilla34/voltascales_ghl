@@ -50,6 +50,71 @@ export async function listAutomations(
   });
 }
 
+/** The counters across the top of the list page. */
+export type AutomationStats = {
+  activeRules: number;
+  totalRules: number;
+  ranThisWeek: number;
+  successfulRuns: number;
+  failedRuns: number;
+};
+
+/** How far back the three run counters look. */
+const STATS_WINDOW_DAYS = 7;
+
+/**
+ * Rule and run counts for the list header.
+ *
+ * All three run figures cover the same seven days, which is why only the first
+ * says so: "6 ran, 4 succeeded, 0 failed" is one sentence about one week, and
+ * mixing an all-time success count into it would make the three numbers stop
+ * adding up in the one place a reader will try to add them. Skipped runs are
+ * the difference, and are deliberately not a counter — a rule declining to
+ * fire is the system working, not an event worth a tile.
+ *
+ * Counted with head requests: the rows themselves are never needed here, and
+ * a count is cheap where dragging every run of the week across the wire is not.
+ */
+export async function getAutomationStats(
+  supabase: SupabaseClient<Database>,
+): Promise<AutomationStats> {
+  const since = new Date(
+    Date.now() - STATS_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const runs = () =>
+    supabase
+      .from("automation_runs")
+      .select("*", { count: "exact", head: true })
+      .gte("ran_at", since);
+
+  const [rules, active, week, succeeded, failed] = await Promise.all([
+    supabase.from("automations").select("*", { count: "exact", head: true }),
+    supabase
+      .from("automations")
+      .select("*", { count: "exact", head: true })
+      .eq("active", true),
+    runs(),
+    runs().eq("status", "success"),
+    runs().eq("status", "failed"),
+  ]);
+
+  const failure = [rules, active, week, succeeded, failed].find(
+    (result) => result.error,
+  );
+  if (failure?.error) {
+    throw new Error(`Failed to load automation stats: ${failure.error.message}`);
+  }
+
+  return {
+    activeRules: active.count ?? 0,
+    totalRules: rules.count ?? 0,
+    ranThisWeek: week.count ?? 0,
+    successfulRuns: succeeded.count ?? 0,
+    failedRuns: failed.count ?? 0,
+  };
+}
+
 export async function getAutomation(
   supabase: SupabaseClient<Database>,
   automationId: string,

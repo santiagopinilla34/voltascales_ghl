@@ -23,6 +23,10 @@ function ActiveSwitch({ automation }: { automation: AutomationSummary }) {
     <Switch
       checked={active}
       disabled={pending}
+      // Bigger than the default, and green when on. A rule being live is the
+      // one piece of state on this page you read from across the room, and at
+      // 32px in the theme's near-white it looked like every other control.
+      className="data-[size=default]:h-6 data-[size=default]:w-10 data-checked:bg-emerald-500 [&_[data-slot=switch-thumb]]:size-5 [&_[data-slot=switch-thumb]]:bg-white"
       aria-label={`${automation.active ? "Deactivate" : "Activate"} ${automation.name}`}
       onCheckedChange={(next) => {
         startTransition(async () => {
@@ -75,12 +79,12 @@ export function AutomationsList({
   }
 
   return (
-    <ul className="flex flex-col gap-2">
+    <ul className="flex flex-col gap-1">
       {automations.map((automation) => (
         <li
           key={automation.id}
           className={cn(
-            "bg-card flex items-center gap-3 rounded-lg border p-3 transition-colors",
+            "bg-card flex items-center gap-6 rounded-xl border px-5 py-4 transition-colors",
             !automation.active && "bg-muted/40",
           )}
         >
@@ -92,13 +96,13 @@ export function AutomationsList({
 
           <Link
             href={`/automations/${automation.id}`}
-            className="flex min-w-0 flex-1 items-center gap-3"
+            className="flex min-w-0 flex-1 items-center gap-4"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    "truncate text-sm font-medium",
+                    "truncate text-base font-semibold",
                     !automation.active && "text-muted-foreground",
                   )}
                 >
@@ -122,7 +126,7 @@ export function AutomationsList({
                 )}
               </div>
 
-              <p className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
+              <p className="text-muted-foreground mt-1 flex items-center gap-1.5 text-sm">
                 {automation.runCount === 0 ? (
                   "Never run"
                 ) : (
