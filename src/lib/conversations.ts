@@ -21,7 +21,23 @@ export type Conversation = {
   lastMessage: ConversationPreview | null;
   /** Sort key: the last message, or when the contact appeared if silent. */
   lastActivityAt: string;
+  /**
+   * How many messages they have sent since anything last went out — 0 once
+   * anyone (or the AI) has answered. Capped at `UNANSWERED_SCAN`.
+   */
+  unansweredCount: number;
 };
+
+/**
+ * How far back the unanswered run is counted.
+ *
+ * The badge is a "how many are they waiting on" number, and in practice that
+ * is one to three. Ten is well past the point where the figure stops changing
+ * how urgent the row looks, and it bounds what this query drags back: the
+ * embed is per contact, so every extra message here is one more row per
+ * conversation in the list.
+ */
+const UNANSWERED_SCAN = 10;
 
 /**
  * Every conversation, most recently active first.
@@ -49,7 +65,9 @@ export async function listConversations(
        messages ( id, body, direction, sent_by, created_at )`,
     )
     .order("created_at", { referencedTable: "messages", ascending: false })
-    .limit(1, { referencedTable: "messages" });
+    // Was 1, for the preview alone. The unanswered badge needs the run of
+    // inbound messages at the end of the thread, not just the last one.
+    .limit(UNANSWERED_SCAN, { referencedTable: "messages" });
 
   if (error) {
     throw new Error(`Failed to load conversations: ${error.message}`);
@@ -58,10 +76,21 @@ export async function listConversations(
   return (data ?? [])
     .map(({ messages, ...contact }) => {
       const lastMessage = messages.at(0) ?? null;
+
+      // `messages` is newest first, so the unanswered run is the prefix of
+      // inbound ones: count until something outbound appears. A thread whose
+      // last message went out scores 0 on the first step.
+      let unansweredCount = 0;
+      for (const message of messages) {
+        if (message.direction !== "in") break;
+        unansweredCount += 1;
+      }
+
       return {
         contact,
         lastMessage,
         lastActivityAt: lastMessage?.created_at ?? contact.created_at,
+        unansweredCount,
       };
     })
     .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));

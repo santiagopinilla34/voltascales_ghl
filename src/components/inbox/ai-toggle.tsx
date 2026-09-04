@@ -18,17 +18,17 @@ import { cn } from "@/lib/utils";
 function agentSubtitle(
   agent: { name: string; mode: "off" | "suggest" | "autopilot" } | null,
 ): string {
-  if (!agent) return "No agent yet — nothing will reply";
+  if (!agent) return "No agent yet â nothing will reply";
 
   switch (agent.mode) {
     case "autopilot":
       return "Replies sent automatically";
     case "suggest":
       // Drafts still appear in the panel below, so this is a real state rather
-      // than a broken one — it just is not the state the old copy claimed.
-      return `${agent.name} drafts only — you send`;
+      // than a broken one â it just is not the state the old copy claimed.
+      return `${agent.name} drafts only â you send`;
     case "off":
-      return `${agent.name} is off — nothing will reply`;
+      return `${agent.name} is off â nothing will reply`;
   }
 }
 
@@ -53,7 +53,7 @@ export function AiToggle({
    * This switch only ever meant "may the AI answer *this person*". Whether the
    * AI answers at all is the agent's business, and the banner used to promise
    * "replies sent automatically" on the strength of the per-contact flag alone
-   * — so a thread with the switch on read exactly the same whether the agent
+   * â so a thread with the switch on read exactly the same whether the agent
    * was on auto-pilot, drafting quietly, switched off, or had never been
    * created. The one case it described was the one case nobody needed telling
    * about.
@@ -107,7 +107,11 @@ export function AiToggle({
         <User className="text-muted-foreground size-4 shrink-0" />
       )}
 
-      <span className="flex flex-col leading-tight">
+      {/* Text gone below `sm`. In a thread header at 386px this label, the
+          back button and the overflow menu left about 100px for the name,
+          badge and number — the name vanished entirely. The icon already
+          carries the state, and the switch keeps its own aria-label. */}
+      <span className="hidden flex-col leading-tight sm:flex">
         <span
           className={cn(
             "text-xs font-semibold",

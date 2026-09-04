@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 /** Matches the limit the messages route enforces. */
 const MAX_BODY_LENGTH = 1600;
@@ -76,8 +77,18 @@ export function ReplyBox({
   }
 
   return (
-    <div className="bg-background shrink-0 border-t p-3">
-      <div className="flex items-end gap-2">
+    <div className="shrink-0 p-3">
+      {/* One bordered box holding the field and the button, rather than a
+          textarea with a button parked beside it. The composer is a single
+          thing you are filling in, and the border is what says where it
+          starts and stops.
+
+          The reference this follows also carries a row of attachment, emoji,
+          template and snippet buttons along the bottom. Every one of them is
+          left out: this sends SMS through Twilio with a body and nothing else
+          — there are no attachments, no saved replies and no snippet store to
+          open. Four icons that open nothing would be worse than the gap. */}
+      <div className="bg-background focus-within:border-ring focus-within:ring-ring/50 rounded-xl border transition-shadow focus-within:ring-[3px]">
         <Textarea
           ref={textareaRef}
           value={body}
@@ -93,35 +104,50 @@ export function ReplyBox({
           rows={2}
           disabled={pending}
           aria-label="Reply message"
-          className="max-h-40 min-h-[2.75rem] flex-1 resize-none"
+          // The box around it draws the edge now, so the field itself has
+          // none — two nested borders read as a field inside a field.
+          className="max-h-40 min-h-[2.75rem] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
         />
-        <Button
-          type="button"
-          onClick={send}
-          disabled={!canSend}
-          size="icon"
-          aria-label="Send reply"
-          className="size-10 shrink-0"
-        >
-          {pending ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Send className="size-4" />
-          )}
-        </Button>
-      </div>
 
-      <div className="text-muted-foreground mt-1.5 flex items-center justify-between gap-2 text-[11px]">
-        <span>
-          {aiEnabled
-            ? "Sending a reply turns AI handling off for this contact."
-            : "Enter to send · Shift+Enter for a new line"}
-        </span>
-        {body.length > MAX_BODY_LENGTH - 200 && (
-          <span className={tooLong ? "text-destructive font-medium" : undefined}>
-            {body.length} / {MAX_BODY_LENGTH}
+        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+          <span className="text-muted-foreground min-w-0 truncate text-[11px]">
+            {aiEnabled
+              ? "Sending a reply turns AI handling off for this contact."
+              : "Enter to send · Shift+Enter for a new line"}
           </span>
-        )}
+
+          <div className="flex shrink-0 items-center gap-2">
+            {body.length > MAX_BODY_LENGTH - 200 && (
+              <span
+                className={cn(
+                  "text-muted-foreground text-[11px] tabular-nums",
+                  tooLong && "text-destructive font-medium",
+                )}
+              >
+                {body.length} / {MAX_BODY_LENGTH}
+              </span>
+            )}
+
+            {/* Green and labelled. As an icon-only button in the default
+                variant it was a pale grey square — the one control on the
+                screen that sends something, looking like the least important
+                thing on it. */}
+            <Button
+              type="button"
+              onClick={send}
+              disabled={!canSend}
+              size="lg"
+              className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+            >
+              {pending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Send className="size-4" />
+              )}
+              Send
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

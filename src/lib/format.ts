@@ -85,6 +85,37 @@ export function formatListTimestamp(iso: string, now: Date = new Date()): string
   return dayMonthYear.format(date);
 }
 
+/**
+ * Age of a conversation, in as few characters as it can be said: `2m`, `3h`,
+ * `1d`, then a date once "how many days ago" stops being a useful answer.
+ *
+ * The Inbox uses this where `formatListTimestamp` gives "4:16 p.m." or "Wed" —
+ * both of which answer *when* something happened, where a conversation list is
+ * being scanned for *how long ago*, and the column is 40px wide. Past a week
+ * the relative form turns into "24d", which nobody reads as a date, so it
+ * hands back to the absolute one.
+ *
+ * The whole-minute floor matters: a stamp that renders "0m" for the first
+ * sixty seconds reads as broken, so anything under a minute is "now".
+ */
+export function formatCompactAge(iso: string, now: Date = new Date()): string {
+  const elapsedMs = now.getTime() - new Date(iso).getTime();
+
+  // A clock skew between the browser and the database should not print a
+  // negative age; treat anything in the future as having just happened.
+  const minutes = Math.floor(Math.max(0, elapsedMs) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+
+  return formatListTimestamp(iso, now);
+}
+
 /** Time under a message bubble. */
 export function formatMessageTime(iso: string): string {
   return timeOnly.format(new Date(iso));

@@ -8,11 +8,13 @@ import { AiPreviewPanel } from "@/components/inbox/ai-preview-panel";
 import { AiToggle } from "@/components/inbox/ai-toggle";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ReplyBox } from "@/components/inbox/reply-box";
+import { ThreadActions } from "@/components/inbox/thread-actions";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { getPrimaryBot } from "@/lib/ai-agents/queries";
 import { getLatestDraft } from "@/lib/ai/drafts";
 import { getContact, listMessages } from "@/lib/conversations";
-import { contactLabel, formatPhone } from "@/lib/format";
+import { contactInitials, contactLabel, formatPhone } from "@/lib/format";
 import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
 
@@ -65,7 +67,15 @@ export default async function ThreadPage({ params }: PageProps) {
     // over the skeleton it replaces — the same box the fallback holds, in the
     // same flex column, so nothing moves as one becomes the other.
     <div className="thread-enter flex min-h-0 flex-1 flex-col">
-      <header className="reserve-topbar-thread flex h-20 shrink-0 items-center gap-3 border-b pl-14 md:pl-4">
+      {/* No `reserve-topbar-thread` any more: the bubbles are reserved for by
+          the Inbox layout's own header above both panes, so this row is free
+          to use its full width. */}
+      {/* 76px and a 16px gutter, not 64 and 12. The contact block here was the
+          tightest thing on the screen — a 14px name stacked straight onto a
+          12px number inside a row barely taller than the avatar beside it,
+          while the same person's row in the list next door had more room to
+          breathe than their open conversation did. */}
+      <header className="flex h-[76px] shrink-0 items-center gap-3 border-b px-4">
         {/* Only a way back on narrow screens, where the list is hidden. */}
         <Button
           asChild
@@ -79,16 +89,30 @@ export default async function ThreadPage({ params }: PageProps) {
           </Link>
         </Button>
 
+        {/* The same disc as the row you clicked in the list, so the thread
+            reads as that row opened rather than as a new screen. */}
+        <Avatar className="hidden size-9 shrink-0 md:flex">
+          <AvatarFallback className="text-xs font-medium">
+            {contactInitials(contact)}
+          </AvatarFallback>
+        </Avatar>
+
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-sm font-semibold tracking-tight">
+            <h2 className="truncate text-base font-semibold tracking-tight">
               {label}
             </h2>
-            <StatusBadge status={contact.status} className="shrink-0" />
+            {/* Hidden on a phone, where the name has to win the row. The
+                toggle beside it already reports whether AI is answering,
+                which is the part of the status you act on from here. */}
+            <StatusBadge
+              status={contact.status}
+              className="hidden shrink-0 sm:inline-flex"
+            />
           </div>
           {/* Only worth repeating the number when the name isn't it. */}
           {contact.name?.trim() && (
-            <p className="text-muted-foreground truncate text-xs tabular-nums">
+            <p className="text-muted-foreground mt-0.5 truncate text-[13px] tabular-nums">
               {formatPhone(contact.phone)}
             </p>
           )}
@@ -99,6 +123,8 @@ export default async function ThreadPage({ params }: PageProps) {
           enabled={contact.ai_enabled}
           agent={agent && { name: agent.name, mode: agent.mode }}
         />
+
+        <ThreadActions contactId={contact.id} phone={contact.phone} />
       </header>
 
       <MessageThread messages={messages} />

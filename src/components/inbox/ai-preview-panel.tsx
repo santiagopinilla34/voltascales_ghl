@@ -206,14 +206,22 @@ export function AiPreviewPanel({
           )}
 
           <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-            <span>{aiModelLabel(draft.model)}</span>
-            <span aria-hidden>·</span>
-            <span className="tabular-nums">
-              {draft.input_tokens ?? 0} in / {draft.output_tokens ?? 0} out
+            {/* Which model, how many tokens and how many characters are
+                diagnostics — worth having beside the draft on a desktop, and
+                not worth the two extra wrapped lines they cost on a phone,
+                where this panel was already taking as much of the screen as
+                the conversation above it. The timestamp stays: "when did it
+                say this" is the one part you read rather than audit. */}
+            <span className="hidden items-center gap-2 sm:flex">
+              <span>{aiModelLabel(draft.model)}</span>
+              <span aria-hidden>·</span>
+              <span className="tabular-nums">
+                {draft.input_tokens ?? 0} in / {draft.output_tokens ?? 0} out
+              </span>
+              <span aria-hidden>·</span>
+              <span className="tabular-nums">{draft.body.length} chars</span>
+              <span aria-hidden>·</span>
             </span>
-            <span aria-hidden>·</span>
-            <span className="tabular-nums">{draft.body.length} chars</span>
-            <span aria-hidden>·</span>
             {/* Once it has gone out, when it went out is the more useful of the
                 two timestamps — and they are seconds apart anyway. */}
             <time dateTime={draft.sent_at ?? draft.created_at}>
