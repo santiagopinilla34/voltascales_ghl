@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Building2, Package } from "lucide-react";
 
 import { BusinessForm } from "@/components/business/business-form";
 import { PackagesEditor } from "@/components/business/packages-editor";
@@ -17,13 +18,22 @@ export default async function BusinessPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="h-20 shrink-0 border-b">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center pr-52 pl-14 md:pl-6 lg:pl-10 gap-3">
-          <h1 className="text-sm font-semibold tracking-tight">My Business</h1>
+      {/* Title and a line saying what the page is for, on the page rather than
+          in a bar above it. Same padding and max width as the panels below, so
+          the heading starts where the cards do; the inner row reserves the
+          space the top-bar buttons occupy. */}
+      <header className="shrink-0 px-4 pt-8 pb-5 sm:px-6 lg:px-10">
+        <div className="mx-auto w-full min-w-0 max-w-[1400px] pr-52">
+          <h1 className="truncate text-xl font-semibold tracking-tight">
+            My Business
+          </h1>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Manage your business information that appears on your invoices.
+          </p>
         </div>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-10">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6 lg:px-10">
         {/*
           Who you are on the left, what you sell on the right, from `xl` up.
 
@@ -31,31 +41,58 @@ export default async function BusinessPage() {
           admitting as much. Side by side the name and address fields stop
           stretching across the whole window, and the two halves of an invoice
           footer are visible at once while you edit either.
+
+          `items-start` because the two panels are unrelated lists of different
+          lengths; stretching the shorter one to match only adds empty box.
         */}
-        <div className="mx-auto grid w-full min-w-0 max-w-[1400px] items-start gap-8 pb-4 xl:grid-cols-2">
-          <section className="flex min-w-0 flex-col gap-3">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">Details</h2>
-              <p className="text-muted-foreground text-xs">
-                Your side of an invoice — what a client sees in the footer.
-              </p>
-            </div>
+        <div className="mx-auto grid w-full min-w-0 max-w-[1400px] items-start gap-4 xl:grid-cols-2">
+          <section className="min-w-0 rounded-xl border p-6">
+            <PanelHeader
+              icon={<Building2 className="size-5" />}
+              title="Business details"
+              hint="This information appears on the invoice footer."
+            />
             <BusinessForm details={businessDetailsOf(settings)} />
           </section>
 
-          <section className="flex min-w-0 flex-col gap-3">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">
-                Packages and offers
-              </h2>
-              <p className="text-muted-foreground text-xs">
-                What you sell. These are the line items you pick from when
-                building an invoice — edit them here any time.
-              </p>
-            </div>
+          <section className="min-w-0 rounded-xl border p-6">
+            <PanelHeader
+              icon={<Package className="size-5" />}
+              title="Packages and offers"
+              hint="These are the line items you pick from when building an invoice."
+            />
             <PackagesEditor packages={packages} />
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** The tinted-tile heading both panels wear. */
+function PanelHeader({
+  icon,
+  title,
+  hint,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <div className="mb-6 flex items-start gap-3">
+      <span
+        className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+        aria-hidden
+      >
+        {icon}
+      </span>
+
+      <div className="min-w-0">
+        <h2 className="truncate text-base font-semibold tracking-tight">
+          {title}
+        </h2>
+        <p className="text-muted-foreground mt-0.5 text-xs">{hint}</p>
       </div>
     </div>
   );

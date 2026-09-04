@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Loader2 } from "lucide-react";
+import { Eye, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveBusinessDetails } from "@/app/(app)/business/actions";
@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { BusinessDetails } from "@/lib/business";
+
+/** Every field on this form is this tall, so the column reads as one rhythm. */
+const FIELD = "h-10";
 
 /**
  * The business's own details, as they appear on an invoice.
@@ -63,7 +66,7 @@ export function BusinessForm({ details }: { details: BusinessDetails }) {
   }
 
   return (
-    <form onSubmit={save} className="flex flex-col gap-4">
+    <form onSubmit={save} className="flex flex-col gap-6">
       <div className="grid gap-2">
         <Label htmlFor="business-name">Business name</Label>
         <Input
@@ -72,11 +75,12 @@ export function BusinessForm({ details }: { details: BusinessDetails }) {
           onChange={(event) => setName(event.target.value)}
           placeholder="VoltaScales"
           disabled={pending}
+          className={FIELD}
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid content-start gap-2">
           <Label htmlFor="business-email">Email</Label>
           <Input
             id="business-email"
@@ -86,17 +90,15 @@ export function BusinessForm({ details }: { details: BusinessDetails }) {
             placeholder="hello@voltascales.com"
             disabled={pending}
             aria-describedby="business-email-note"
+            className={FIELD}
           />
-          <p
-            id="business-email-note"
-            className="text-muted-foreground text-xs"
-          >
-            Also where every alert is sent — usage warnings, AI hand-offs and
-            new bookings. Empty switches those off.
+          <p id="business-email-note" className="text-muted-foreground text-xs">
+            Used for alerts, warnings, handoffs and new bookings. Empty switches
+            those off.
           </p>
         </div>
 
-        <div className="grid gap-2">
+        <div className="grid content-start gap-2">
           <Label htmlFor="business-phone">Phone</Label>
           <Input
             id="business-phone"
@@ -104,12 +106,13 @@ export function BusinessForm({ details }: { details: BusinessDetails }) {
             onChange={(event) => setPhone(event.target.value)}
             placeholder="(514) 581-8570"
             disabled={pending}
+            className={FIELD}
           />
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid content-start gap-2">
           <Label htmlFor="business-address">Address (optional)</Label>
           <Input
             id="business-address"
@@ -117,10 +120,11 @@ export function BusinessForm({ details }: { details: BusinessDetails }) {
             onChange={(event) => setAddress(event.target.value)}
             placeholder="Montréal, QC"
             disabled={pending}
+            className={FIELD}
           />
         </div>
 
-        <div className="grid gap-2">
+        <div className="grid content-start gap-2">
           <Label htmlFor="business-website">Website (optional)</Label>
           <Input
             id="business-website"
@@ -128,21 +132,71 @@ export function BusinessForm({ details }: { details: BusinessDetails }) {
             onChange={(event) => setWebsite(event.target.value)}
             placeholder="voltascales.com"
             disabled={pending}
+            className={FIELD}
           />
         </div>
       </div>
 
       <p className="text-muted-foreground text-xs">
-        These appear in the invoice footer. Address and website are optional —
-        left blank, their lines are left off the invoice entirely.
+        Address and website are optional and will appear in the invoice footer.
+        Leave blank to hide them.
       </p>
 
+      <hr className="border-border" />
+
+      {/*
+        The same five values the invoice footer prints, arranged compactly and
+        updating as you type. It is here because these fields are otherwise
+        abstract — "does the footer look right" is a question you can only
+        answer by generating an invoice, and by then it has been sent.
+
+        Blank fields drop out with their separator, exactly as the renderer
+        does it, so this shows the empty state honestly rather than printing
+        a stray bullet.
+      */}
+      <div className="grid gap-2">
+        <p className="text-muted-foreground flex items-center gap-2 text-xs">
+          <Eye className="size-3.5" />
+          Invoice footer preview
+        </p>
+
+        <div className="bg-muted/30 rounded-lg border p-4 text-sm">
+          <p className="font-semibold">
+            {name.trim() || (
+              <span className="text-muted-foreground italic">
+                Your business name
+              </span>
+            )}
+          </p>
+          <FooterLine parts={[address, website]} />
+          <FooterLine parts={[email, phone]} />
+        </div>
+      </div>
+
       <div>
-        <Button type="submit" size="sm" disabled={!dirty || pending}>
-          {pending && <Loader2 className="size-4 animate-spin" />}
+        <Button
+          type="submit"
+          disabled={!dirty || pending}
+          className="h-10 gap-2 bg-emerald-600 px-4 text-white hover:bg-emerald-500"
+        >
+          {pending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Save className="size-4" />
+          )}
           Save details
         </Button>
       </div>
     </form>
+  );
+}
+
+/** One line of the preview: the filled values, dot-separated, or nothing. */
+function FooterLine({ parts }: { parts: string[] }) {
+  const filled = parts.map((part) => part.trim()).filter(Boolean);
+  if (filled.length === 0) return null;
+
+  return (
+    <p className="text-muted-foreground mt-1 text-sm">{filled.join(" • ")}</p>
   );
 }
