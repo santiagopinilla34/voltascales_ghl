@@ -9,6 +9,7 @@
  * |---------------|--------|-------------------------------------------------|
  * | `usage`       | live   | `getUsageAlerts` in `src/lib/usage/warnings.ts`  |
  * | `reply`       | live   | `getReplyAlerts` in `src/lib/conversations.ts`   |
+ * | `unanswered`  | live   | `getReplyAlerts`, once the wait passes 24h      |
  * | `lead`        | live   | `getLeadAlerts` — a contact's first inbound text |
  * | `booking`     | live   | `getBookingAlerts` in `src/lib/booking/alerts.ts`|
  * | `error`       | live   | `getErrorAlerts` in `src/lib/app-errors.ts`      |
@@ -31,11 +32,16 @@
  * what stops a notification sitting unread for days because nobody happened to
  * click that particular row.
  *
+ * Read state is per (organization, alert id): the dismissal is written against
+ * whichever organization you were working in, so an admin marking a client's
+ * notification read does not silence the agency's own.
+ *
  * Client-safe.
  */
 
 export type AlertKind =
   | "reply"
+  | "unanswered"
   | "missed_call"
   | "booking"
   | "lead"
@@ -74,13 +80,30 @@ export type Alert = {
  * An event's id is unique to the thing that happened — `reply-<messageId>`
  * names one message and can never recur. Dismissing it permanently is right,
  * and the next message raises a new alert on its own.
+ *
+ * `unanswered` sits on the condition side despite naming one message, because
+ * what it reports is not "they texted" but "they are *still* waiting", and that
+ * stays true after you have looked at it. Snoozed, it asks again tomorrow;
+ * dismissed permanently, a thread you glanced at and meant to get to would go
+ * quiet forever. It needs no expiry of its own either way — answering the
+ * thread makes the last message outbound and stops it being derived at all.
  */
 export function isCondition(kind: AlertKind): boolean {
-  return kind === "usage";
+  return kind === "usage" || kind === "unanswered";
 }
 
 /** How long a snoozed condition stays quiet before it nags again. */
 export const SNOOZE_HOURS = 24;
+
+/**
+ * How long someone may wait before the bell escalates.
+ *
+ * A reply alert is information: they texted, and you will get to it. Past this
+ * it stops being information and becomes the thing that loses the client, so
+ * the same thread comes back as its own `unanswered` alert — a different id, so
+ * having read the first one does not hide the second.
+ */
+export const REPLY_OVERDUE_HOURS = 24;
 
 /** Newest first, unread ahead of read — the order the panel wants. */
 export function sortAlerts(alerts: Alert[]): Alert[] {

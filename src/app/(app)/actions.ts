@@ -17,6 +17,7 @@ export async function signOut() {
 
 const ALERT_KINDS: readonly AlertKind[] = [
   "reply",
+  "unanswered",
   "missed_call",
   "booking",
   "lead",
@@ -37,6 +38,18 @@ const ALERT_KINDS: readonly AlertKind[] = [
  * Upsert, not insert: dismissing something already dismissed is the ordinary
  * case once a snooze has lapsed, and it should quietly re-arm rather than fail
  * on the primary key.
+ *
+ * The conflict target has to name that primary key in full. It is
+ * `(org_id, alert_id)`, not `alert_id` — 20260817030000 rebuilt it when the
+ * table became org-scoped, because one client dismissing `usage-twilio-low`
+ * would otherwise have dismissed it for every tenant. Naming `alert_id` alone
+ * matches no unique constraint, and Postgres rejects the statement outright
+ * with 42P10; every dismissal this app ever wrote failed that way, silently,
+ * which is why notifications kept coming back unread each session. `org_id`
+ * itself is left off the row on purpose — the column defaults to
+ * `default_org_id()`, which resolves an admin's *active* organization, so
+ * sending it from here would only be a second, staler answer to the same
+ * question.
  *
  * Failures are swallowed. Dismissing a notification is not worth an error
  * dialog, and the panel has already greyed the row optimistically — the worst
@@ -75,7 +88,7 @@ export async function dismissAlerts(
 
   const { error } = await supabase
     .from("notification_dismissals")
-    .upsert(rows, { onConflict: "alert_id" });
+    .upsert(rows, { onConflict: "org_id,alert_id" });
 
   if (error) {
     console.error("[alerts] failed to record dismissal", error);

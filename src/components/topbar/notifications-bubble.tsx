@@ -6,6 +6,7 @@ import {
   Bell,
   CalendarPlus,
   Bot,
+  Clock,
   MessageSquare,
   PhoneMissed,
   TriangleAlert,
@@ -21,7 +22,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { formatListTimestamp } from "@/lib/format";
-import { sortAlerts, type Alert, type AlertKind } from "@/lib/alerts";
+import {
+  REPLY_OVERDUE_HOURS,
+  sortAlerts,
+  type Alert,
+  type AlertKind,
+} from "@/lib/alerts";
 
 /**
  * What needs attention: a client replied, a balance is running out, a booking
@@ -33,6 +39,10 @@ import { sortAlerts, type Alert, type AlertKind } from "@/lib/alerts";
 
 const ICONS: Record<AlertKind, typeof Bell> = {
   reply: MessageSquare,
+  // A clock rather than a second speech bubble: what is wrong with an overdue
+  // thread is the waiting, and next to `reply` in the same list the two need to
+  // be told apart at icon size.
+  unanswered: Clock,
   missed_call: PhoneMissed,
   booking: CalendarPlus,
   lead: UserPlus,
@@ -240,7 +250,9 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
             "nothing has happened". Delete a clause as each one is wired. */}
         <p className="text-muted-foreground border-t px-3 py-2 text-[11px]">
           Watching replies, new leads, meetings in the next day, failures across
-          the app, and your balances. Missed calls aren&apos;t wired up yet.
+          the app, and your balances. Anyone still waiting after{" "}
+          {REPLY_OVERDUE_HOURS} hours is raised again each day until you answer.
+          Missed calls aren&apos;t wired up yet.
         </p>
       </PopoverContent>
     </Popover>

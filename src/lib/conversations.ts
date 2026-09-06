@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Alert } from "@/lib/alerts";
+import { REPLY_OVERDUE_HOURS, type Alert } from "@/lib/alerts";
 import { contactLabel } from "@/lib/format";
 import type { Contact, Database, Message } from "@/types/database";
 
@@ -108,11 +108,27 @@ export async function listConversations(
  * It self-resolves through the AI too: an AI reply is an outbound message, so
  * a thread the bot handled stops being flagged without special-casing.
  *
- * The consequence to know about: because the state is derived rather than
- * stored, "mark as read" in the bubble cannot persist. Dismiss an alert and it
- * returns on the next load until the thread is actually answered. Giving it
- * real read state means a migration — either `messages.read_at` or a
- * `notifications` table — and is deliberately out of scope here.
+ * Read state does persist, contrary to what this comment said for a long time:
+ * `notification_dismissals` records it against the alert's id, and
+ * `applyDismissals` folds it back in. The alert is still derived — nothing
+ * writes a row when a text arrives — so the two halves answer different
+ * questions: this one asks whether anybody is waiting, the dismissal asks
+ * whether you have seen that they are.
+ *
+ * ## The escalation
+ *
+ * One thread produces one alert, but not always the same one. Under
+ * `REPLY_OVERDUE_HOURS` it is `reply-<messageId>`: an event, dismissed for
+ * good once read, because "they texted" is news exactly once. Past that it
+ * becomes `unanswered-<messageId>` — a different id, which is the whole
+ * mechanism. Having read the first alert cannot mark the second one read, so a
+ * message you noticed on Monday and never answered comes back on Tuesday
+ * instead of staying quietly dismissed, and it keeps coming back a day at a
+ * time until somebody replies.
+ *
+ * The two are deliberately not both raised at once. A thread that has been
+ * waiting a day and a half is one problem, and a bell that lists it twice is
+ * just a bell you stop reading.
  *
  * Same one-round-trip shape as `listConversations`, and the same scale caveat:
  * fine for hundreds of contacts, wants a view with a lateral join if this ever
@@ -132,22 +148,36 @@ export async function getReplyAlerts(
   }
 
   const alerts: Alert[] = [];
+  const overdueBefore =
+    Date.now() - REPLY_OVERDUE_HOURS * 60 * 60 * 1000;
 
   for (const { messages, ...contact } of data ?? []) {
     const last = messages.at(0);
     // "in", not "inbound" — see MessageDirection in src/types/database.ts.
     if (!last || last.direction !== "in") continue;
 
+    // An inbound message with no body is an MMS whose only content was an
+    // attachment. Saying so beats an empty row.
+    const quote = last.body?.trim()
+      ? truncate(last.body.trim(), 140)
+      : "Sent an attachment with no text.";
+
+    const overdue = new Date(last.created_at).getTime() < overdueBefore;
+
     alerts.push({
-      id: `reply-${last.id}`,
-      kind: "reply",
-      level: "info",
-      title: `${contactLabel(contact)} replied`,
-      // An inbound message with no body is an MMS whose only content was an
-      // attachment. Saying so beats an empty row.
-      detail: last.body?.trim()
-        ? truncate(last.body.trim(), 140)
-        : "Sent an attachment with no text.",
+      id: overdue ? `unanswered-${last.id}` : `reply-${last.id}`,
+      kind: overdue ? "unanswered" : "reply",
+      // Warn, not critical: nobody is locked out and nothing has broken. It
+      // outranks the rest of the panel's news, which is the point, and leaves
+      // critical to mean what it means everywhere else in the app.
+      level: overdue ? "warn" : "info",
+      title: overdue
+        ? `${contactLabel(contact)} has been waiting ${waited(last.created_at)}`
+        : `${contactLabel(contact)} replied`,
+      // The quote stays on the overdue row too. The age is in the title, and
+      // what you need in order to decide whether this can wait another hour is
+      // what they actually said.
+      detail: quote,
       href: `/inbox/${contact.id}`,
       at: last.created_at,
       read: false,
@@ -155,6 +185,35 @@ export async function getReplyAlerts(
   }
 
   return alerts;
+}
+
+/**
+ * How long they have been waiting, as a phrase that finishes the sentence
+ * "has been waiting ___".
+ *
+ * Not `formatCompactAge`, which is the wrong shape twice over: it abbreviates
+ * ("26h"), and past a week it gives up on elapsed time and prints the date
+ * instead — which is right for a timestamp in a list, and reads as "has been
+ * waiting Aug 17" here.
+ *
+ * Coarse on purpose. This only ever runs on waits over `REPLY_OVERDUE_HOURS`,
+ * and the difference between 31 and 34 hours does not change what you do about
+ * it; the unit is the message. Weeks stop at their own boundary rather than
+ * running on into months, because a thread nobody has answered in a month is
+ * not a rounding question.
+ */
+function waited(iso: string, now: Date = new Date()): string {
+  const hours = Math.floor(
+    Math.max(0, now.getTime() - new Date(iso).getTime()) / 3_600_000,
+  );
+
+  if (hours < 48) return `${hours} hours`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 14) return `${days} days`;
+
+  const weeks = Math.floor(days / 7);
+  return weeks === 1 ? "a week" : `${weeks} weeks`;
 }
 
 /** Cuts at a word boundary where there is one nearby, so it reads as a quote. */
