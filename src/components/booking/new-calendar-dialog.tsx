@@ -72,10 +72,13 @@ export function NewCalendarDialog({
    * account actually works with rather than only the built-in list.
    */
   members: known = [],
+  /** Styling for the trigger, so the caller decides how loud the button is. */
+  className,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   members?: string[];
+  className?: string;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState<string | null>(null);
@@ -145,7 +148,7 @@ export function NewCalendarDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button size="sm" className={className}>
           <Plus />
           New calendar
         </Button>

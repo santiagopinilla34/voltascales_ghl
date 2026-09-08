@@ -36,10 +36,13 @@ export function CalendarTabLink({
   href,
   label,
   active,
+  /** Type scale, for the row this sits in — the two rows are not the same size. */
+  className,
 }: {
   href: string;
   label: string;
   active: boolean;
+  className?: string;
 }) {
   return (
     <Link
@@ -51,6 +54,7 @@ export function CalendarTabLink({
         active
           ? "text-foreground font-medium"
           : "text-muted-foreground hover:text-foreground",
+        className,
       )}
     >
       {active && (

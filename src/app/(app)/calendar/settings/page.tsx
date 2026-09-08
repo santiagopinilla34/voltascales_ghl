@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import { AvailabilitySchedule } from "@/components/booking/availability-schedule";
 import { CalendarTabLink } from "@/components/booking/calendar-tab-link";
@@ -65,30 +65,42 @@ export default async function CalendarSettingsPage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Stacks below `md` and starts under the app's bubble strip, for the
-          same reason as the calendar header next door — see the comment
-          there. */}
-      <header className="shrink-0 border-b">
-        <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col gap-1 px-4 pt-20 pb-2 md:h-20 md:flex-row md:items-center md:gap-4 md:px-0 md:pt-0 md:pb-0 md:pr-52 md:pl-6 lg:pl-10">
-          <div className="flex min-w-0 items-center gap-1.5">
+      {/* A title block over a tab bar, rather than the page's name and its tabs
+          squeezed into one strip. The tabs switch between full-width tables, so
+          the bar spans the content rather than stopping where the title ends. */}
+      <header className="shrink-0">
+        <div className="mx-auto w-full min-w-0 max-w-[1400px] px-4 pt-7 pb-1 md:px-6 lg:px-10">
+          {/* pl-10 clears the mobile menu button and pr-40 the bubble strip —
+              the same two reservations the Contacts header makes, for the same
+              reasons; see the comment there. */}
+          <div className="flex min-w-0 items-start gap-2 pr-40 pl-10 md:pl-0 lg:pr-52">
             {/* The way back is a link rather than history.back(): this page is
                 reachable straight from a URL, and a back button that depends on
                 where you came from is a dead end when you came from nowhere. */}
             <Link
               href="/calendar"
-              className="text-muted-foreground hover:text-foreground -ml-1 shrink-0 rounded-md p-1 transition-colors"
+              className="text-muted-foreground hover:text-foreground mt-1 -ml-1 shrink-0 rounded-md p-1 transition-colors"
               aria-label="Back to calendar"
             >
-              <ChevronLeft className="size-4" />
+              <ArrowLeft className="size-5" />
             </Link>
-            <h1 className="truncate text-sm font-semibold tracking-tight">
-              Calendar settings
-            </h1>
+
+            <div className="min-w-0">
+              <h1 className="truncate text-3xl font-semibold tracking-tight">
+                Calendar settings
+              </h1>
+              <p className="text-muted-foreground mt-1.5 text-sm">
+                Manage your calendar events, groups, and availability.
+              </p>
+            </div>
           </div>
 
           {/* Same underlined-link tabs as the calendar header, for the same
-              reason: they navigate, so they have to be links. */}
-          <nav className="flex min-w-0 items-center gap-3 overflow-x-auto">
+              reason: they navigate, so they have to be links. The vertical
+              padding is not spacing for its own sake — the active marker is
+              drawn just past the link's box, and this row scrolls sideways,
+              which clips anything that leaves it. */}
+          <nav className="bg-card/40 mt-6 flex min-w-0 items-center gap-6 overflow-x-auto rounded-xl border px-4 py-1.5">
             {TABS.map((entry) => (
               <CalendarTabLink
                 key={entry.id}
@@ -99,14 +111,15 @@ export default async function CalendarSettingsPage({
                 }
                 label={entry.label}
                 active={tab === entry.id}
+                className="px-2 text-sm"
               />
             ))}
           </nav>
         </div>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 sm:px-6 lg:px-10">
-        <div className="mx-auto w-full min-w-0 max-w-[1400px] py-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 md:px-6 lg:px-10">
+        <div className="mx-auto w-full min-w-0 max-w-[1400px] pt-5 pb-6">
           {tab === "calendars" ? (
             <CalendarList
               calendars={calendars}

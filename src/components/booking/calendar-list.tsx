@@ -3,11 +3,14 @@
 import { useMemo, useState, useTransition } from "react";
 import {
   ArrowRight,
+  CalendarDays,
   Check,
   Copy,
   CopyPlus,
   Eye,
   EyeOff,
+  Filter,
+  LayoutGrid,
   MoreVertical,
   Pencil,
   Plus,
@@ -15,6 +18,8 @@ import {
   Share2,
   SlidersHorizontal,
   Trash2,
+  Users,
+  UserRound,
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
@@ -69,6 +74,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { memberInitials } from "@/components/booking/booking-calendar";
 import { formatFullTimestamp } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
@@ -107,11 +113,6 @@ type RowDialog = {
   kind: "share" | "troubleshoot" | "move";
   calendar: BookingCalendar;
 };
-
-/** Counts in the sidebar are zero-padded, so 3 and 12 line up in a column. */
-function padCount(count: number): string {
-  return String(count).padStart(2, "0");
-}
 
 export function CalendarList({
   calendars,
@@ -187,7 +188,105 @@ export function CalendarList({
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <div className="flex min-w-0 flex-col gap-4 md:flex-row md:gap-6">
+      {/* The filters run the full width above the split below, rather than
+          sitting in the right-hand column: they narrow what the table shows,
+          and the groups down the side are one more filter on the same list. */}
+      <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-center">
+        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center">
+          <ScopeCard
+            count={calendars.length}
+            selected={scope === "all"}
+            onSelect={() => setScope("all")}
+          />
+
+          <FilterCard
+            value={status}
+            onValueChange={(next) => setStatus(next as typeof status)}
+            ariaLabel="Filter by status"
+            icon={
+              <span
+                aria-hidden
+                className={cn(
+                  "size-2 shrink-0 rounded-full",
+                  status === "inactive" ? "bg-muted-foreground" : "bg-emerald-500",
+                )}
+              />
+            }
+            hint={
+              status === "all"
+                ? "Active, Inactive"
+                : status === "active"
+                  ? "Active only"
+                  : "Inactive only"
+            }
+          >
+            <SelectItem value="all">Status: All</SelectItem>
+            <SelectItem value="active">Status: Active</SelectItem>
+            <SelectItem value="inactive">Status: Inactive</SelectItem>
+          </FilterCard>
+
+          <FilterCard
+            value={type}
+            onValueChange={(next) => setType(next as typeof type)}
+            ariaLabel="Filter by type"
+            icon={<Filter className="size-4 shrink-0 text-emerald-400" />}
+            hint={type === "all" ? "All types" : `${type} only`}
+          >
+            <SelectItem value="all">Type: All</SelectItem>
+            {CALENDAR_TYPES.map((option) => (
+              <SelectItem key={option} value={option}>
+                Type: {option}
+              </SelectItem>
+            ))}
+          </FilterCard>
+
+          <FilterCard
+            value={owner}
+            onValueChange={setOwner}
+            ariaLabel="Filter by owner"
+            icon={<UserRound className="size-4 shrink-0 text-emerald-400" />}
+            hint={
+              owner === ANY_OWNER
+                ? "All members"
+                : owner === NO_OWNER
+                  ? "Unassigned only"
+                  : "One member"
+            }
+          >
+            <SelectItem value={ANY_OWNER}>Owned by: Anyone</SelectItem>
+            {owners.map((name) => (
+              <SelectItem key={name} value={name}>
+                Owned by: {name}
+              </SelectItem>
+            ))}
+            <SelectItem value={NO_OWNER}>Owned by: Nobody</SelectItem>
+          </FilterCard>
+        </div>
+
+        {/* Search and the primary action sit at the far edge so the filters
+            read as one group and the action as another. */}
+        <div className="flex min-w-0 items-center gap-2 xl:ml-auto">
+          <div className="relative w-full min-w-0 sm:w-60">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Calendar name"
+              aria-label="Search calendars"
+              className="h-10 pl-9"
+            />
+          </div>
+
+          <NewCalendarDialog
+            open={creating}
+            onOpenChange={setCreating}
+            members={owners}
+            className="h-10 gap-2 bg-emerald-600 px-4 text-white hover:bg-emerald-500"
+          />
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-stretch md:gap-4">
         <GroupsSidebar
           calendars={calendars}
           groups={groups}
@@ -196,126 +295,94 @@ export function CalendarList({
           onNewGroup={() => setCreatingGroup(true)}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={status}
-              onValueChange={(next) => setStatus(next as typeof status)}
-            >
-              <SelectTrigger className="h-7 w-36 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Status: All</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={type}
-              onValueChange={(next) => setType(next as typeof type)}
-            >
-              <SelectTrigger className="h-7 w-36 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Type: All</SelectItem>
-                {CALENDAR_TYPES.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={owner} onValueChange={setOwner}>
-              <SelectTrigger className="h-7 w-44 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ANY_OWNER}>Owned by: Anyone</SelectItem>
-                {owners.map((name) => (
-                  <SelectItem key={name} value={name}>
-                    {name}
-                  </SelectItem>
-                ))}
-                <SelectItem value={NO_OWNER}>Unassigned</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Search and the primary action sit at the far edge so the filters
-                read as one group and the action as another. */}
-            <div className="ml-auto flex items-center gap-2">
-              <div className="relative">
-                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Calendar name"
-                  aria-label="Search calendars"
-                  className="h-7 w-48 pl-7 text-xs"
-                />
-              </div>
-
-              <NewCalendarDialog
-                open={creating}
-                onOpenChange={setCreating}
-                members={owners}
-              />
-            </div>
-          </div>
-
-          <div className="min-w-0 overflow-x-auto rounded-md border">
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="bg-card/40 min-w-0 overflow-hidden rounded-xl border">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Calendar name</TableHead>
-                  <TableHead>Group</TableHead>
-                  <TableHead>Owner</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date updated</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                {/* The header is furniture, so it does not light up under the
+                    pointer the way the rows below it do. */}
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="h-12 pl-4">Calendar name</TableHead>
+                  <TableHead className="h-12">Group</TableHead>
+                  <TableHead className="h-12">Owner</TableHead>
+                  <TableHead className="h-12">Duration</TableHead>
+                  <TableHead className="h-12">Type</TableHead>
+                  <TableHead className="h-12">Status</TableHead>
+                  <TableHead className="h-12">Date updated</TableHead>
+                  <TableHead className="h-12 pr-4 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visible.map((calendar) => (
                   <TableRow key={calendar.id}>
-                    <TableCell>
-                      <div className="flex min-w-0 flex-col">
-                        <span className="truncate font-medium">
-                          {calendar.name}
+                    <TableCell className="py-3.5 pl-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        {/* The same green tile the calendar wears everywhere
+                            else in the app — it makes the first column scannable
+                            as rows, not as a wall of text. */}
+                        <span
+                          aria-hidden
+                          className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                        >
+                          <CalendarDays className="size-4" />
                         </span>
-                        <CopyableSlug slug={calendar.slug} />
+
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate font-medium">
+                            {calendar.name}
+                          </span>
+                          <CopyableSlug slug={calendar.slug} />
+                        </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground whitespace-nowrap">
+                    <TableCell className="text-muted-foreground py-3.5 whitespace-nowrap">
                       {calendar.group_id
                         ? (groupsById.get(calendar.group_id)?.name ?? "—")
                         : "—"}
                     </TableCell>
-                    <TableCell className="text-muted-foreground whitespace-nowrap">
-                      {calendar.members.length > 0
-                        ? calendar.members.join(", ")
-                        : "Unassigned"}
+                    <TableCell className="py-3.5 whitespace-nowrap">
+                      <OwnerCell members={calendar.members} />
                     </TableCell>
-                    <TableCell className="tabular-nums whitespace-nowrap">
+                    <TableCell className="py-3.5 tabular-nums whitespace-nowrap">
                       {calendar.duration_minutes} min
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {calendar.type}
+                    <TableCell className="py-3.5 whitespace-nowrap">
+                      <Badge
+                        variant="outline"
+                        className="text-muted-foreground rounded-md font-normal"
+                      >
+                        {calendar.type}
+                      </Badge>
                     </TableCell>
-                    <TableCell>
-                      <Badge variant={calendar.active ? "secondary" : "outline"}>
+                    <TableCell className="py-3.5">
+                      {/* A lit dot rather than a filled chip: "active" is the
+                          resting state of nearly every row, and a solid badge on
+                          all of them shouts louder than the thing it labels. */}
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "gap-1.5 pl-1.5",
+                          calendar.active
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "size-1.5 rounded-full",
+                            calendar.active
+                              ? "bg-emerald-500 shadow-[0_0_6px_1px] shadow-emerald-500/50"
+                              : "bg-muted-foreground",
+                          )}
+                        />
                         {calendar.active ? "Active" : "Inactive"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground whitespace-nowrap">
+                    <TableCell className="text-muted-foreground py-3.5 whitespace-nowrap">
                       {formatFullTimestamp(calendar.updated_at)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="py-3.5 pr-4">
                       {/* The three things you do to one calendar, then
                           everything rarer behind the menu — same split as the
                           row of icons in the product this is modelled on. */}
@@ -445,7 +512,7 @@ export function CalendarList({
                         steps. */}
                     <TableCell
                       colSpan={8}
-                      className="text-muted-foreground py-10 text-center"
+                      className="text-muted-foreground py-14 text-center"
                     >
                       {calendars.length === 0
                         ? "No calendars yet. Create one to start taking bookings."
@@ -526,10 +593,122 @@ export function CalendarList({
 }
 
 /**
+ * The whole-list scope, as a card above the filters.
+ *
+ * It is the same control as a row in the groups panel — one more way to say
+ * "show me these" — but it is the one you come back to, so it is the one that
+ * gets a tile and a count rather than a line in a list.
+ */
+function ScopeCard({
+  count,
+  selected,
+  onSelect,
+}: {
+  count: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={cn(
+        "bg-card/40 focus-visible:ring-ring/50 flex w-full min-w-0 items-center gap-3 rounded-xl border px-3.5 py-3.5 text-left transition-colors focus-visible:ring-3 focus-visible:outline-none sm:w-57",
+        // Selected is a lit edge rather than a fill: this card is the resting
+        // state of the page, and a filled card here would out-shout the row
+        // that is actually selected in the panel below it.
+        selected ? "border-emerald-500/30" : "hover:bg-card/70",
+      )}
+    >
+      <span
+        aria-hidden
+        className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+      >
+        <CalendarDays className="size-4" />
+      </span>
+
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate text-sm font-medium">All calendars</span>
+        {/* The noun for the number at the other end of the row, so the count
+            reads as a sentence rather than as a bare figure. */}
+        <span className="text-muted-foreground text-xs">
+          {count === 1 ? "calendar" : "calendars"}
+        </span>
+      </span>
+
+      <span className="ml-auto shrink-0 text-base tabular-nums">{count}</span>
+    </button>
+  );
+}
+
+/**
+ * One of the filter cards above the table.
+ *
+ * A Select rather than a menu of buttons, so the keyboard and screen-reader
+ * behaviour comes from Radix. The second line is this component's own: it
+ * spells out what the filter is letting through, which is the part you want to
+ * read back without opening it.
+ *
+ * ## Why the first line is `<SelectValue />` and not a string
+ *
+ * It was a string, and the menu opened four inches below the fold at the left
+ * edge of the window. A closed Select positions its list by aligning the
+ * selected item over the value node — that is what "item-aligned" means — and
+ * with no value node to measure it lands wherever the arithmetic bottoms out.
+ * So the label is the real value, and each item carries the prefix the trigger
+ * needs to read as a sentence ("Status: Active" rather than "Active").
+ */
+function FilterCard({
+  value,
+  onValueChange,
+  ariaLabel,
+  icon,
+  hint,
+  children,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  ariaLabel: string;
+  icon: React.ReactNode;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      {/* `data-[size=default]:h-auto` rather than a bare `h-auto`: the trigger
+          sets its own height through that variant, and a plain utility never
+          reaches it. */}
+      <SelectTrigger
+        aria-label={ariaLabel}
+        className="bg-card/40 hover:bg-card/70 border-border dark:bg-card/40 dark:hover:bg-card/70 h-auto w-full rounded-xl px-3.5 py-3.5 data-[size=default]:h-auto sm:w-54"
+      >
+        <span className="flex min-w-0 flex-col gap-0.5 text-left">
+          <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+            {icon}
+            <SelectValue className="truncate" />
+          </span>
+          <span className="text-muted-foreground flex min-w-0 items-center gap-2 text-xs">
+            <span
+              aria-hidden
+              className="size-1.5 shrink-0 rounded-full bg-emerald-500/60"
+            />
+            <span className="truncate">{hint}</span>
+          </span>
+        </span>
+      </SelectTrigger>
+      <SelectContent>{children}</SelectContent>
+    </Select>
+  );
+}
+
+/**
  * Groups down the side, as a filter rather than a tree.
  *
  * "Not grouped" is listed alongside the real groups because it is the one
- * every calendar starts in, and it needs to be reachable.
+ * every calendar starts in, and it needs to be reachable. The panel keeps a
+ * floor under it so it reads as a column beside the table rather than as three
+ * loose lines that stop wherever the last group happens to end.
  */
 function GroupsSidebar({
   calendars,
@@ -547,19 +726,12 @@ function GroupsSidebar({
   const ungrouped = calendars.filter((calendar) => !calendar.group_id).length;
 
   return (
-    <aside className="flex w-full shrink-0 flex-col gap-3 md:w-52">
-      <ScopeRow
-        label="All calendars"
-        count={calendars.length}
-        selected={scope === "all"}
-        onSelect={() => onScope("all")}
-        className="border"
-      />
-
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-muted-foreground px-2 pb-1 text-xs font-medium">
+    <aside className="w-full shrink-0 md:w-56">
+      <div className="bg-card/40 flex min-h-full flex-col gap-0.5 rounded-xl border p-4 md:min-h-[34rem]">
+        <div className="text-muted-foreground flex items-center gap-2 px-2 pb-2 text-sm font-medium">
+          <Users className="size-4" />
           Groups
-        </span>
+        </div>
 
         {groups.map((group) => (
           <ScopeRow
@@ -579,34 +751,31 @@ function GroupsSidebar({
           selected={scope === UNGROUPED}
           onSelect={() => onScope(UNGROUPED)}
         />
-      </div>
 
-      <Button
-        variant="secondary"
-        size="sm"
-        className="justify-start"
-        onClick={onNewGroup}
-      >
-        <Plus />
-        New group
-      </Button>
+        <Button
+          variant="outline"
+          className="mt-3 h-9 w-full"
+          onClick={onNewGroup}
+        >
+          <Plus />
+          New group
+        </Button>
+      </div>
     </aside>
   );
 }
 
-/** One selectable line in the sidebar: a name, a count, and a selected state. */
+/** One selectable line in the panel: a name, a count, and a selected state. */
 function ScopeRow({
   label,
   count,
   selected,
   onSelect,
-  className,
 }: {
   label: string;
   count: number;
   selected: boolean;
   onSelect: () => void;
-  className?: string;
 }) {
   return (
     <button
@@ -614,16 +783,54 @@ function ScopeRow({
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        "flex min-w-0 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+        "flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors",
         selected
           ? "bg-muted text-foreground font-medium"
           : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-        className,
       )}
     >
+      <LayoutGrid aria-hidden className="size-4 shrink-0 opacity-70" />
       <span className="truncate">{label}</span>
-      <span className="shrink-0 tabular-nums opacity-70">{padCount(count)}</span>
+      <span className="ml-auto shrink-0 tabular-nums opacity-70">{count}</span>
     </button>
+  );
+}
+
+/**
+ * Who takes this calendar's bookings.
+ *
+ * A disc in front of the name, and a muted one when there is nobody: the
+ * column reads down as "someone / someone / nobody" before you read a word of
+ * it, which is what is being asked of it most of the time.
+ */
+function OwnerCell({ members }: { members: string[] }) {
+  const owner = members[0];
+  const extra = members.length - 1;
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <span
+        aria-hidden
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+          owner
+            ? "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300"
+            : "bg-muted text-muted-foreground",
+        )}
+      >
+        {owner ? memberInitials(owner) : <UserRound className="size-3" />}
+      </span>
+
+      <span className={cn("truncate", !owner && "text-muted-foreground")}>
+        {owner ?? "Unassigned"}
+      </span>
+
+      {extra > 0 && (
+        <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+          +{extra}
+        </span>
+      )}
+    </div>
   );
 }
 
