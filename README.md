@@ -1,6 +1,6 @@
 # VoltaScales
 
-Automation & CRM tool, run by an agency for its clients. Spec: [PRD.md](./PRD.md).
+Automation & CRM tool, run by an agency for its clients. Spec: [PRD.md](./.claude/docs/PRD.md).
 
 Next.js 16 (App Router) · React 19 · TypeScript · Tailwind 4 · shadcn/Radix ·
 Supabase (Postgres + Auth) · Twilio (SMS + Voice) · Anthropic · Resend.
@@ -17,7 +17,7 @@ crawled knowledge bases, replacing the single org-wide prompt that used to live
 in Settings.
 
 What is *not* wired to a real backend yet is tracked in
-[INTEGRATIONS.md](./INTEGRATIONS.md), with what to write and what will bite
+[INTEGRATIONS.md](./.claude/docs/INTEGRATIONS.md), with what to write and what will bite
 you. The short version: domain registration is preview-only, Resend sending
 domains are preview-only, A2P has a form that submits nothing, and Google /
 Apple sign-in are buttons without a provider behind them.
@@ -281,7 +281,7 @@ agent; it changes nothing the model sees.
 `generate.ts` makes a plain text call with **no `tools`**. Book an appointment,
 start an automation and collect contact details are configurable and stored and
 **cannot fire**. The composed prompt says so, which stops the agent claiming to
-have booked things. See [AI_AGENTS_WIRING.md](./AI_AGENTS_WIRING.md).
+have booked things. See [AI_AGENTS_WIRING.md](./.claude/docs/AI_AGENTS_WIRING.md).
 
 ### Drafts, sending, and hand-off
 

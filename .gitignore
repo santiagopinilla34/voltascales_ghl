@@ -157,9 +157,17 @@ next-env.d.ts
 
 # Firecrawl onboarding doc. Carries a live API key in its last section, and
 # lives at the repo root where "git add ." would sweep it in.
-SKILL.md
+#
+# Anchored with a leading slash on purpose. Bare `SKILL.md` matches at every
+# depth, which silently swallowed every `.claude/skills/*/SKILL.md` — the one
+# file a skill cannot be missing. A skill folder committed without it is a
+# folder Claude Code ignores, and nothing in the diff would have said so.
+/SKILL.md
 
 # Eval results — transcripts and scores from a paid run, regenerated on demand.
 # The harness is the artefact worth keeping; a results directory is one
 # afternoon of it and would only make the diff noisy.
 evals/results/
+
+# Claude Code: the shared settings are committed; personal overrides are not.
+.claude/settings.local.json
