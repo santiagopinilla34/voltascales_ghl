@@ -78,11 +78,10 @@ fire.
   and the like. Marked `disable-model-invocation`, so it only runs when asked
   for and costs nothing passively.
 
-The four motion skills all speak Framer Motion (`motion/react`), which is
-**not a dependency here** — this app animates with `tw-animate-css` and Tailwind
-transitions. They earn their place as craft references rather than as API docs;
-if a screen ever needs real motion, `pick-ui-library` is the one that says what
-to install.
+The four motion skills all speak Framer Motion (`motion/react`), which **is**
+a dependency now — `motion` v13. The CSS keyframes in `globals.css` remain the
+default for page transitions, popovers and collapses; Framer Motion is for what
+CSS cannot do. `CLAUDE.md` has the split, including the reduced-motion trap.
 
 The UX/UI design skills — the `ui-ux-pro-max` family — are not in this folder
 and should not be copied here. They are a marketplace plugin installed at user

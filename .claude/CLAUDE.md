@@ -145,6 +145,28 @@ redelivery is otherwise indistinguishable from a genuine repeat call.
   describes. Ids are what the per-device "seen" marker is stored against, so
   never reuse or reorder one.
 
+### Motion: two systems, and when to use which
+
+**CSS keyframes in `globals.css` are still the default.** Page transitions,
+popovers growing out of their trigger, collapses, the agent orb — all of it is
+CSS, and the choices are argued for where they live (see `page-transition.tsx`
+on why this is not a View Transition). Do not rewrite them.
+
+**`motion` (Framer Motion, v13) is installed for what CSS cannot do:**
+animating an element as it unmounts (`AnimatePresence`), layout animation
+(`layout` / `layoutId`), drag and gesture, and spring physics. Import from
+`motion/react`, and only in a `"use client"` component — the exports are
+client-only and a Server Component importing them fails the build.
+
+**It does not inherit the app's reduced-motion guarantee.** The
+`prefers-reduced-motion` block in `globals.css` clamps `animation-duration` and
+`transition-duration` to 1ms, which covers every CSS animation in the app.
+Framer Motion drives transforms from JavaScript, so that block does not reach
+it: a `motion` component ignores the user's setting unless it asks. Call
+`useReducedMotion()` and drop the positional part of the animation yourself —
+movement is the trigger, so keep a fast fade and lose the travel, matching what
+the CSS block does.
+
 ## Reference docs
 
 - `../README.md` — the long one, at the repository root. Setup, every env var,
