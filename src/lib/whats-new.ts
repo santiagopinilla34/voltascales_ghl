@@ -23,6 +23,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-09-08-inbox-motion",
+    date: "2026-09-08",
+    title: "The Inbox moves like one screen",
+    body: "Switching conversations now carries the selection across the list instead of blinking it into place, messages arrive with a little weight behind them, and the AI draft panel grows and leaves rather than appearing fully formed. With reduced motion turned on it all fades instead of travelling.",
+    href: "/inbox",
+    tag: "Improved",
+  },
+  {
     id: "2026-09-03-agent-model-choice",
     date: "2026-09-03",
     title: "Pick which AI answers for you",

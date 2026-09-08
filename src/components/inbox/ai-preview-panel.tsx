@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   Check,
   Copy,
@@ -19,6 +20,8 @@ import { toolSummary, toolWrites } from "@/lib/ai/tool-labels";
 import { formatFullTimestamp } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { AiDraft } from "@/types/database";
+
+import { EASE_OUT, EXIT_MS, RESIZE } from "./motion";
 
 type PreviewResponse = {
   draft: AiDraft;
@@ -61,6 +64,7 @@ export function AiPreviewPanel({
   // including a reply the AI has just texted the contact — was suppressed too.
   const [dismissedId, setDismissedId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const reduce = useReducedMotion();
 
   // The newer of the two, rather than "a local generation always wins". The
   // local one used to win outright, which was right while nothing else could
@@ -121,17 +125,106 @@ export function AiPreviewPanel({
     setTimeout(() => setCopied(false), 2000);
   }
 
+  // The card opening and closing, as one set of values used by both the draft
+  // and the placeholder that precedes it.
+  //
+  // Height, which is normally the property not to animate — but this panel is
+  // `shrink-0` in a flex column, so its height is subtracted from the thread
+  // above it. Popping a card in took a chunk out of the conversation between
+  // one frame and the next and shoved every message up by 90-odd pixels, which
+  // is precisely the jarring change motion is supposed to prevent. There is no
+  // transform that expresses "and the thread is now shorter", so this is the
+  // accordion exception: `overflow-hidden` on the box that resizes, padding on
+  // an inner one so the content does not squash as it goes.
+  //
+  // Under reduced motion the box still has to change size — there is no
+  // version of this where it does not — so the height is taken instantly and
+  // only the fade is kept, which is what the CSS block in `globals.css` does
+  // to every other animation in the app.
+  const collapsed = reduce
+    ? { opacity: 0 }
+    : { opacity: 0, height: 0 };
+  const expanded = reduce
+    ? { opacity: 1 }
+    : { opacity: 1, height: "auto" as const };
+
   return (
     <div className="shrink-0 px-3 pt-3">
-      {visible && (
-        <div
-          className={cn(
-            "mb-2 rounded-lg border p-3",
-            sent
-              ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30"
-              : "border-violet-200 bg-violet-50/60 dark:border-violet-900 dark:bg-violet-950/30",
-          )}
-        >
+      {/* No `mode`, so the outgoing card collapses over the same frames the
+          incoming one expands. `mode="wait"` would have played them one after
+          the other — the panel shutting completely and then reopening — which
+          on the regenerate path is a shut door between you and the thing you
+          just asked for. */}
+      <AnimatePresence initial={false}>
+        {pending ? (
+          <motion.div
+            key="generating"
+            initial={collapsed}
+            animate={expanded}
+            exit={collapsed}
+            transition={RESIZE}
+            className="overflow-hidden"
+          >
+            {/* The same box the draft arrives in, holding its place while the
+                model writes. The button below already says "Generating…", but
+                it says it three inches from where the answer appears; a
+                request that shows nothing where the result will be reads as a
+                request that went nowhere — and this one can run for several
+                seconds.
+
+                Violet and not green: it is standing in for a draft, and the
+                colours in this panel are load-bearing — green here means the
+                contact has already been sent it. */}
+            <div className="mb-2 rounded-lg border border-violet-200 bg-violet-50/60 p-3 dark:border-violet-900 dark:bg-violet-950/30">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-3.5 shrink-0 text-violet-700 dark:text-violet-400" />
+                <span className="text-xs font-semibold text-violet-900 dark:text-violet-200">
+                  Writing a reply…
+                </span>
+                {/* The same three dots the agent screen uses while a message
+                    is being composed, from `globals.css`. A CSS animation
+                    rather than a `motion` one on purpose: it loops for as long
+                    as the request takes, and CSS keyframes run off the main
+                    thread — this is the one moment on this screen where the
+                    main thread is genuinely busy. */}
+                <span aria-hidden className="ml-0.5 flex items-center gap-1">
+                  {[0, 1, 2].map((dot) => (
+                    <span
+                      key={dot}
+                      className="agent-typing-dot size-1 rounded-full bg-violet-500"
+                      style={{ animationDelay: `${dot * 160}ms` }}
+                    />
+                  ))}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        ) : visible ? (
+          <motion.div
+            // Keyed on the draft, not on "a draft exists". Generating a second
+            // reply is one card replacing another, and they should cross over
+            // rather than the text swapping inside a box that never moved.
+            key={draft.id}
+            initial={collapsed}
+            animate={expanded}
+            exit={collapsed}
+            transition={RESIZE}
+            className="overflow-hidden"
+          >
+            <motion.div
+              // The card's own contents fade in a little behind its box, so
+              // the panel reads as opening and then filling rather than as a
+              // block of text being pushed into view.
+              initial={reduce ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: EXIT_MS, ease: EASE_OUT, delay: 0.06 }}
+              className={cn(
+                "mb-2 rounded-lg border p-3",
+                sent
+                  ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30"
+                  : "border-violet-200 bg-violet-50/60 dark:border-violet-900 dark:bg-violet-950/30",
+              )}
+            >
           <div className="mb-1.5 flex items-center gap-2">
             {sent ? (
               <Send className="size-3.5 shrink-0 text-emerald-700 dark:text-emerald-400" />
@@ -243,8 +336,10 @@ export function AiPreviewPanel({
               {copied ? "Copied" : "Copy"}
             </Button>
           </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <Button
         type="button"

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Bot, Cog, User } from "lucide-react";
 
 import type { Message } from "@/types/database";
@@ -17,6 +18,8 @@ import {
   formatMessageTime,
 } from "@/lib/format";
 
+import { ARRIVE_SPRING, EASE_OUT } from "./motion";
+
 /** How each sender is labelled and iconified on an outbound bubble. */
 const SENDER = {
   human: { label: "Sent by you", Icon: User },
@@ -30,8 +33,42 @@ function senderOf(message: Message) {
   return SENDER[message.sent_by as SentBy] ?? SENDER.system;
 }
 
+/**
+ * How many messages at the end of the thread stagger in when it opens, and how
+ * far apart they are.
+ *
+ * The cap is the point. Staggering every message meant a thread with two
+ * hundred in it spent six seconds animating rows nobody was looking at — the
+ * thread opens scrolled to the bottom, so everything above this window is
+ * off-screen and should simply be there already. Ten at 30ms is a wave you can
+ * follow down the visible messages and is over in under a third of a second.
+ */
+const OPEN_STAGGER_COUNT = 10;
+const OPEN_STAGGER_STEP = 0.03;
+
 export function MessageThread({ messages }: { messages: Message[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion();
+
+  // Which messages were already here when this thread was opened. Everything
+  // else arrived while somebody was watching, and the two want different
+  // motion: the ones that were already here are the conversation being
+  // *displayed*, and the ones after are the conversation *happening*.
+  //
+  // A set of ids rather than a "have we mounted yet" flag, because this
+  // component does not remount when a message arrives. `router.refresh()`
+  // re-renders the server tree in place (see `realtime-refresh.tsx`), so a text
+  // landing is a longer `messages` array on the same instance — which is
+  // exactly what makes the distinction cheap to draw here.
+  //
+  // Held in state with a lazy initialiser rather than in a ref. It is read
+  // while rendering — which of these two animations a bubble gets is part of
+  // what this component draws — and a ref read during render is the thing
+  // `react-hooks/refs` exists to stop. State computed once at mount says the
+  // same thing and is legal to read.
+  const [opened] = useState(
+    () => new Set(messages.map((message) => message.id)),
+  );
 
   // Jump to the newest message on open and after each send. `instant` on first
   // paint so the thread doesn't visibly scroll itself on arrival.
@@ -42,6 +79,10 @@ export function MessageThread({ messages }: { messages: Message[] }) {
   // — so it dragged the app shell up and clipped the thread header off the top
   // of the screen, where nothing could scroll it back. Setting `scrollTop` here
   // cannot move anything but this element.
+  //
+  // The bubbles arrive on a transform, which does not affect layout, so
+  // `scrollHeight` is already its final value when this runs — the scroll and
+  // the entrance play together instead of one chasing the other.
   const firstRender = useRef(true);
   useEffect(() => {
     const container = scrollRef.current;
@@ -73,6 +114,8 @@ export function MessageThread({ messages }: { messages: Message[] }) {
       dayKeyOf(message.created_at) !== dayKeyOf(messages[index - 1].created_at),
   );
 
+  const staggerFrom = Math.max(0, messages.length - OPEN_STAGGER_COUNT);
+
   return (
     <div
       ref={scrollRef}
@@ -94,9 +137,54 @@ export function MessageThread({ messages }: { messages: Message[] }) {
         {messages.map((message, index) => {
           const outbound = message.direction === "out";
           const { label, Icon } = senderOf(message);
+          const wasThere = opened.has(message.id);
+
+          // A message you watched arrive gets a spring and 10px of travel; one
+          // that was already in the thread when you opened it gets a shorter,
+          // flatter version of the same move on a stagger. Same direction and
+          // same origin either way — what changes is how much it insists.
+          //
+          // The origin is the corner the message came from. Scaling a
+          // full-width row about its centre pulled outbound bubbles left, away
+          // from the edge they are anchored to, so a reply appeared to arrive
+          // from the middle of the pane rather than from the box it was typed
+          // in. A full `transform` string rather than the `x`/`scale` shorthand
+          // props, which are not hardware-accelerated and drop frames while the
+          // page is busy — which, on a route that re-renders on every inbound
+          // message, it frequently is.
+          const enter = reduce
+            ? { opacity: 0 }
+            : wasThere
+              ? { opacity: 0, transform: "translateY(6px) scale(1)" }
+              : { opacity: 0, transform: "translateY(10px) scale(0.96)" };
+
+          const settle = reduce
+            ? { opacity: 1 }
+            : { opacity: 1, transform: "translateY(0px) scale(1)" };
 
           return (
-            <div key={message.id}>
+            <motion.div
+              key={message.id}
+              initial={enter}
+              animate={settle}
+              transition={
+                reduce
+                  ? { duration: 0.12 }
+                  : wasThere
+                    ? {
+                        duration: 0.26,
+                        ease: EASE_OUT,
+                        delay:
+                          index >= staggerFrom
+                            ? (index - staggerFrom) * OPEN_STAGGER_STEP
+                            : 0,
+                      }
+                    : ARRIVE_SPRING
+              }
+              style={{
+                transformOrigin: outbound ? "bottom right" : "bottom left",
+              }}
+            >
               {startsNewDay[index] && (
                 <div className="flex items-center gap-3 py-3">
                   <span className="bg-border h-px flex-1" />
@@ -177,7 +265,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
                   </Tooltip>
                 </div>
               </div>
-            </div>
+            </motion.div>
           );
         })}
       </div>

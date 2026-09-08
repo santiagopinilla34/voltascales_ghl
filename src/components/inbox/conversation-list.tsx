@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSelectedLayoutSegment } from "next/navigation";
+import { motion, useReducedMotion } from "motion/react";
 import { Bot, ListFilter, Phone, Search } from "lucide-react";
 
 import type { Conversation } from "@/lib/conversations";
@@ -25,6 +26,8 @@ import {
   formatCompactAge,
   formatPhone,
 } from "@/lib/format";
+
+import { RESIZE, SELECT_SPRING } from "./motion";
 
 /**
  * Left pane of the Inbox. Lives in the Inbox layout, so it stays mounted (and
@@ -93,6 +96,7 @@ export function ConversationList({
   // The child segment is the selected contact id — read from the router rather
   // than passed in, so the layout doesn't re-render on every selection.
   const selectedId = useSelectedLayoutSegment();
+  const reduce = useReducedMotion();
 
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<TabId>("all");
@@ -238,7 +242,15 @@ export function ConversationList({
           line (931px inside a 384px pane), `truncate` never engaged, and the
           timestamp on each row was pushed out of sight. The message thread
           next door already scrolls with plain `overflow-y-auto`. */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3">
+      {/* `layoutScroll` is not decoration either. The rows below animate their
+          position, and Motion measures those positions against the viewport —
+          so in a scrolled list it would correct for a scroll offset it did not
+          know about and every row would animate from the wrong place. This
+          tells it the box scrolls and to re-read the offset each frame. */}
+      <motion.div
+        layoutScroll
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3"
+      >
         {conversations.length === 0 ? (
           <p className="text-muted-foreground p-4 text-sm">
             No conversations yet. They appear here as soon as someone texts or
@@ -255,7 +267,19 @@ export function ConversationList({
                 const active = contact.id === selectedId;
 
               return (
-                <li key={contact.id}>
+                // `layout`, so the list restacking is something you can see
+                // happen. A new text moves its sender to the top — the query
+                // orders by last activity — and without this the row you were
+                // reading was simply somewhere else the next frame, with no
+                // way to tell whether it had moved or you had misread it.
+                // This is the reason Framer Motion is here at all: CSS can
+                // transition a property, but it cannot animate a row from a
+                // position the DOM no longer records.
+                <motion.li
+                  key={contact.id}
+                  layout={reduce ? false : "position"}
+                  transition={RESIZE}
+                >
                   <Link
                     href={`/inbox/${contact.id}`}
                     aria-current={active ? "page" : undefined}
@@ -267,26 +291,51 @@ export function ConversationList({
                       // of why the pane looked empty. py-5 on top of that: at
                       // 72px the rows were small enough that five of them
                       // barely reached a third of the column.
-                      "flex gap-3 rounded-xl border px-3.5 py-5 transition-colors",
-                      active
-                        ? // A wash rather than a flat tint: strongest along
-                          // the top edge and gone by the bottom, so the row
-                          // reads as lit from above like every other raised
-                          // surface in the app — the active nav pill does the
-                          // same thing. Left-to-right was the wrong axis; it
-                          // pointed the light at the avatar instead of at the
-                          // row, and fought the horizontal run of the text.
-                          "border-emerald-500/50 bg-gradient-to-b from-emerald-500/20 via-emerald-500/[0.07] to-transparent"
-                        : "border-border/60 bg-muted/20 hover:border-border hover:bg-muted/40",
+                      //
+                      // `relative`, because the selection is now an element in
+                      // its own right sitting on top of this one rather than a
+                      // set of classes swapped onto it.
+                      "relative flex gap-3 rounded-xl border px-3.5 py-5 transition-colors",
+                      "border-border/60 bg-muted/20 hover:border-border hover:bg-muted/40",
                     )}
                   >
-                    <Avatar className="size-10 shrink-0">
+                    {/* The selection, drawn once and shared. Under `layoutId`
+                        Motion treats the copy on the row you left and the copy
+                        on the row you clicked as the same object, so it travels
+                        between them instead of vanishing from one place and
+                        appearing in another. That is the whole difference
+                        between "this row is highlighted now" and "your
+                        selection moved here", and it is the thing a class swap
+                        cannot say.
+
+                        A wash rather than a flat tint: strongest along the top
+                        edge and gone by the bottom, so the row reads as lit
+                        from above like every other raised surface in the app —
+                        the active nav pill does the same thing. Left-to-right
+                        was the wrong axis; it pointed the light at the avatar
+                        instead of at the row, and fought the horizontal run of
+                        the text.
+
+                        `-inset-px`, not `inset-0`: an absolutely positioned
+                        child is laid against the padding box, so at inset-0
+                        this sat one pixel inside the row's own border and the
+                        selected row wore two concentric rings. */}
+                    {active && (
+                      <motion.span
+                        layoutId="inbox-selected-conversation"
+                        aria-hidden
+                        transition={reduce ? { duration: 0 } : SELECT_SPRING}
+                        className="pointer-events-none absolute -inset-px rounded-xl border border-emerald-500/50 bg-gradient-to-b from-emerald-500/20 via-emerald-500/[0.07] to-transparent"
+                      />
+                    )}
+
+                    <Avatar className="relative size-10 shrink-0">
                       <AvatarFallback className="text-xs font-medium">
                         {contactInitials(contact)}
                       </AvatarFallback>
                     </Avatar>
 
-                    <div className="min-w-0 flex-1">
+                    <div className="relative min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="truncate text-sm font-semibold">
                           {contactLabel(contact)}
@@ -337,13 +386,13 @@ export function ConversationList({
                       </div>
                     </div>
                   </Link>
-                </li>
+                </motion.li>
               );
               },
             )}
           </ul>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }

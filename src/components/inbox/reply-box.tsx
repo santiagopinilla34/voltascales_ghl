@@ -2,12 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+
+import { EASE_OUT } from "./motion";
 
 /** Matches the limit the messages route enforces. */
 const MAX_BODY_LENGTH = 1600;
@@ -30,6 +33,7 @@ export function ReplyBox({
   const [body, setBody] = useState("");
   const [pending, startTransition] = useTransition();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const reduce = useReducedMotion();
 
   const trimmed = body.trim();
   const tooLong = body.length > MAX_BODY_LENGTH;
@@ -131,21 +135,39 @@ export function ReplyBox({
             {/* Green and labelled. As an icon-only button in the default
                 variant it was a pale grey square — the one control on the
                 screen that sends something, looking like the least important
-                thing on it. */}
-            <Button
-              type="button"
-              onClick={send}
-              disabled={!canSend}
-              size="lg"
-              className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                thing on it.
+
+                The press is acknowledged on the way down, before the request
+                that follows it. Sending an SMS is a round trip to Twilio; the
+                message itself cannot appear for a few hundred milliseconds,
+                and until it does the only thing that had moved was a spinner
+                inside the button. `whileTap` is a wrapper rather than a prop
+                on the button because `Button` is a styled shadcn component,
+                and wrapping it is cheaper than making a motion component of it
+                for one 3% squash. */}
+            <motion.div
+              whileTap={
+                canSend && !reduce
+                  ? { transform: "scale(0.97)" }
+                  : { transform: "scale(1)" }
+              }
+              transition={{ duration: 0.1, ease: EASE_OUT }}
             >
-              {pending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Send className="size-4" />
-              )}
-              Send
-            </Button>
+              <Button
+                type="button"
+                onClick={send}
+                disabled={!canSend}
+                size="lg"
+                className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+              >
+                {pending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Send className="size-4" />
+                )}
+                Send
+              </Button>
+            </motion.div>
           </div>
         </div>
       </div>
