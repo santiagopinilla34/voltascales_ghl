@@ -3,10 +3,16 @@
 import { useRef, useState } from "react";
 import {
   CalendarClock,
+  CalendarDays,
   Check,
+  CheckCircle2,
+  CircleAlert,
   Clock,
   Copy,
+  FileText,
+  MapPin,
   Plus,
+  Save,
   Trash2,
   UploadCloud,
   X,
@@ -49,6 +55,7 @@ import {
   type HourRange,
   type MeetingLocationKind,
 } from "@/components/booking/calendar-draft";
+import { slugify } from "@/components/booking/booking-calendar";
 import { TimeZonePicker } from "@/components/booking/time-zone-picker";
 import { parseTimeOfDay } from "@/lib/booking/time";
 import { cn } from "@/lib/utils";
@@ -68,9 +75,30 @@ import type { CalendarGroup } from "@/types/database";
 
 export type Patch = (changes: Partial<CalendarDraft>) => void;
 
-/** The card every section sits in. */
-function Card({ children }: { children: React.ReactNode }) {
-  return <div className="min-w-0 rounded-xl border bg-card">{children}</div>;
+/**
+ * The card every section sits in.
+ *
+ * `footer` is a strip along the bottom edge rather than another block inside
+ * the body: what it holds is about the card as a whole — what saves, and the
+ * button that saves it — and inside the body it would read as one more field.
+ */
+function Card({
+  children,
+  footer,
+}: {
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <div className="bg-card/40 flex min-w-0 flex-col rounded-xl border">
+      <div className="min-w-0 flex-1">{children}</div>
+      {footer && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-6 py-4">
+          {footer}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +111,9 @@ export function BasicDetailsSection({
   calendarId,
   groups,
   bookingPath,
+  takenSlugs,
+  saving,
+  onSave,
 }: {
   draft: CalendarDraft;
   patch: Patch;
@@ -90,17 +121,22 @@ export function BasicDetailsSection({
   groups: CalendarGroup[];
   /** The prefix the handle hangs off, e.g. `voltascales.com/book/`. */
   bookingPath: string;
+  /** Handles the account's other calendars hold, for the availability note. */
+  takenSlugs: string[];
+  saving: boolean;
+  onSave: () => void;
 }) {
   return (
-    <Card>
+    <Card footer={<SaveFooter saving={saving} onSave={onSave} />}>
       <SectionHeader
+        icon={<CalendarDays className="size-5" />}
         title="Basic details"
         description="Basic information used to identify this calendar."
       >
         <CalendarIdChip id={calendarId} />
       </SectionHeader>
 
-      <div className="flex flex-col gap-5 p-5">
+      <div className="flex flex-col gap-6 px-6 py-6">
         <LogoField draft={draft} patch={patch} />
 
         <Field
@@ -108,10 +144,11 @@ export function BasicDetailsSection({
           label="Calendar name"
           hint="What this calendar is called, on the booking page and everywhere it is listed."
         >
-          <Input
+          <CountedInput
             id="calendar-name"
             value={draft.name}
-            onChange={(event) => patch({ name: event.target.value })}
+            max={NAME_MAX}
+            onChange={(name) => patch({ name })}
           />
         </Field>
 
@@ -127,13 +164,19 @@ export function BasicDetailsSection({
             sanitiser, which is a decision to make when this saves rather than
             while it does not.
           */}
-          <Textarea
-            id="calendar-description"
-            value={draft.description}
-            onChange={(event) => patch({ description: event.target.value })}
-            placeholder="Write description"
-            className="min-h-24"
-          />
+          <div className="relative min-w-0">
+            <Textarea
+              id="calendar-description"
+              value={draft.description}
+              maxLength={DESCRIPTION_MAX}
+              onChange={(event) => patch({ description: event.target.value })}
+              placeholder="Write description"
+              className="min-h-24 pb-7"
+            />
+            <span className="text-muted-foreground pointer-events-none absolute right-3 bottom-2.5 text-xs tabular-nums">
+              {draft.description.length}/{DESCRIPTION_MAX}
+            </span>
+          </div>
         </Field>
 
         <Field
@@ -141,16 +184,20 @@ export function BasicDetailsSection({
           label="Custom URL"
           hint="The end of this calendar's public booking link. It can be changed; the permanent link in the Share dialog cannot."
         >
-          <div className="flex min-w-0">
-            <span className="text-muted-foreground bg-muted flex shrink-0 items-center rounded-l-md border border-r-0 px-3 text-xs">
-              {bookingPath}
-            </span>
-            <Input
-              id="calendar-slug"
-              value={draft.slug}
-              onChange={(event) => patch({ slug: event.target.value })}
-              className="rounded-l-none"
-            />
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <div className="flex min-w-0 flex-1">
+              <span className="text-muted-foreground bg-muted flex shrink-0 items-center rounded-l-lg border border-r-0 px-3 text-xs">
+                {bookingPath}
+              </span>
+              <Input
+                id="calendar-slug"
+                value={draft.slug}
+                onChange={(event) => patch({ slug: event.target.value })}
+                className="h-9 rounded-l-none"
+              />
+            </div>
+
+            <SlugAvailability slug={draft.slug} taken={takenSlugs} />
           </div>
         </Field>
 
@@ -161,7 +208,7 @@ export function BasicDetailsSection({
             hint="Groups let you share one scheduling link for several calendars."
           >
             {groups.length === 0 ? (
-              <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2.5 text-xs">
+              <p className="text-muted-foreground flex h-9 items-center rounded-lg border border-dashed px-3 text-sm">
                 No calendar groups on this account yet.
               </p>
             ) : (
@@ -169,7 +216,7 @@ export function BasicDetailsSection({
                 value={draft.groupId ?? ""}
                 onValueChange={(groupId) => patch({ groupId })}
               >
-                <SelectTrigger id="calendar-group" className="w-full">
+                <SelectTrigger id="calendar-group" className="h-9 w-full data-[size=default]:h-9">
                   <SelectValue placeholder="Select group" />
                 </SelectTrigger>
                 <SelectContent>
@@ -203,6 +250,7 @@ export function BasicDetailsSection({
               value={draft.inviteTitle}
               disabled
               readOnly
+              className="h-9"
             />
             <p className="text-muted-foreground text-xs">
               Invites go out with the calendar&apos;s own name for now.
@@ -223,7 +271,7 @@ export function BasicDetailsSection({
               Soon
             </Badge>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2.5">
             {MEETING_COLORS.map((color) => (
               <button
                 key={color}
@@ -232,7 +280,7 @@ export function BasicDetailsSection({
                 aria-pressed={draft.color === color}
                 onClick={() => patch({ color })}
                 style={{ backgroundColor: color }}
-                className="focus-visible:ring-ring/50 flex size-7 items-center justify-center rounded-md transition-transform focus-visible:ring-3 focus-visible:outline-none hover:scale-105"
+                className="focus-visible:ring-ring/50 flex size-8 items-center justify-center rounded-lg transition-transform focus-visible:ring-3 focus-visible:outline-none hover:scale-105"
               >
                 {draft.color === color && (
                   <Check className="size-4 text-white" strokeWidth={3} />
@@ -243,6 +291,114 @@ export function BasicDetailsSection({
         </div>
       </div>
     </Card>
+  );
+}
+
+/**
+ * The strip along the bottom of the two sections that can actually write.
+ *
+ * The wording is deliberately not "saved automatically", which the design this
+ * follows says and this screen does not do: nothing leaves the browser until
+ * the button beside it is pressed, and a form that claims otherwise is how
+ * somebody closes a tab on work they thought was safe. Meeting location and
+ * Booking rules have no footer at all — they carry a notice instead, because
+ * for them there is nothing to press.
+ */
+function SaveFooter({
+  saving,
+  onSave,
+}: {
+  saving: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <>
+      <span className="text-muted-foreground flex items-center gap-2 text-sm">
+        <CheckCircle2 className="size-4 shrink-0 text-emerald-400" />
+        Changes are kept until you save them
+      </span>
+
+      <Button
+        type="button"
+        disabled={saving}
+        onClick={onSave}
+        className="h-9 gap-2 bg-emerald-600 px-4 text-white hover:bg-emerald-500"
+      >
+        <Save />
+        {saving ? "Saving…" : "Save changes"}
+      </Button>
+    </>
+  );
+}
+
+/** What a name and a description may run to. The counters count against these. */
+const NAME_MAX = 100;
+const DESCRIPTION_MAX = 500;
+
+/**
+ * A text field that shows how much of its allowance is left.
+ *
+ * The count sits inside the field rather than under it, because under it is
+ * where this form puts hints, and a number there reads as one.
+ */
+function CountedInput({
+  id,
+  value,
+  max,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  max: number;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="relative min-w-0">
+      <Input
+        id={id}
+        value={value}
+        maxLength={max}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 pr-16"
+      />
+      <span className="text-muted-foreground pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs tabular-nums">
+        {value.length}/{max}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Whether this handle is free.
+ *
+ * Checked against the handles the account's other calendars already hold,
+ * which the page reads and passes down — not against a live endpoint. That is
+ * the whole of the rule: `calendars_org_slug_idx` is unique per organization,
+ * so the answer is knowable here, and a spinner on every keystroke would buy
+ * nothing. The handle is slugified before comparing, the way the action will
+ * slugify it before writing.
+ */
+function SlugAvailability({ slug, taken }: { slug: string; taken: string[] }) {
+  const handle = slugify(slug.trim());
+
+  if (!handle) return null;
+
+  const free = !taken.includes(handle);
+
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 text-sm",
+        free ? "text-emerald-400" : "text-amber-500 dark:text-amber-400",
+      )}
+    >
+      {free ? (
+        <CheckCircle2 className="size-4" />
+      ) : (
+        <CircleAlert className="size-4" />
+      )}
+      {free ? "Available" : "Already taken"}
+    </span>
   );
 }
 
@@ -321,7 +477,7 @@ function LogoField({ draft, patch }: { draft: CalendarDraft; patch: Patch }) {
           take(event.dataTransfer.files[0]);
         }}
         className={cn(
-          "flex min-h-36 flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center transition-colors",
+          "flex min-h-36 flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed px-4 py-8 text-center transition-colors",
           over && "border-primary bg-primary/5",
         )}
       >
@@ -344,10 +500,10 @@ function LogoField({ draft, patch }: { draft: CalendarDraft; patch: Patch }) {
           </>
         ) : (
           <>
-            <span className="bg-muted text-muted-foreground flex size-10 items-center justify-center rounded-full">
-              <UploadCloud className="size-4" />
+            <span className="flex size-11 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
+              <UploadCloud className="size-5" />
             </span>
-            <p className="text-xs">
+            <p className="text-sm">
               <button
                 type="button"
                 onClick={() => input.current?.click()}
@@ -357,7 +513,7 @@ function LogoField({ draft, patch }: { draft: CalendarDraft; patch: Patch }) {
               </button>{" "}
               <span className="text-muted-foreground">or drag and drop</span>
             </p>
-            <p className="text-muted-foreground text-[11px]">
+            <p className="text-muted-foreground text-xs">
               PNG, JPEG, JPG or GIF (max. dimensions 180×180px)
             </p>
           </>
@@ -397,11 +553,12 @@ export function MeetingLocationSection({
   return (
     <Card>
       <SectionHeader
+        icon={<MapPin className="size-5" />}
         title="Meeting location"
         description="Choose where the meeting will take place."
       />
 
-      <div className="flex flex-col gap-4 p-5">
+      <div className="flex flex-col gap-4 px-6 py-6">
         <FieldLabel hint="Where this meeting happens. Add more than one and the booker picks.">
           Meeting location
         </FieldLabel>
@@ -559,9 +716,13 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function AvailabilitySection({
   draft,
   patch,
+  saving,
+  onSave,
 }: {
   draft: CalendarDraft;
   patch: Patch;
+  saving: boolean;
+  onSave: () => void;
 }) {
   function patchDay(index: number, changes: Partial<DayHours>) {
     patch({
@@ -593,8 +754,9 @@ export function AvailabilitySection({
   }
 
   return (
-    <Card>
+    <Card footer={<SaveFooter saving={saving} onSave={onSave} />}>
       <SectionHeader
+        icon={<Clock className="size-5" />}
         title="Calendar availability"
         description="Set when meetings can be booked on this calendar."
       >
@@ -607,7 +769,7 @@ export function AvailabilitySection({
 
       {/* Above the grid, not inside it: it decides whether the hours below are
           this calendar's at all, so it has to be read first. */}
-      <div className="flex min-w-0 items-start justify-between gap-4 border-b px-5 py-4">
+      <div className="flex min-w-0 items-start justify-between gap-4 border-b px-6 py-4">
         <div className="min-w-0">
           <Label
             htmlFor="sync-availability"
@@ -633,7 +795,7 @@ export function AvailabilitySection({
         />
       </div>
 
-      <div className="grid min-w-0 items-start gap-6 p-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+      <div className="grid min-w-0 items-start gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <section
           className={cn(
             "flex min-w-0 flex-col gap-1",
@@ -936,7 +1098,7 @@ export function AvailabilitySection({
         </section>
       </div>
 
-      <div className="flex items-center gap-2 border-t px-5 py-4">
+      <div className="flex items-center gap-2 border-t px-6 py-4">
         <Switch
           id="calendar-recurring"
           checked={draft.recurring}
@@ -977,11 +1139,12 @@ export function BookingRulesSection({
   return (
     <Card>
       <SectionHeader
+        icon={<FileText className="size-5" />}
         title="Booking rules"
         description="Control how and when meetings can be booked."
       />
 
-      <div className="flex flex-col gap-5 p-5">
+      <div className="flex flex-col gap-5 px-6 py-6">
         {/* Held to the width of the left column of the two-column grid below —
             `gap-5` is 1.25rem, so half of it is the 0.625rem taken off here.
             Full-bleed, these two read as a different kind of field from the six

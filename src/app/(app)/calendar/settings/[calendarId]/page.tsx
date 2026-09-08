@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { CalendarEditor } from "@/components/booking/calendar-editor";
-import { getCalendarById, listCalendarGroups } from "@/lib/booking/calendars";
+import {
+  getCalendarById,
+  listCalendarGroups,
+  listCalendars,
+} from "@/lib/booking/calendars";
 import { listAvailabilityRules } from "@/lib/booking/queries";
 import { appBaseUrl } from "@/lib/env";
 import { TIME_ZONE } from "@/lib/format";
@@ -37,9 +41,10 @@ export default async function EditCalendarPage({
   // indistinguishable from outside.
   if (!calendar) notFound();
 
-  const [rules, groups] = await Promise.all([
+  const [rules, groups, siblings] = await Promise.all([
     listAvailabilityRules(supabase, calendar),
     listCalendarGroups(supabase),
+    listCalendars(supabase),
   ]);
 
   return (
@@ -47,6 +52,13 @@ export default async function EditCalendarPage({
       calendar={calendar}
       rules={rules}
       groups={groups}
+      // Every handle but this calendar's own, so the Custom URL field can say
+      // whether what is typed is free. `calendars_org_slug_idx` is unique per
+      // organization and RLS already scopes this read to one, so the list is
+      // the whole of the rule — no endpoint needed to answer it.
+      takenSlugs={siblings
+        .filter((entry) => entry.id !== calendar.id)
+        .map((entry) => entry.slug)}
       origin={appBaseUrl() ?? ""}
       timeZone={TIME_ZONE}
     />

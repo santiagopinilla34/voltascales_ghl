@@ -2,7 +2,18 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronRight, Clock, Lightbulb, Share2, Wrench } from "lucide-react";
+import {
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  FileText,
+  Lightbulb,
+  MapPin,
+  Share2,
+  Wrench,
+} from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -79,22 +90,26 @@ const SECTIONS = [
   {
     id: "basics",
     label: "Basic details",
+    icon: CalendarDays,
     tip: "Groups let you share one scheduling link for several calendars, so customers can pick which kind of appointment they want.",
   },
   {
     id: "location",
     label: "Meeting location",
+    icon: MapPin,
     soon: true,
     tip: "When “Ask the booker” is selected, the person booking types the location in during booking.",
   },
   {
     id: "availability",
     label: "Availability",
+    icon: Clock,
     tip: "To make a calendar available around the clock, set the range from 12 AM to 12 AM.",
   },
   {
     id: "rules",
     label: "Booking rules",
+    icon: FileText,
     soon: true,
     tip: "Use maximum bookings per slot to control how many meetings can happen at the same time.",
   },
@@ -108,10 +123,13 @@ export function CalendarEditor({
   groups,
   origin,
   timeZone,
+  takenSlugs,
 }: {
   calendar: BookingCalendar;
   rules: AvailabilityRule[];
   groups: CalendarGroup[];
+  /** Handles the account's *other* calendars hold, for the availability note. */
+  takenSlugs: string[];
   /** Where the booking links point, resolved on the server from APP_BASE_URL. */
   origin: string;
   /** The app's booking time zone, as the initial value of the picker. */
@@ -233,23 +251,39 @@ export function CalendarEditor({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="h-20 shrink-0 border-b">
-        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center pr-52 pl-14 md:pl-6 lg:pl-10 gap-4">
+        <div className="mx-auto flex h-full w-full min-w-0 max-w-[1400px] items-center gap-4 pr-52 pl-14 md:pl-6 lg:pl-10">
           <Link
             href="/calendar/settings"
-            className="text-muted-foreground hover:text-foreground flex shrink-0 items-center gap-1.5 text-xs"
+            className="text-muted-foreground hover:text-foreground flex shrink-0 items-center gap-1.5 text-sm transition-colors"
           >
-            <ArrowLeft className="size-4" />
+            <ChevronLeft className="size-4" />
             <span className="hidden sm:inline">Back to calendars list</span>
           </Link>
 
-          {/* The name from the row, not from the draft. It is the heading for
-              the thing being edited, and having it change under you as you type
-              in the field below makes the page feel like it has already saved. */}
-          <h1 className="mx-auto min-w-0 truncate text-sm font-semibold tracking-tight">
-            Edit — {calendar.name}
-          </h1>
+          {/* The way back and the thing you came to are two different jobs, and
+              at this width they sat close enough to read as one control. */}
+          <span aria-hidden className="bg-border hidden h-8 w-px shrink-0 lg:block" />
 
-          <div className="flex shrink-0 items-center gap-1.5">
+          <span
+            aria-hidden
+            className="hidden size-9 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 lg:flex"
+          >
+            <CalendarDays className="size-4.5" />
+          </span>
+
+          <div className="min-w-0">
+            {/* The name from the row, not from the draft. It is the heading for
+                the thing being edited, and having it change under you as you type
+                in the field below makes the page feel like it has already saved. */}
+            <h1 className="truncate text-lg font-semibold tracking-tight">
+              Edit — {calendar.name}
+            </h1>
+            <p className="text-muted-foreground hidden truncate text-xs sm:block">
+              Customize your calendar settings and how clients book with you.
+            </p>
+          </div>
+
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <HeaderAction
               label="Share calendar"
               onClick={() => setDialog("share")}
@@ -262,7 +296,12 @@ export function CalendarEditor({
             >
               <Wrench />
             </HeaderAction>
-            <Button size="sm" disabled={saving} onClick={save}>
+            <Button
+              disabled={saving}
+              onClick={save}
+              className="h-9 gap-2 bg-emerald-600 px-4 text-white hover:bg-emerald-500"
+            >
+              <Check />
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>
@@ -270,42 +309,47 @@ export function CalendarEditor({
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 sm:px-6 lg:px-10">
-        {/* 240px rather than 200: at the rail's size, "Advanced settings" and
+        {/* 248px rather than 200: at the rail's size, "Advanced settings" and
             its Soon badge wrap onto two lines in a narrower column, and a
-            two-line row next to four one-line rows reads as a mistake. */}
-        <div className="mx-auto grid w-full min-w-0 max-w-[1400px] items-start gap-6 py-4 lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
-          {/* `text-sm` and this much padding because that is what
-              `SidebarMenuButton` uses two panes to the left — the rail is the
-              same kind of thing and was a size smaller, which read as a
-              caption rather than as navigation. */}
-          <nav className="flex min-w-0 flex-col gap-1.5 lg:sticky lg:top-4">
-            {SECTIONS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => setSection(entry.id)}
-                aria-current={section === entry.id ? "page" : undefined}
-                className={cn(
-                  "rounded-md px-3 py-2.5 text-left text-sm transition-colors",
-                  section === entry.id
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                )}
-              >
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate">{entry.label}</span>
+            two-line row next to four one-line rows reads as a mistake.
+            `items-stretch` is the default and is left alone on purpose — it is
+            what lets the rail match the form's height. */}
+        <div className="mx-auto grid w-full min-w-0 max-w-[1400px] gap-4 py-5 lg:grid-cols-[minmax(0,248px)_minmax(0,1fr)]">
+          {/* One panel rather than loose rows: the sections and the tip below
+              them are one column of furniture beside the form, and unbordered
+              they read as if they had been left on the page by accident.
+              Stretched to the form's height for the same reason — a rail that
+              stops a third of the way down draws a line across the screen. */}
+          <nav className="bg-card/40 flex min-w-0 flex-col gap-1.5 rounded-xl border p-3">
+            {SECTIONS.map((entry) => {
+              const Icon = entry.icon;
+
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => setSection(entry.id)}
+                  aria-current={section === entry.id ? "page" : undefined}
+                  className={cn(
+                    "flex min-w-0 items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+                    section === entry.id
+                      ? "bg-emerald-500/10 font-medium text-emerald-400"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                  )}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  <span className="truncate whitespace-nowrap">{entry.label}</span>
                   {"soon" in entry && entry.soon && (
                     <Badge
                       variant="outline"
-                      className="text-muted-foreground ml-auto shrink-0"
+                      className="text-muted-foreground ml-auto shrink-0 font-normal"
                     >
-                      <Clock />
                       Soon
                     </Badge>
                   )}
-                </span>
-              </button>
-            ))}
+                </button>
+              );
+            })}
 
             {/* Disabled rather than absent, and disabled rather than opening an
                 empty panel. Forms, payments, notifications and custom code all
@@ -315,24 +359,23 @@ export function CalendarEditor({
             <button
               type="button"
               disabled
-              className="text-muted-foreground/70 flex cursor-not-allowed items-center gap-1.5 rounded-md px-3 py-2.5 text-left text-sm"
+              className="text-muted-foreground/70 flex cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm"
             >
               <ChevronRight className="size-4 shrink-0" />
-              <span>Advanced settings</span>
+              <span className="whitespace-nowrap">Advanced settings</span>
               <Badge
                 variant="outline"
-                className="text-muted-foreground ml-auto shrink-0"
+                className="text-muted-foreground ml-auto shrink-0 font-normal"
               >
-                <Clock />
                 Soon
               </Badge>
             </button>
 
-            {/* A notch below the buttons above, deliberately: it is an aside,
-                and matching them would make it compete with the navigation. */}
-            <div className="mt-5 flex flex-col gap-1.5 px-3">
-              <span className="flex items-center gap-1.5 text-sm font-medium">
-                <Lightbulb className="size-4" />
+            {/* A card of its own below the navigation, deliberately: it is an
+                aside, and a row among the sections would read as a sixth one. */}
+            <div className="bg-background/40 mt-4 flex flex-col gap-2 rounded-lg border p-4">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <Lightbulb className="size-4 text-emerald-400" />
                 Quick tip
               </span>
               <p className="text-muted-foreground text-xs leading-relaxed">
@@ -353,6 +396,9 @@ export function CalendarEditor({
                 calendarId={calendar.id}
                 groups={groups}
                 bookingPath={bookingPath}
+                takenSlugs={takenSlugs}
+                saving={saving}
+                onSave={save}
               />
             )}
             {section === "location" && (
@@ -373,7 +419,12 @@ export function CalendarEditor({
               </>
             )}
             {section === "availability" && (
-              <AvailabilitySection draft={draft} patch={patch} />
+              <AvailabilitySection
+                draft={draft}
+                patch={patch}
+                saving={saving}
+                onSave={save}
+              />
             )}
             {section === "rules" && (
               <>
@@ -427,7 +478,7 @@ function HeaderAction({
         <Button
           type="button"
           variant="outline"
-          size="icon-sm"
+          size="icon-lg"
           aria-label={label}
           onClick={onClick}
         >

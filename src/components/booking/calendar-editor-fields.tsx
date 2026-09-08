@@ -50,7 +50,7 @@ export function FieldLabel({
 }) {
   return (
     <span className={cn("flex items-center gap-1.5", className)}>
-      <Label htmlFor={htmlFor} className="text-xs font-medium">
+      <Label htmlFor={htmlFor} className="text-sm font-medium">
         {children}
       </Label>
       <Tooltip>
@@ -60,7 +60,7 @@ export function FieldLabel({
             aria-label={`About ${String(children).toLowerCase()}`}
             className="text-muted-foreground hover:text-foreground"
           >
-            <Info className="size-3" />
+            <Info className="size-3.5" />
           </button>
         </TooltipTrigger>
         <TooltipContent className="max-w-72">
@@ -233,21 +233,43 @@ export function digits(value: string): string {
   return value.replace(/[^0-9]/g, "");
 }
 
-/** The heading and one-liner every section card opens with. */
+/**
+ * The heading and one-liner every section card opens with.
+ *
+ * The tile in front of the title is the same green square the calendar wears
+ * in the rail and in the list — five section cards that open with a bare line
+ * of text look like five paragraphs, and this is what tells you which one you
+ * are on without reading it.
+ */
 export function SectionHeader({
+  icon,
   title,
   description,
   children,
 }: {
+  icon?: React.ReactNode;
   title: string;
   description: string;
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
-      <div className="min-w-0">
-        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
-        <p className="text-muted-foreground text-xs">{description}</p>
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-5">
+      <div className="flex min-w-0 items-center gap-3.5">
+        {icon && (
+          <span
+            aria-hidden
+            className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+          >
+            {icon}
+          </span>
+        )}
+
+        <div className="min-w-0">
+          <h2 className="truncate text-xl font-semibold tracking-tight">
+            {title}
+          </h2>
+          <p className="text-muted-foreground text-sm">{description}</p>
+        </div>
       </div>
       {children}
     </div>
