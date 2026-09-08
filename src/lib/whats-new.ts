@@ -23,6 +23,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-09-08-ai-off-costs-nothing",
+    date: "2026-09-08",
+    title: "AI handling off now costs nothing",
+    body: "Turning AI handling off for a contact used to stop the reply going out but still ran the model on every text they sent, writing drafts nobody asked for and billing for them. Off now means the agent never runs for that conversation. The Preview AI reply button is unaffected — it still works whenever you want a suggestion.",
+    href: "/inbox",
+    tag: "Fixed",
+  },
+  {
     id: "2026-09-08-inbox-motion",
     date: "2026-09-08",
     title: "The Inbox moves like one screen",

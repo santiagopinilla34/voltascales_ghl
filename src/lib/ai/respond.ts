@@ -120,12 +120,31 @@ export async function respondToInbound(
     // in `deliver` below because a pause is meant to cost nothing: a bot that
     // is supposed to be silent for two days should not be writing drafts and
     // billing generations for two days. That is the same reasoning as `off`
-    // directly above, and the opposite of the `ai_enabled` check further down —
-    // that one is about a human taking over, where a draft is still useful.
+    // directly above and as `ai_enabled` directly below: every switch that
+    // means "not this conversation, not now" stops the spend, not just the
+    // send.
     if (isPaused(contact.ai_paused_until)) {
       console.log(
         `[ai] no reply for message ${messageId}: agent “${bot.name}” is quiet ` +
           `for contact ${contact.id} until ${contact.ai_paused_until}`,
+      );
+      return;
+    }
+
+    // The per-contact switch, which is the one an operator actually looks at:
+    // "AI handling off" on the conversation header. It used to stop only the
+    // send — the model still ran and still wrote a draft on every inbound text
+    // for as long as the contact stayed off, and nobody had asked for those
+    // drafts. A switch labelled off that keeps billing per message is the
+    // wrong kind of surprise, so off costs nothing here too.
+    //
+    // `deliver` re-reads this flag before sending and that check stays. It
+    // catches the takeover that happens *during* a generation, which this one
+    // runs too early to see.
+    if (!contact.ai_enabled) {
+      console.log(
+        `[ai] no reply for message ${messageId}: AI handling is off for ` +
+          `contact ${contact.id}`,
       );
       return;
     }
@@ -136,9 +155,6 @@ export async function respondToInbound(
     const sendMode: "draft" | "live" =
       bot.mode === "autopilot" ? "live" : "draft";
 
-    // Not gated on `contacts.ai_enabled`. That flag decides what goes *out*
-    // (checked in `deliver` below); a draft is still worth having for a contact
-    // whose AI is off, and it costs a fraction of a cent.
     const messages = await listMessages(supabase, contact.id);
     const conversation = buildConversation(messages);
 
@@ -361,10 +377,11 @@ async function deliver(
     return "the agent is set to Suggestive";
   }
 
-  // Re-read rather than trusting the `contact` row the webhook loaded. Minutes
-  // can pass between that read and this send: generation is slow, and a manual
-  // reply in the meantime is a human takeover that flips this flag off. Sending
-  // on a stale `true` would talk over the person who just took the conversation.
+  // The race guard, not the gate — the caller already returned if this was off
+  // before the generation. Minutes can pass between that check and this send:
+  // generation is slow, and a manual reply in the meantime is a human takeover
+  // that flips the flag off. Sending on a stale `true` would talk over the
+  // person who just took the conversation.
   const { data: current, error: contactError } = await supabase
     .from("contacts")
     .select("ai_enabled")
