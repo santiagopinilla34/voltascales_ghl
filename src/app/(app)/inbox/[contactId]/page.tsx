@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/contacts/status-badge";
 import { AiPreviewPanel } from "@/components/inbox/ai-preview-panel";
 import { AiToggle } from "@/components/inbox/ai-toggle";
 import { MessageThread } from "@/components/inbox/message-thread";
+import { PendingMessagesProvider } from "@/components/inbox/pending-messages";
 import { ReplyBox } from "@/components/inbox/reply-box";
 import { ThreadActions } from "@/components/inbox/thread-actions";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -127,15 +128,36 @@ export default async function ThreadPage({ params }: PageProps) {
         <ThreadActions contactId={contact.id} phone={contact.phone} />
       </header>
 
-      <MessageThread messages={messages} />
+      {/* Wraps the thread and the composer together, and only them. A reply
+          you have just sent has to be visible in the thread before the server
+          has saved it, which means the two need one piece of shared client
+          state — see `pending-messages.tsx`.
 
-      <AiPreviewPanel contactId={contact.id} latestDraft={latestDraft} />
+          `key` is load-bearing, not decoration. A message in flight belongs to
+          the conversation it was typed in, and this state has to be thrown away
+          when you open a different one — otherwise a bubble sent to one contact
+          can be left hanging in another contact's thread, where it would never
+          reconcile (that thread's rows will never contain its id) and so would
+          stay on screen indefinitely, showing a message to the wrong person.
 
-      <ReplyBox
-        contactId={contact.id}
-        contactLabel={label}
-        aiEnabled={contact.ai_enabled}
-      />
+          Next.js remounts this page on a contact switch today, so the key
+          changes nothing in practice — verified in the browser, where each
+          switch produced a fresh provider instance. It is here because that is
+          a fact about the router's reconciliation rather than a promise the
+          code makes: hoisting this provider, or a change in how segments are
+          reused, would reintroduce the bug silently. The key states the
+          requirement where the requirement lives. */}
+      <PendingMessagesProvider key={contact.id}>
+        <MessageThread messages={messages} />
+
+        <AiPreviewPanel contactId={contact.id} latestDraft={latestDraft} />
+
+        <ReplyBox
+          contactId={contact.id}
+          contactLabel={label}
+          aiEnabled={contact.ai_enabled}
+        />
+      </PendingMessagesProvider>
     </div>
   );
 }

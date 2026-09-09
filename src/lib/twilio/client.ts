@@ -8,7 +8,7 @@ import {
   InsufficientCreditError,
 } from "@/lib/billing/credit";
 import { RATES } from "@/lib/billing/rates";
-import { serverEnv } from "@/lib/env";
+import { appBaseUrl, serverEnv } from "@/lib/env";
 import { recordAppError } from "@/lib/app-errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -66,6 +66,16 @@ export async function sendSms(to: string, body: string, orgId?: string) {
     ? twilio(credentials.accountSid, credentials.authToken)
     : createTwilioClient();
 
+  // Delivery receipts, when there is a public URL for Twilio to call back on.
+  //
+  // `appBaseUrl()` is null in local development, where Twilio cannot reach the
+  // machine — so the parameter is omitted rather than pointed at a localhost
+  // URL that would fail silently on Twilio's side. The consequence is visible
+  // and intended: locally a message stops at the status `create` returned and
+  // never advances to `delivered`, so the receipt in the Inbox says "Sent" and
+  // stops there rather than claiming a delivery nobody confirmed.
+  const base = appBaseUrl();
+
   // Twilio's rejections are the ones worth surfacing: an unreachable number, a
   // number that has not passed A2P registration, a carrier block. Every one of
   // those is silent from the operator's side — the text simply never arrives —
@@ -77,6 +87,9 @@ export async function sendSms(to: string, body: string, orgId?: string) {
       to,
       from: credentials?.from ?? serverEnv.twilioPhoneNumber,
       body,
+      ...(base
+        ? { statusCallback: `${base}/api/webhooks/twilio/sms/status` }
+        : {}),
     });
   } catch (error) {
     if (orgId) {

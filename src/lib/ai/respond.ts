@@ -12,6 +12,7 @@ import { notifyHandoff } from "@/lib/notify/handoff";
 import { recordAppError } from "@/lib/app-errors";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
+import { toMessageStatus } from "@/lib/twilio/status";
 import type { Contact, Database } from "@/types/database";
 
 import {
@@ -452,6 +453,12 @@ async function deliver(
     body: reply,
     sent_by: "ai",
     twilio_message_sid: sent.sid,
+    // Where Twilio has got to as of this instant, which is `queued` — accepted
+    // for sending, nothing delivered. The status callback carries it the rest
+    // of the way. Recorded on the AI's messages too, not just the human's: the
+    // receipt in the thread shows under the last outbound message whoever sent
+    // it, and an AI reply with no status would read as one still in flight.
+    status: toMessageStatus(sent.status),
   });
 
   if (logError) {

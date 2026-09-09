@@ -3,6 +3,7 @@ import { InsufficientCreditError } from "@/lib/billing/credit";
 
 import { createClient } from "@/lib/supabase/server";
 import { sendSms } from "@/lib/twilio/client";
+import { toMessageStatus } from "@/lib/twilio/status";
 
 export const runtime = "nodejs";
 
@@ -97,6 +98,10 @@ export async function POST(
       body,
       sent_by: "human",
       twilio_message_sid: sent.sid,
+      // Twilio's own status as of acceptance — `queued`. The receipt under the
+      // message in the thread reads this, and the status callback advances it
+      // to `delivered` when the carrier confirms.
+      status: toMessageStatus(sent.status),
     })
     .select()
     .single();

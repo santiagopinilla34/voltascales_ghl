@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Loader2, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { EASE_OUT } from "./motion";
+import { usePendingMessages } from "./pending-messages";
 
 /** Matches the limit the messages route enforces. */
 const MAX_BODY_LENGTH = 1600;
@@ -31,16 +32,42 @@ export function ReplyBox({
 }) {
   const router = useRouter();
   const [body, setBody] = useState("");
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const reduce = useReducedMotion();
+  const {
+    add: addPending,
+    settle: settlePending,
+    discard: discardPending,
+  } = usePendingMessages();
 
   const trimmed = body.trim();
   const tooLong = body.length > MAX_BODY_LENGTH;
-  const canSend = trimmed.length > 0 && !tooLong && !pending;
+  // No longer gated on the in-flight send. Blocking the button until the last
+  // message came back is right for a form and wrong for a conversation: two
+  // texts in a row is the normal way people write, and the wait it imposed was
+  // the whole round trip to Twilio. Each send is independent — its own bubble,
+  // its own request, its own failure — so a second one while the first is out
+  // costs nothing.
+  const canSend = trimmed.length > 0 && !tooLong;
 
   function send() {
     if (!canSend) return;
+
+    // The bubble goes up first and the box empties with it, before anything is
+    // asked of the network. Sending a text is a round trip to Twilio behind a
+    // round trip to us — a second and a half on a good day — and the composer
+    // used to spend all of it holding the message the user had already
+    // finished writing, with a spinner as the only sign it had been read.
+    //
+    // The cost of showing it early is that it can still fail, so the two
+    // failure paths below put it back exactly as it was: bubble withdrawn,
+    // words returned to the box, focus back in it. That is a worse outcome than
+    // never having shown it, and it happens on the rare send rather than on
+    // every one.
+    const pendingId = addPending(trimmed);
+    const restore = trimmed;
+    setBody("");
 
     startTransition(async () => {
       let response: Response;
@@ -51,6 +78,9 @@ export function ReplyBox({
           body: JSON.stringify({ body: trimmed }),
         });
       } catch {
+        discardPending(pendingId);
+        setBody(restore);
+        textareaRef.current?.focus();
         toast.error("Could not reach the server", {
           description: "Check your connection and try again.",
         });
@@ -61,15 +91,32 @@ export function ReplyBox({
         const { error } = (await response.json().catch(() => ({}))) as {
           error?: string;
         };
+        discardPending(pendingId);
+        setBody(restore);
+        textareaRef.current?.focus();
         toast.error("Message not sent", {
           description: error ?? `The server responded with ${response.status}.`,
         });
         return;
       }
 
-      // Only clear once Twilio has accepted it — a failed send keeps the text
-      // in the box so it isn't lost.
-      setBody("");
+      // Twilio has it. The bubble stays where it is and is handed the id of the
+      // row it became, so the thread can retire it the moment that row arrives
+      // rather than leaving a gap in between. See `pending-messages.tsx`.
+      const { message } = (await response.json().catch(() => ({}))) as {
+        message?: { id?: string };
+      };
+
+      if (message?.id) {
+        settlePending(pendingId, message.id);
+      } else {
+        // A 201 with no row in it should not be possible, and if it happens the
+        // bubble has nothing to reconcile against and would sit there for good.
+        // Dropping it leaves the refresh below to show whatever was really
+        // saved, which is the honest answer either way.
+        discardPending(pendingId);
+      }
+
       if (aiEnabled) {
         toast.info("AI handling turned off", {
           description: "Replying by hand takes this conversation over.",
@@ -106,7 +153,11 @@ export function ReplyBox({
           }}
           placeholder={`Reply to ${contactLabel}…`}
           rows={2}
-          disabled={pending}
+          // Never disabled. It used to lock for the whole round trip, which
+          // made the composer feel like a form being submitted rather than a
+          // chat: the message you had just sent was gone from the box, not yet
+          // in the thread, and you could not start the next one. The bubble
+          // above now carries the state, so the box is free to stay yours.
           aria-label="Reply message"
           // The box around it draws the edge now, so the field itself has
           // none — two nested borders read as a field inside a field.
@@ -160,11 +211,11 @@ export function ReplyBox({
                 size="lg"
                 className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
               >
-                {pending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
-                )}
+                {/* No spinner any more. The message is already in the thread
+                    with "Sending…" under it by the time this would appear, and
+                    two indicators for one send meant the eye had to check the
+                    button to find out what the bubble was already saying. */}
+                <Send className="size-4" />
                 Send
               </Button>
             </motion.div>

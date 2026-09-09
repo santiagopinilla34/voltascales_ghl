@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { DialerBubble } from "@/components/phone/dialer-bubble";
 import { NotificationsBubble } from "@/components/topbar/notifications-bubble";
 import { WhatsNewBubble } from "@/components/topbar/whats-new-bubble";
@@ -81,9 +83,30 @@ async function collectAlerts(): Promise<Alert[]> {
   }
 }
 
-export async function AppTopbar() {
+/**
+ * The bell, and only the bell, behind its own Suspense boundary.
+ *
+ * `collectAlerts` is by some distance the most expensive thing the app shell
+ * does: five sources in parallel, two of which (`getReplyAlerts`,
+ * `getLeadAlerts`) read every contact in the account with their messages
+ * embedded, plus the dismissals read folded in afterwards. Awaited in
+ * `AppTopbar` directly, all of that sat in front of the page — nothing below
+ * could stream until the badge on a button knew its number.
+ *
+ * That is the wrong order of importance anywhere, and it is acutely wrong in
+ * the Inbox, where `router.refresh()` re-runs the whole shell on every inbound
+ * message: each text arriving paid for a full re-scan of the contact list
+ * before the text itself could be drawn.
+ *
+ * Split out, the alerts resolve on their own and the rest of the row — and
+ * every page under it — renders immediately.
+ */
+async function AlertsBubble() {
   const alerts = await collectAlerts();
+  return <NotificationsBubble alerts={alerts} />;
+}
 
+export async function AppTopbar() {
   return (
     // h-20 is the page-header height, so these centre on the title beside
     // them. z-20 clears the header's own border; the strip has no background
@@ -120,7 +143,13 @@ export async function AppTopbar() {
             configured={voiceConfigured()}
           />
           <WhatsNewBubble />
-          <NotificationsBubble alerts={alerts} />
+          {/* The fallback is the bubble's own footprint and nothing else — a
+              44px hole for the fraction of a second before the count lands.
+              A skeleton or a spinner here would draw the eye to the least
+              important control on the screen while it waited. */}
+          <Suspense fallback={<div className="size-11" aria-hidden />}>
+            <AlertsBubble />
+          </Suspense>
         </div>
       </div>
     </div>

@@ -45,6 +45,21 @@ export type ContactStatus = "new" | "active" | "ai_handled" | "closed";
 export type MessageDirection = "in" | "out";
 /** Mirrors `messages_sent_by_check`. */
 export type MessageSender = "human" | "ai" | "system";
+/**
+ * Mirrors `messages_status_check`. Twilio's own MessageStatus vocabulary,
+ * stored unchanged so a disagreement with the Twilio console is a real one.
+ *
+ * Null is a fourth state the union cannot carry and the column allows: an
+ * inbound message, or an outbound one sent before delivery was tracked. The
+ * Row override below is `MessageStatus | null` for that reason.
+ */
+export type MessageStatus =
+  | "queued"
+  | "sending"
+  | "sent"
+  | "delivered"
+  | "undelivered"
+  | "failed";
 /** Mirrors `calls_direction_check`. */
 export type CallDirection = "inbound" | "outbound";
 /** Mirrors `calls_status_check`. */
@@ -156,7 +171,11 @@ export type ContactFieldColumn = "business_name" | "tags";
 
 type RowOverrides = {
   contacts: { status: ContactStatus };
-  messages: { direction: MessageDirection; sent_by: MessageSender };
+  messages: {
+    direction: MessageDirection;
+    sent_by: MessageSender;
+    status: MessageStatus | null;
+  };
   calls: { direction: CallDirection; status: CallStatus };
   // `triggers` stays `Json` rather than being narrowed here: it is an array of
   // objects whose shape depends on each entry's own type, which is a job for

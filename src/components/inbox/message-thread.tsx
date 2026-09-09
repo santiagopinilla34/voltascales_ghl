@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Bot, Cog, User } from "lucide-react";
 
-import type { Message } from "@/types/database";
+import type { Message, MessageSender, MessageStatus } from "@/types/database";
 import {
   Tooltip,
   TooltipContent,
@@ -18,6 +18,8 @@ import {
   formatMessageTime,
 } from "@/lib/format";
 
+import { DeliveryReceipt } from "./delivery-receipt";
+import { usePendingMessages } from "./pending-messages";
 import { ARRIVE_SPRING, EASE_OUT } from "./motion";
 
 /** How each sender is labelled and iconified on an outbound bubble. */
@@ -29,8 +31,40 @@ const SENDER = {
 
 type SentBy = keyof typeof SENDER;
 
-function senderOf(message: Message) {
-  return SENDER[message.sent_by as SentBy] ?? SENDER.system;
+function senderOf(sentBy: MessageSender) {
+  return SENDER[sentBy as SentBy] ?? SENDER.system;
+}
+
+/**
+ * One row of the thread, from either source.
+ *
+ * The server's messages and the composer's not-yet-saved ones are flattened
+ * into this before anything is drawn, so the rendering below never asks which
+ * kind it is holding. The alternative — branching on the type inside the map —
+ * meant every visual decision in this file existed twice and the optimistic
+ * bubble drifted a pixel at a time away from the real one it becomes.
+ */
+type Row = {
+  key: string;
+  body: string | null;
+  createdAt: string;
+  outbound: boolean;
+  sentBy: MessageSender;
+  status: MessageStatus | null;
+  /** Still in flight: posted, no row back yet. */
+  sending: boolean;
+};
+
+function rowOf(message: Message): Row {
+  return {
+    key: message.id,
+    body: message.body,
+    createdAt: message.created_at,
+    outbound: message.direction === "out",
+    sentBy: message.sent_by,
+    status: message.status,
+    sending: false,
+  };
 }
 
 /**
@@ -49,6 +83,36 @@ const OPEN_STAGGER_STEP = 0.03;
 export function MessageThread({ messages }: { messages: Message[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
+  const { pending, reconcile } = usePendingMessages();
+
+  // Retire the optimistic bubbles whose real rows have arrived.
+  //
+  // In an effect rather than during render because it sets state in another
+  // component, and after paint rather than before it because the two must swap
+  // in the same frame — dropping the pending bubble in the render *before* the
+  // server row is on screen is a visible blink at the bottom of the thread,
+  // which is the one place the reader is looking.
+  useEffect(() => {
+    reconcile(new Set(messages.map((message) => message.id)));
+  }, [messages, reconcile]);
+
+  // Anything already reconciled is gone from `pending`; anything left is either
+  // still in flight or waiting for its row. Appended rather than merged by
+  // timestamp: these are the newest thing in the thread by definition, and
+  // sorting by a clock the client set against timestamps the database set is a
+  // way to have a message you just sent appear above one from a minute ago.
+  const rows: Row[] = [
+    ...messages.map(rowOf),
+    ...pending.map((message) => ({
+      key: message.id,
+      body: message.body,
+      createdAt: message.createdAt,
+      outbound: true,
+      sentBy: "human" as MessageSender,
+      status: null,
+      sending: true,
+    })),
+  ];
 
   // Which messages were already here when this thread was opened. Everything
   // else arrived while somebody was watching, and the two want different
@@ -93,9 +157,12 @@ export function MessageThread({ messages }: { messages: Message[] }) {
       behavior: firstRender.current ? "instant" : "smooth",
     });
     firstRender.current = false;
-  }, [messages.length]);
+    // `rows`, not `messages`: an optimistic bubble is the reason the thread got
+    // longer as often as a server row is now, and the send that produced it is
+    // the moment the reader most expects the view to follow them down.
+  }, [rows.length]);
 
-  if (messages.length === 0) {
+  if (rows.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <p className="text-muted-foreground text-sm">
@@ -108,13 +175,22 @@ export function MessageThread({ messages }: { messages: Message[] }) {
   // Derived up front rather than tracked in a variable across the map: React
   // renders may be interrupted and replayed, so a running accumulator can go
   // out of step with the rows it is describing.
-  const startsNewDay = messages.map(
-    (message, index) =>
+  const startsNewDay = rows.map(
+    (row, index) =>
       index === 0 ||
-      dayKeyOf(message.created_at) !== dayKeyOf(messages[index - 1].created_at),
+      dayKeyOf(row.createdAt) !== dayKeyOf(rows[index - 1].createdAt),
   );
 
-  const staggerFrom = Math.max(0, messages.length - OPEN_STAGGER_COUNT);
+  const staggerFrom = Math.max(0, rows.length - OPEN_STAGGER_COUNT);
+
+  // The one message that carries a receipt: the last one that went out.
+  //
+  // Searched from the end rather than tracked while mapping, because "the last
+  // outbound row" is a fact about the whole list and a row cannot know it by
+  // looking at itself. -1 when the contact has written and nobody has answered,
+  // which renders no receipt anywhere — correct, since there is nothing of ours
+  // in the thread whose delivery is in question.
+  const receiptIndex = rows.findLastIndex((row) => row.outbound);
 
   return (
     <div
@@ -134,10 +210,10 @@ export function MessageThread({ messages }: { messages: Message[] }) {
           as a single column of alternating fragments rather than as a series
           of messages each carrying its time. */}
       <div className="flex flex-col gap-4">
-        {messages.map((message, index) => {
-          const outbound = message.direction === "out";
-          const { label, Icon } = senderOf(message);
-          const wasThere = opened.has(message.id);
+        {rows.map((row, index) => {
+          const outbound = row.outbound;
+          const { label, Icon } = senderOf(row.sentBy);
+          const wasThere = opened.has(row.key);
 
           // A message you watched arrive gets a spring and 10px of travel; one
           // that was already in the thread when you opened it gets a shorter,
@@ -164,7 +240,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
 
           return (
             <motion.div
-              key={message.id}
+              key={row.key}
               initial={enter}
               animate={settle}
               transition={
@@ -189,7 +265,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
                 <div className="flex items-center gap-3 py-3">
                   <span className="bg-border h-px flex-1" />
                   <span className="text-muted-foreground text-[11px] font-medium">
-                    {formatDayDivider(message.created_at)}
+                    {formatDayDivider(row.createdAt)}
                   </span>
                   <span className="bg-border h-px flex-1" />
                 </div>
@@ -223,7 +299,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
                     outbound ? "bg-emerald-600 text-white" : "bg-muted",
                   )}
                 >
-                  {message.body?.trim() || (
+                  {row.body?.trim() || (
                     <span className="italic opacity-70">(empty message)</span>
                   )}
                 </div>
@@ -238,9 +314,9 @@ export function MessageThread({ messages }: { messages: Message[] }) {
                           <Icon className="size-3" aria-hidden />
                           <span className="sr-only">{label}</span>
                           <span aria-hidden>
-                            {message.sent_by === "human"
+                            {row.sentBy === "human"
                               ? "You"
-                              : message.sent_by === "ai"
+                              : row.sentBy === "ai"
                                 ? "AI"
                                 : "Automation"}
                           </span>
@@ -253,17 +329,28 @@ export function MessageThread({ messages }: { messages: Message[] }) {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <time
-                        dateTime={message.created_at}
+                        dateTime={row.createdAt}
                         className="tabular-nums"
                       >
-                        {formatMessageTime(message.created_at)}
+                        {formatMessageTime(row.createdAt)}
                       </time>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {formatFullTimestamp(message.created_at)}
+                      {formatFullTimestamp(row.createdAt)}
                     </TooltipContent>
                   </Tooltip>
                 </div>
+
+                {/* On its own line under the stamp rather than appended to it.
+                    Folded into "You · 3:42 PM · Delivered" the receipt reads as
+                    a third piece of metadata and the fade draws the eye to the
+                    middle of a sentence; on its own line it is what it is — a
+                    note about this message, under this message.
+
+                    Only ever on one row in the thread. See `receiptIndex`. */}
+                {index === receiptIndex && (
+                  <DeliveryReceipt status={row.status} sending={row.sending} />
+                )}
               </div>
             </motion.div>
           );

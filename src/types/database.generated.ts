@@ -1443,6 +1443,7 @@ export type Database = {
           id: string
           org_id: string
           sent_by: string
+          status: string | null
           twilio_message_sid: string | null
         }
         Insert: {
@@ -1453,6 +1454,7 @@ export type Database = {
           id?: string
           org_id?: string
           sent_by: string
+          status?: string | null
           twilio_message_sid?: string | null
         }
         Update: {
@@ -1463,6 +1465,7 @@ export type Database = {
           id?: string
           org_id?: string
           sent_by?: string
+          status?: string | null
           twilio_message_sid?: string | null
         }
         Relationships: [

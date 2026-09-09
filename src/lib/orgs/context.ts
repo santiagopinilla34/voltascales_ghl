@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
@@ -53,7 +54,29 @@ export type OrgContext = {
  * what `test@test.com` became after phase 1. They get null, and the layout
  * turns that into a sign-out rather than an empty app.
  */
-export async function getOrgContext(): Promise<OrgContext | null> {
+/**
+ * Wrapped in React's `cache`, which deduplicates it for the life of one server
+ * render — every caller in a single request shares the first call's result.
+ *
+ * This is a performance fix and nothing else; the value is identical either
+ * way. It is worth the wrapper because of how often the answer was recomputed:
+ * the app shell asks, and then the page inside it asks again through
+ * `requireOrgContext`, so every render of every route ran this twice. Each run
+ * is an `auth.getUser()` — a network call to Supabase Auth, which validates the
+ * JWT against the server rather than decoding it locally — plus a membership
+ * query and, for an admin, an `active_org` read on top.
+ *
+ * That duplication is paid on every navigation and, in the Inbox, on every
+ * inbound message: `router.refresh()` re-renders the whole shell, so a busy
+ * conversation was spending an extra auth round trip per text for an answer it
+ * already had.
+ *
+ * `cache` is per-request and does not persist between them, which is what keeps
+ * this safe. Two users' renders never share an entry, and a scope changed by
+ * the account switcher is a new request and so a new lookup — there is no
+ * window in which this can report a stale organization.
+ */
+export const getOrgContext = cache(async function getOrgContext(): Promise<OrgContext | null> {
   const supabase = await createClient();
 
   const {
@@ -149,7 +172,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
     orgStatus: home.status,
     isViewingOther: false,
   };
-}
+});
 
 /**
  * The context, or a redirect.

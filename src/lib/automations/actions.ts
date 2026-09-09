@@ -7,6 +7,7 @@ import { contactLabel, formatPhone } from "@/lib/format";
 import { sendEmail } from "@/lib/notify/email";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
+import { toMessageStatus } from "@/lib/twilio/status";
 import type { Contact, Database, PipelineStage } from "@/types/database";
 
 import type { AutomationAction, MessageTarget } from "./config";
@@ -275,6 +276,9 @@ async function sendSmsAction(
     body: text,
     sent_by: "system",
     twilio_message_sid: message.sid,
+    // See the same line in `lib/ai/respond.ts`: `queued` at this point, and
+    // the status callback advances it.
+    status: toMessageStatus(message.status),
   });
 
   const notes: string[] = [];
