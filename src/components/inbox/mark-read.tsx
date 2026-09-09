@@ -25,6 +25,32 @@ import { useRouter } from "next/navigation";
  * the badge lighting up for the conversation currently on screen. It also makes
  * the effect idempotent for every other render: the same timestamp does not
  * re-run it, so the ordinary refreshes this app does constantly cost nothing.
+ *
+ * ## Why it waits for the tab to be visible
+ *
+ * "You are looking at them" is the entire justification for that re-mark, and
+ * a mounted thread page is not evidence of it. A conversation left open in a
+ * background tab — or in a window behind the one you are working in — went on
+ * marking every arriving message read for as long as it stayed loaded, and the
+ * Inbox badge in front of you never lit up.
+ *
+ * It failed in bursts rather than cleanly, which is what made it look like a
+ * counting bug: browsers throttle timers and sockets in a hidden tab, so three
+ * or four texts would accumulate a visible badge and then one late refresh
+ * would wipe all of them at once. At steady state it pinned the badge to 1 —
+ * one message arrives, gets marked, the next arrives, gets marked — which is
+ * indistinguishable from a count that cannot add up. Measured on the real
+ * Inbox: the read marker landed 1.4s and 3s after the last inbound text, with
+ * nobody looking at that thread in any visible window.
+ *
+ * So visibility is checked before writing, and the write is deferred until the
+ * tab is actually looked at. Reading is something a person does, and this is
+ * the closest a browser will let us get to asking whether one did.
+ *
+ * `visibilitychange` rather than focus: a visible but unfocused window still
+ * has the conversation on screen in front of somebody, and that has been read.
+ * Only genuinely hidden — another tab, another desktop, a minimised window —
+ * defers.
  */
 export function MarkConversationRead({
   contactId,
@@ -58,22 +84,44 @@ export function MarkConversationRead({
   useEffect(() => {
     let cancelled = false;
 
-    markReadRef.current(contactId).then(() => {
-      // Guarded because the effect re-runs when a new message lands and when
-      // the conversation changes: a refresh fired after this instance has been
-      // replaced would be re-rendering on behalf of a thread nobody is looking
-      // at any more.
-      //
-      // The refresh is what carries the cleared badge back to the conversation
-      // list, which lives in the layout and does not re-query on its own. The
-      // badge itself has already gone — the list hides it for whichever
-      // conversation is open — so this is about the state being right when you
-      // navigate away, not about what you are looking at now.
-      if (!cancelled) router.refresh();
-    });
+    function mark() {
+      markReadRef.current(contactId).then(() => {
+        // Guarded because the effect re-runs when a new message lands and when
+        // the conversation changes: a refresh fired after this instance has
+        // been replaced would be re-rendering on behalf of a thread nobody is
+        // looking at any more.
+        //
+        // The refresh is what carries the cleared badge back to the
+        // conversation list, which lives in the layout and does not re-query on
+        // its own. The badge itself has already gone — the list hides it for
+        // whichever conversation is open — so this is about the state being
+        // right when you navigate away, not about what you are looking at now.
+        if (!cancelled) router.refresh();
+      });
+    }
+
+    if (document.visibilityState === "visible") {
+      mark();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Hidden, so nobody has read anything. Wait for the tab to be looked at
+    // rather than dropping the mark: coming back to a thread that was open all
+    // along is still reading it, and the messages that arrived meanwhile are
+    // on screen the moment it is.
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", onVisible);
+      if (!cancelled) mark();
+    }
+
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
     };
     // `latestAt` is the trigger for re-marking a thread you are still reading:
     // messages arriving while it is on screen have been seen too.

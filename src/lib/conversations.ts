@@ -28,9 +28,11 @@ export type Conversation = {
    * Unread, not unanswered. The two used to be the same number and they answer
    * different questions: this one clears when you look, and "is somebody
    * waiting on me" clears only when somebody replies. That second question
-   * still has a home — the Needs reply tab and the notification bell — so
-   * splitting them lost nothing and stopped the badge claiming a thread was
+   * still has a home — the Needs reply tab, and the bell's overdue escalation —
+   * so splitting them lost nothing and stopped the badge claiming a thread was
    * new weeks after it had been read.
+   *
+   * The bell's message rows read this same number, via `unreadByContact`.
    */
   unreadCount: number;
 };
@@ -66,7 +68,22 @@ const MESSAGE_SCAN = 10;
 const UNREAD_FETCH = 1000;
 
 /**
- * How many unread messages each conversation is holding for this user.
+ * What one conversation is holding for this user, unread.
+ *
+ * `newestId` is here so the bell can name its alert after a specific message.
+ * An alert id has to change when another text arrives — dismissals are keyed
+ * by it, and a stable id would mean the first message you dismissed silenced
+ * every one after it.
+ */
+type Unread = {
+  count: number;
+  /** Newest unread inbound message. */
+  newestId: string;
+  newestAt: string;
+};
+
+/**
+ * What each conversation is holding unread for this user.
  *
  * Shared by the Inbox badge and the notification bell so the two cannot report
  * different numbers for the same fact — they were built separately once and
@@ -76,9 +93,9 @@ const UNREAD_FETCH = 1000;
  * towards over-reporting: with no read markers everything recent looks unread,
  * which is the safe direction to be wrong in.
  */
-async function unreadCounts(
+async function unreadByContact(
   supabase: SupabaseClient<Database>,
-): Promise<Map<string, number>> {
+): Promise<Map<string, Unread>> {
   const [reads, inbound] = await Promise.all([
     // RLS narrows this to the current user's markers in the account they are
     // working in — see the policy in the migration — so there is nothing to
@@ -86,7 +103,7 @@ async function unreadCounts(
     supabase.from("conversation_reads").select("contact_id, last_read_at"),
     supabase
       .from("messages")
-      .select("contact_id, created_at")
+      .select("id, contact_id, created_at")
       .eq("direction", "in")
       .order("created_at", { ascending: false })
       .limit(UNREAD_FETCH),
@@ -104,7 +121,7 @@ async function unreadCounts(
     (reads.data ?? []).map((row) => [row.contact_id, row.last_read_at]),
   );
 
-  const counts = new Map<string, number>();
+  const unread = new Map<string, Unread>();
 
   // Newest first, so the first message at or before a conversation's watermark
   // ends the count for it — everything after is older and has been seen too.
@@ -119,15 +136,22 @@ async function unreadCounts(
       continue;
     }
 
-    const next = (counts.get(message.contact_id) ?? 0) + 1;
-    counts.set(message.contact_id, next);
+    const seen = unread.get(message.contact_id);
+
+    // First time this contact comes up is its newest unread message, because
+    // the scan is newest-first.
+    const next: Unread = seen
+      ? { ...seen, count: seen.count + 1 }
+      : { count: 1, newestId: message.id, newestAt: message.created_at };
+
+    unread.set(message.contact_id, next);
 
     // The badge renders "9+" past nine, so counting further changes nothing on
     // screen and only costs work on a thread nobody has opened in a while.
-    if (next >= MESSAGE_SCAN) settled.add(message.contact_id);
+    if (next.count >= MESSAGE_SCAN) settled.add(message.contact_id);
   }
 
-  return counts;
+  return unread;
 }
 
 /**
@@ -166,7 +190,7 @@ export async function listConversations(
       // only as many inbound ones as the agent has left room for.
       .order("created_at", { referencedTable: "messages", ascending: false })
       .limit(1, { referencedTable: "messages" }),
-    unreadCounts(supabase),
+    unreadByContact(supabase),
   ]);
 
   if (conversations.error) {
@@ -176,7 +200,7 @@ export async function listConversations(
   return (conversations.data ?? [])
     .map(({ messages, ...contact }) => {
       const lastMessage = messages.at(0) ?? null;
-      const unreadCount = unread.get(contact.id) ?? 0;
+      const unreadCount = unread.get(contact.id)?.count ?? 0;
 
       return {
         contact,
@@ -223,34 +247,49 @@ export async function markConversationRead(
 }
 
 /**
- * Contacts whose last word was theirs — they texted and nobody has answered.
+ * Contacts with texts you have not read, and contacts nobody has answered.
  *
- * This is deliberately not "unread". There is no read marker on `messages`, and
- * rather than invent one, this asks the question the operator actually cares
- * about: who is waiting on a reply. It is the better signal anyway — an alert
- * that clears when you *look* at a thread is one you can dismiss without doing
- * anything, and this one only clears when someone actually answers.
+ * ## Unread, not "their last word"
  *
- * It self-resolves through the AI too: an AI reply is an outbound message, so
- * a thread the bot handled stops being flagged without special-casing.
+ * This used to raise a row only when the newest message in a thread was
+ * inbound, which is the "is somebody waiting on me" question. That is a real
+ * question and it is not the one a message notification answers: an agent that
+ * replies the instant a text lands makes the newest message outbound, so a
+ * thread could take five texts you had never seen and raise nothing at all
+ * while the green badge beside that name in the Inbox counted all five.
  *
- * Read state does persist, contrary to what this comment said for a long time:
- * `notification_dismissals` records it against the alert's id, and
- * `applyDismissals` folds it back in. The alert is still derived — nothing
- * writes a row when a text arrives — so the two halves answer different
- * questions: this one asks whether anybody is waiting, the dismissal asks
- * whether you have seen that they are.
+ * So the bell reads unread now, from `unreadByContact` — the same function the
+ * Inbox badge uses. The two describe the same fact and now cannot disagree
+ * about it, which is the whole point: they had already drifted apart twice, once
+ * counting messages against conversations and once over who spoke last.
+ *
+ * The bell going quiet when you open a thread is the intended consequence. It
+ * is what every messaging app does, and it is the behaviour asked for.
+ *
+ * ## No message body on the row
+ *
+ * The row says who texted and how many times, and deliberately does not quote
+ * them. The quote was the thing rendering arbitrary inbound text — emoji,
+ * newlines, a paragraph — into a fixed two-line row in the corner of the
+ * screen, and it is not what you need in order to decide to open the thread.
+ * `truncate` stays for the lead rows below, which are a different kind of news.
  *
  * ## The escalation
  *
- * One thread produces one alert, but not always the same one. Under
- * `REPLY_OVERDUE_HOURS` it is `reply-<messageId>`: an event, dismissed for
- * good once read, because "they texted" is news exactly once. Past that it
- * becomes `unanswered-<messageId>` — a different id, which is the whole
- * mechanism. Having read the first alert cannot mark the second one read, so a
+ * One thread produces one row, but not always the same one. Unread raises
+ * `reply-<newest unread message id>`: an event, dismissed for good once read,
+ * because "they texted" is news exactly once — and named after a specific
+ * message so the next text raises a new row rather than being silenced by the
+ * dismissal of the last.
+ *
+ * Past `REPLY_OVERDUE_HOURS` with nobody having answered it becomes
+ * `unanswered-<messageId>` instead — a different id, which is the whole
+ * mechanism. Having read the first row cannot mark the second one read, so a
  * message you noticed on Monday and never answered comes back on Tuesday
  * instead of staying quietly dismissed, and it keeps coming back a day at a
- * time until somebody replies.
+ * time until somebody replies. That one is about waiting rather than reading,
+ * so it stands whether or not the thread has been opened — which is why it is
+ * still derived from who spoke last.
  *
  * The two are deliberately not both raised at once. A thread that has been
  * waiting a day and a half is one problem, and a bell that lists it twice is
@@ -263,16 +302,16 @@ export async function markConversationRead(
 export async function getReplyAlerts(
   supabase: SupabaseClient<Database>,
 ): Promise<Alert[]> {
-  // The bell reports how many texts are waiting rather than that some are, and
-  // it takes that number from `unreadCounts` — the same function the Inbox
-  // badge uses, so the two cannot count the same thing differently.
+  // The embed is only here to answer "has anybody replied since" for the
+  // overdue escalation. The unread rows take their message from
+  // `unreadByContact`, so no body is selected — nothing renders one.
   const [{ data, error }, unread] = await Promise.all([
     supabase
       .from("contacts")
-      .select(`id, name, phone, messages ( id, body, direction, created_at )`)
+      .select(`id, name, phone, messages ( id, direction, created_at )`)
       .order("created_at", { referencedTable: "messages", ascending: false })
       .limit(1, { referencedTable: "messages" }),
-    unreadCounts(supabase),
+    unreadByContact(supabase),
   ]);
 
   if (error) {
@@ -285,43 +324,60 @@ export async function getReplyAlerts(
 
   for (const { messages, ...contact } of data ?? []) {
     const last = messages.at(0);
+    const here = unread.get(contact.id);
+    const label = contactLabel(contact);
+
     // "in", not "inbound" — see MessageDirection in src/types/database.ts.
-    if (!last || last.direction !== "in") continue;
+    const waiting = last?.direction === "in";
+    const overdue =
+      waiting && new Date(last.created_at).getTime() < overdueBefore;
 
-    const unreadHere = unread.get(contact.id) ?? 0;
+    if (overdue) {
+      alerts.push({
+        id: `unanswered-${last.id}`,
+        kind: "unanswered",
+        // Warn, not critical: nobody is locked out and nothing has broken. It
+        // outranks the rest of the panel's news, which is the point, and leaves
+        // critical to mean what it means everywhere else in the app.
+        level: "warn",
+        title: `${label} has been waiting ${waited(last.created_at)}`,
+        detail: "Nobody has answered this thread yet.",
+        href: `/inbox/${contact.id}`,
+        at: last.created_at,
+        read: false,
+        // At least 1, so a thread that is unanswered but already read still
+        // counts as one thing needing you rather than vanishing from the total
+        // — this row is about the waiting, not about whether it was looked at.
+        count: Math.max(1, here?.count ?? 0),
+      });
+      continue;
+    }
 
-    // An inbound message with no body is an MMS whose only content was an
-    // attachment. Saying so beats an empty row.
-    const quote = last.body?.trim()
-      ? truncate(last.body.trim(), 140)
-      : "Sent an attachment with no text.";
-
-    const overdue = new Date(last.created_at).getTime() < overdueBefore;
+    if (!here) continue;
 
     alerts.push({
-      id: overdue ? `unanswered-${last.id}` : `reply-${last.id}`,
-      kind: overdue ? "unanswered" : "reply",
-      // Warn, not critical: nobody is locked out and nothing has broken. It
-      // outranks the rest of the panel's news, which is the point, and leaves
-      // critical to mean what it means everywhere else in the app.
-      level: overdue ? "warn" : "info",
-      title: overdue
-        ? `${contactLabel(contact)} has been waiting ${waited(last.created_at)}`
-        : unreadHere > 1
-          ? `${contactLabel(contact)} sent ${unreadHere} messages`
-          : `${contactLabel(contact)} replied`,
-      // The quote stays on the overdue row too. The age is in the title, and
-      // what you need in order to decide whether this can wait another hour is
-      // what they actually said.
-      detail: quote,
+      id: `reply-${here.newestId}`,
+      kind: "reply",
+      level: "info",
+      title:
+        here.count > 1
+          ? `New messages from ${label}`
+          : `New message from ${label}`,
+      // The scan stops at MESSAGE_SCAN, so at the cap this is a floor rather
+      // than a count and says so — "10 unread" would be a number the query
+      // cannot vouch for.
+      detail:
+        here.count > 1
+          ? `${here.count}${here.count >= MESSAGE_SCAN ? "+" : ""} unread, none opened yet.`
+          : "Not opened yet.",
       href: `/inbox/${contact.id}`,
-      at: last.created_at,
+      // The newest unread message, not the newest message. A thread the agent
+      // answered a second later would otherwise be timestamped by the reply.
+      at: here.newestAt,
       read: false,
-      // What the bell adds up. At least 1, so a thread that is unanswered but
-      // already read still counts as one thing needing you rather than
-      // vanishing from the total — the row is about the waiting, not about
-      // whether it has been looked at.
-      count: Math.max(1, unreadHere),
+      // What the bell adds up, so five texts from one person read as five and
+      // agree with the green badge beside that name in the Inbox.
+      count: here.count,
     });
   }
 

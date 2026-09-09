@@ -295,8 +295,9 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
         {/* Says what is *not* watched yet, so a quiet bell is not mistaken for
             "nothing has happened". Delete a clause as each one is wired. */}
         <p className="text-muted-foreground border-t px-3 py-2 text-[11px]">
-          Watching replies, new leads, meetings in the next day, failures across
-          the app, and your balances. Anyone still waiting after{" "}
+          Watching unread messages, new leads, meetings in the next day,
+          failures across the app, and your balances. Anyone still waiting
+          after{" "}
           {REPLY_OVERDUE_HOURS} hours is raised again each day until you answer.
           Missed calls aren&apos;t wired up yet.
         </p>

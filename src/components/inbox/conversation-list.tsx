@@ -50,9 +50,14 @@ import { RESIZE, SELECT_SPRING } from "./motion";
  * what it looks like it means.
  *
  * The two questions stayed separate rather than one replacing the other. "Have
- * I seen this" is the badge; "is somebody waiting on me" is the Needs reply tab
- * and the bell, where it is a yes or no rather than a number and cannot be
- * mistaken for a message count.
+ * I seen this" is the badge; "is somebody waiting on me" is the Needs reply
+ * tab, where it is a yes or no rather than a number and cannot be mistaken for
+ * a message count.
+ *
+ * The bell used to be the other half of that pair and is not any more — its
+ * message rows read the same unread count this badge does, so the number in
+ * the corner of the screen and the number beside the name are one fact. Only
+ * its overdue escalation still asks who is waiting. See `getReplyAlerts`.
  *
  * Tags are behind the filter button rather than a fifth tab because they are
  * open-ended — the tabs are four fixed questions, and a tag list is however

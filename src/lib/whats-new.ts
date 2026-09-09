@@ -23,10 +23,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-09-09-unread-kept-and-named",
+    date: "2026-09-09",
+    title: "The green count stops vanishing, and the bell says who texted",
+    body: "A conversation left open in another tab or a window behind this one was quietly marking every arriving text as read, so the green count next to a name would climb to three or four and then disappear — or sit on 1 however many texts came in. A thread only counts as read now while it is actually on screen; come back to it and it catches up. The bell alongside it reports the same fact instead of its own: it says \"New messages from\" whoever texted, so a conversation your AI agent already answered still tells you somebody wrote in. It no longer quotes the message either — the name and the count are what you need to decide to open it.",
+    href: "/inbox",
+    tag: "Fixed",
+  },
+  {
     id: "2026-09-09-unread-badge",
     date: "2026-09-09",
     title: "The green count means unread now",
-    body: "It used to count messages nobody had answered, which is why a conversation you read weeks ago still carried a number. It now clears when you open the conversation and comes back when they text again, the way you would expect. Nothing is lost: whether somebody is still waiting on a reply is what the Needs reply tab and the bell tell you, and those are unchanged. Read state is your own — an admin opening a client's inbox does not mark it read for the client.",
+    body: "It used to count messages nobody had answered, which is why a conversation you read weeks ago still carried a number. It now clears when you open the conversation and comes back when they text again, the way you would expect. Nothing is lost: whether somebody is still waiting on a reply is what the Needs reply tab tells you, and that is unchanged. Read state is your own — an admin opening a client's inbox does not mark it read for the client.",
     href: "/inbox",
     tag: "Improved",
   },
