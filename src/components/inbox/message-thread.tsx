@@ -305,27 +305,40 @@ export function MessageThread({ messages }: { messages: Message[] }) {
                 </div>
 
                 <div className="text-muted-foreground flex items-center gap-1 px-1 text-[11px]">
-                  {/* Only outbound messages have a meaningful sender: inbound
-                      is always the contact. */}
-                  {outbound && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="flex items-center gap-1">
-                          <Icon className="size-3" aria-hidden />
-                          <span className="sr-only">{label}</span>
-                          <span aria-hidden>
-                            {row.sentBy === "human"
-                              ? "You"
-                              : row.sentBy === "ai"
-                                ? "AI"
-                                : "Automation"}
+                  {/* Only the senders that are not you.
+
+                      "You" was on every message you had ever sent, saying what
+                      the side of the thread and the colour of the bubble had
+                      already said. The label earns its place when the answer is
+                      surprising — the agent replied, or an automation did —
+                      and a thread where the only badges are those is one you
+                      can scan for them. Inbound needs none either: that is
+                      always the contact. */}
+                  {outbound && row.sentBy !== "human" && (
+                    <>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="flex items-center gap-1">
+                            <Icon className="size-3" aria-hidden />
+                            <span className="sr-only">{label}</span>
+                            <span aria-hidden>
+                              {row.sentBy === "ai" ? "AI" : "Automation"}
+                            </span>
                           </span>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>{label}</TooltipContent>
-                    </Tooltip>
+                        </TooltipTrigger>
+                        <TooltipContent>{label}</TooltipContent>
+                      </Tooltip>
+                      <span aria-hidden>·</span>
+                    </>
                   )}
-                  {outbound && <span aria-hidden>·</span>}
+
+                  {/* Kept for screen readers, which have none of what makes
+                      this obvious on screen — no side, no colour. Without it a
+                      message you sent and one you received would read as the
+                      same thing: a body and a time. */}
+                  {outbound && row.sentBy === "human" && (
+                    <span className="sr-only">{label}</span>
+                  )}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <time
