@@ -13,15 +13,15 @@ import {
  * How long a pending message may wait for its row before it is dropped anyway.
  *
  * A safety valve, not a timeout anyone should reach: the normal round trip is
- * one to two seconds. It exists because the composer is now gated on this list
- * being empty — see `ReplyBox` — which turns "a pending message that never
- * reconciles" from a stray bubble into a send button that never comes back.
+ * one to two seconds. Without it a bubble whose row never arrives sits at the
+ * end of the thread reading "Sending…" for the rest of the session — a message
+ * frozen mid-send, which looks like a message that failed.
  *
  * Every route to that is a fault (a refresh that failed, a realtime event that
  * never came, a row RLS will not return), and in all of them the text itself
- * was already accepted by Twilio. So the right move is to let go of the bubble
- * rather than hold the composer hostage to it: the real row is on the server
- * and the next refresh will draw it.
+ * was already accepted by Twilio. Letting go of the bubble is therefore the
+ * honest move rather than a lossy one: the row exists on the server, and the
+ * next refresh or realtime event draws it as an ordinary message.
  */
 const STUCK_MS = 12_000;
 
@@ -112,10 +112,11 @@ export function PendingMessagesProvider({
     });
   }, []);
 
-  // The safety valve described at STUCK_MS. One timer for the whole list
-  // rather than one per message: at most a single message is ever pending now
-  // that the composer waits for each to land, and a sweep is simpler to reason
-  // about than a timer whose cleanup has to chase an id.
+  // The safety valve described at STUCK_MS. One timer that sweeps the whole
+  // list by age rather than one per message: several can be in flight at once
+  // now that sending does not wait for the last one, and a sweep stays correct
+  // as they come and go, where a per-message timer would need its cleanup to
+  // chase an id through every add and reconcile.
   useEffect(() => {
     if (pending.length === 0) return;
 

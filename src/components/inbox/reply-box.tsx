@@ -36,7 +36,6 @@ export function ReplyBox({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const reduce = useReducedMotion();
   const {
-    pending,
     add: addPending,
     settle: settlePending,
     discard: discardPending,
@@ -45,28 +44,28 @@ export function ReplyBox({
   const trimmed = body.trim();
   const tooLong = body.length > MAX_BODY_LENGTH;
 
-  // One message at a time: the button reopens when the last one has actually
-  // landed in the thread as a saved row.
+  // The rule is "you can send again once the last message is on screen", and
+  // that is already true the instant you press Send — `addPending` puts the
+  // bubble in the thread synchronously, before the network is touched at all.
+  // So there is nothing left to wait for and nothing here to gate on.
   //
-  // The gate is deliberately `pending.length`, not the in-flight request and
-  // not the delivery status. Those are the two things it would be easy to
-  // reach for and both are wrong:
+  // This deliberately does *not* wait for the saved row to come back. That was
+  // the first reading of the rule and it was wrong in practice: it held the
+  // button for the whole round trip to Twilio and back, which is the exact
+  // wait the optimistic bubble exists to hide. Blocking until the server
+  // confirms something the user can already see is a spinner wearing a
+  // different hat.
   //
-  //   * The request resolving only means Twilio accepted it. The row still has
-  //     to come back through `router.refresh()`, and reopening before it does
-  //     lets a second message be composed against a thread that has not caught
-  //     up with the first.
-  //   * Waiting for `delivered` would hold the composer shut for however long
-  //     a carrier takes, which can be minutes and can be never. Sending should
-  //     not depend on the recipient's phone being switched on.
+  // Waiting on `delivered` would be worse still — that depends on the
+  // recipient's phone being switched on, so it can be minutes and can be
+  // never.
   //
-  // `pending` empties at exactly the right moment — when `MessageThread`
-  // reconciles the optimistic bubble against the real row — which is what
-  // "wait until it shows up in the chat" actually means. It keeps the thread in
-  // order for free, too: a second message cannot be sent until the first is
-  // durably ahead of it.
-  const waitingForLastMessage = pending.length > 0;
-  const canSend = trimmed.length > 0 && !tooLong && !waitingForLastMessage;
+  // The confirmation the rule is really after is visual: you never fire a
+  // second message without having seen the first, because the first is drawn
+  // before the second can be typed. Ordering holds regardless — each send is
+  // its own request, and the thread orders rows by the timestamps the database
+  // assigned them.
+  const canSend = trimmed.length > 0 && !tooLong;
 
   function send() {
     if (!canSend) return;
@@ -182,16 +181,10 @@ export function ReplyBox({
         />
 
         <div className="flex items-center justify-between gap-2 px-2 pb-2">
-          {/* A disabled button with no reason beside it reads as broken. This
-              outranks the AI notice while it shows: that one is about what
-              your next reply will do, and this is about why you cannot send it
-              yet. */}
           <span className="text-muted-foreground min-w-0 truncate text-[11px]">
-            {waitingForLastMessage
-              ? "Waiting for your last message to land…"
-              : aiEnabled
-                ? "Sending a reply turns AI handling off for this contact."
-                : "Enter to send · Shift+Enter for a new line"}
+            {aiEnabled
+              ? "Sending a reply turns AI handling off for this contact."
+              : "Enter to send · Shift+Enter for a new line"}
           </span>
 
           <div className="flex shrink-0 items-center gap-2">
