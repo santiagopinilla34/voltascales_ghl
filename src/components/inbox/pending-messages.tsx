@@ -4,9 +4,26 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
+
+/**
+ * How long a pending message may wait for its row before it is dropped anyway.
+ *
+ * A safety valve, not a timeout anyone should reach: the normal round trip is
+ * one to two seconds. It exists because the composer is now gated on this list
+ * being empty — see `ReplyBox` — which turns "a pending message that never
+ * reconciles" from a stray bubble into a send button that never comes back.
+ *
+ * Every route to that is a fault (a refresh that failed, a realtime event that
+ * never came, a row RLS will not return), and in all of them the text itself
+ * was already accepted by Twilio. So the right move is to let go of the bubble
+ * rather than hold the composer hostage to it: the real row is on the server
+ * and the next refresh will draw it.
+ */
+const STUCK_MS = 12_000;
 
 /**
  * A reply that has been typed and sent but is not in the thread yet.
@@ -94,6 +111,34 @@ export function PendingMessagesProvider({
       return next.length === current.length ? current : next;
     });
   }, []);
+
+  // The safety valve described at STUCK_MS. One timer for the whole list
+  // rather than one per message: at most a single message is ever pending now
+  // that the composer waits for each to land, and a sweep is simpler to reason
+  // about than a timer whose cleanup has to chase an id.
+  useEffect(() => {
+    if (pending.length === 0) return;
+
+    const timer = setTimeout(() => {
+      setPending((current) => {
+        const cutoff = Date.now() - STUCK_MS;
+        const next = current.filter(
+          (message) => Date.parse(message.createdAt) > cutoff,
+        );
+
+        if (next.length !== current.length) {
+          console.warn(
+            "[pending-messages] dropped a reply that never reconciled; " +
+              "it was sent, but its row did not arrive",
+          );
+        }
+
+        return next.length === current.length ? current : next;
+      });
+    }, STUCK_MS);
+
+    return () => clearTimeout(timer);
+  }, [pending]);
 
   const value = useMemo(
     () => ({ pending, add, settle, discard, reconcile }),
