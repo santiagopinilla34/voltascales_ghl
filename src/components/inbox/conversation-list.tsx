@@ -41,11 +41,18 @@ import { RESIZE, SELECT_SPRING } from "./motion";
  * disagree about what is waiting. "AI on" and "Closed" read `ai_enabled` and
  * `status` straight off the contact.
  *
- * There is no unread state in this product: nothing records that a human
- * looked at a thread, so a genuine unread count would be invented. "Needs
- * reply" is the honest version of the same question, and it is a yes or no
- * rather than a number, so the row gets a dot rather than a badge with a
- * figure in it.
+ * There is unread state now, and this comment used to say the opposite: the
+ * badge on each row counted messages nobody had *answered*, because nothing
+ * recorded that a human had looked at a thread. It was the honest number
+ * available and it was still read as unread by everyone who saw it, so a
+ * conversation read weeks ago and never replied to sat in the list claiming to
+ * be new. `conversation_reads` records the missing fact and the badge now means
+ * what it looks like it means.
+ *
+ * The two questions stayed separate rather than one replacing the other. "Have
+ * I seen this" is the badge; "is somebody waiting on me" is the Needs reply tab
+ * and the bell, where it is a yes or no rather than a number and cannot be
+ * mistaken for a message count.
  *
  * Tags are behind the filter button rather than a fifth tab because they are
  * open-ended — the tabs are four fixed questions, and a tag list is however
@@ -263,7 +270,7 @@ export function ConversationList({
         ) : (
           <ul className="flex flex-col gap-2.5">
             {shown.map(
-              ({ contact, lastMessage, lastActivityAt, unansweredCount }) => {
+              ({ contact, lastMessage, lastActivityAt, unreadCount }) => {
                 const active = contact.id === selectedId;
 
               return (
@@ -370,17 +377,25 @@ export function ConversationList({
                           )}
                         </p>
 
-                        {/* How many they have sent since anything went back —
-                            counted in `listConversations` off the run of
-                            inbound messages at the end of the thread. Capped
-                            at the scan depth, so a runaway thread reads "9+"
-                            rather than a number the query cannot vouch for. */}
-                        {unansweredCount > 0 && (
+                        {/* How many they have sent that you have not opened —
+                            counted in `listConversations` against this user's
+                            read marker. Capped at the scan depth, so a runaway
+                            thread reads "9+" rather than a number the query
+                            cannot vouch for.
+
+                            This used to be the unanswered count, which is a
+                            different question wearing the same badge: a thread
+                            read weeks ago but never replied to sat here
+                            claiming to be new. That question still gets asked,
+                            by the Needs reply tab above and the notification
+                            bell — neither of which looks like an unread
+                            count. */}
+                        {unreadCount > 0 && (
                           <span
                             className="grid size-4 shrink-0 place-items-center rounded-full bg-emerald-600 text-[10px] leading-none font-semibold text-white tabular-nums"
-                            aria-label={`${unansweredCount} unanswered`}
+                            aria-label={`${unreadCount} unread`}
                           >
-                            {unansweredCount > 9 ? "9+" : unansweredCount}
+                            {unreadCount > 9 ? "9+" : unreadCount}
                           </span>
                         )}
                       </div>

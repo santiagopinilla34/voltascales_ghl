@@ -22,22 +22,29 @@ export type Conversation = {
   /** Sort key: the last message, or when the contact appeared if silent. */
   lastActivityAt: string;
   /**
-   * How many messages they have sent since anything last went out — 0 once
-   * anyone (or the AI) has answered. Capped at `UNANSWERED_SCAN`.
+   * How many messages they have sent that this user has not seen yet — 0 once
+   * the conversation has been opened. Capped at `MESSAGE_SCAN`.
+   *
+   * Unread, not unanswered. The two used to be the same number and they answer
+   * different questions: this one clears when you look, and "is somebody
+   * waiting on me" clears only when somebody replies. That second question
+   * still has a home — the Needs reply tab and the notification bell — so
+   * splitting them lost nothing and stopped the badge claiming a thread was
+   * new weeks after it had been read.
    */
-  unansweredCount: number;
+  unreadCount: number;
 };
 
 /**
- * How far back the unanswered run is counted.
+ * How far back the unread count is counted.
  *
- * The badge is a "how many are they waiting on" number, and in practice that
- * is one to three. Ten is well past the point where the figure stops changing
- * how urgent the row looks, and it bounds what this query drags back: the
- * embed is per contact, so every extra message here is one more row per
- * conversation in the list.
+ * The badge is a "how many have I not seen" number, and in practice that is
+ * one to three. Ten is well past the point where the figure stops changing how
+ * urgent the row looks — the list caps the display at "9+" anyway — and it
+ * bounds what this query drags back: the embed is per contact, so every extra
+ * message here is one more row per conversation in the list.
  */
-const UNANSWERED_SCAN = 10;
+const MESSAGE_SCAN = 10;
 
 /**
  * Every conversation, most recently active first.
@@ -58,42 +65,105 @@ const UNANSWERED_SCAN = 10;
 export async function listConversations(
   supabase: SupabaseClient<Database>,
 ): Promise<Conversation[]> {
-  const { data, error } = await supabase
-    .from("contacts")
-    .select(
-      `id, name, phone, status, tags, ai_enabled, created_at,
-       messages ( id, body, direction, sent_by, created_at )`,
-    )
-    .order("created_at", { referencedTable: "messages", ascending: false })
-    // Was 1, for the preview alone. The unanswered badge needs the run of
-    // inbound messages at the end of the thread, not just the last one.
-    .limit(UNANSWERED_SCAN, { referencedTable: "messages" });
+  // In parallel: the reads do not depend on the conversations and are a single
+  // small indexed lookup, so making the list wait for them would add a round
+  // trip to every render of the Inbox for a number the badge could have had for
+  // free.
+  const [conversations, reads] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select(
+        `id, name, phone, status, tags, ai_enabled, created_at,
+         messages ( id, body, direction, sent_by, created_at )`,
+      )
+      .order("created_at", { referencedTable: "messages", ascending: false })
+      // Was 1, for the preview alone. The unread badge needs the run of recent
+      // inbound messages, not just the last one.
+      .limit(MESSAGE_SCAN, { referencedTable: "messages" }),
+    // RLS narrows this to the current user's own markers in the account they
+    // are working in — see the policy in the migration — so there is nothing to
+    // filter here.
+    supabase.from("conversation_reads").select("contact_id, last_read_at"),
+  ]);
 
-  if (error) {
-    throw new Error(`Failed to load conversations: ${error.message}`);
+  if (conversations.error) {
+    throw new Error(`Failed to load conversations: ${conversations.error.message}`);
   }
 
-  return (data ?? [])
+  // A failed read is not worth taking the Inbox down for. Losing it means every
+  // conversation counts as unread, which is the safe direction to be wrong in:
+  // it over-reports rather than hiding a message someone has not seen.
+  if (reads.error) {
+    console.error("[conversations] read markers unavailable", reads.error);
+  }
+
+  const lastReadAt = new Map(
+    (reads.data ?? []).map((row) => [row.contact_id, row.last_read_at]),
+  );
+
+  return (conversations.data ?? [])
     .map(({ messages, ...contact }) => {
       const lastMessage = messages.at(0) ?? null;
+      const readAt = lastReadAt.get(contact.id);
 
-      // `messages` is newest first, so the unanswered run is the prefix of
-      // inbound ones: count until something outbound appears. A thread whose
-      // last message went out scores 0 on the first step.
-      let unansweredCount = 0;
+      // `messages` is newest first, so the unread run is the prefix of inbound
+      // ones newer than the watermark. Counting the prefix rather than
+      // filtering the whole window is deliberate: it stops at the first message
+      // already seen, which is also the first one every older message is behind.
+      //
+      // A conversation with no marker has never been opened, so every inbound
+      // message in the window counts — a thread that arrived before this table
+      // existed shows as unread once, which is honest, since nothing ever
+      // recorded that anyone looked at it.
+      let unreadCount = 0;
       for (const message of messages) {
         if (message.direction !== "in") break;
-        unansweredCount += 1;
+        if (readAt && message.created_at <= readAt) break;
+        unreadCount += 1;
       }
 
       return {
         contact,
         lastMessage,
         lastActivityAt: lastMessage?.created_at ?? contact.created_at,
-        unansweredCount,
+        unreadCount,
       };
     })
     .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+}
+
+/**
+ * Marks everything in a conversation as seen, up to now.
+ *
+ * Upserted on `(user_id, contact_id)`, so opening a thread twice is one row and
+ * one write rather than a growing log — the watermark only ever moves forward
+ * because `now()` does.
+ *
+ * `org_id` is taken from the contact rather than defaulted. This runs with a
+ * session, where `default_org_id()` would resolve the caller's own membership —
+ * which for an agency admin reading inside a client's inbox is the agency, and
+ * would file the marker against the wrong account for the row's own RLS policy
+ * to then hide from them.
+ */
+export async function markConversationRead(
+  supabase: SupabaseClient<Database>,
+  { userId, contactId, orgId }: { userId: string; contactId: string; orgId: string },
+): Promise<void> {
+  const { error } = await supabase.from("conversation_reads").upsert(
+    {
+      user_id: userId,
+      contact_id: contactId,
+      org_id: orgId,
+      last_read_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,contact_id" },
+  );
+
+  // Logged, never thrown. This is a side effect of looking at a page, and a
+  // badge that fails to clear is not a reason to fail the page it is on.
+  if (error) {
+    console.error(`[conversations] could not mark ${contactId} read`, error);
+  }
 }
 
 /**

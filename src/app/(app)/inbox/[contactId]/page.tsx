@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { StatusBadge } from "@/components/contacts/status-badge";
 import { AiPreviewPanel } from "@/components/inbox/ai-preview-panel";
 import { AiToggle } from "@/components/inbox/ai-toggle";
+import { MarkConversationRead } from "@/components/inbox/mark-read";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { PendingMessagesProvider } from "@/components/inbox/pending-messages";
 import { ReplyBox } from "@/components/inbox/reply-box";
@@ -18,6 +19,8 @@ import { getContact, listMessages } from "@/lib/conversations";
 import { contactInitials, contactLabel, formatPhone } from "@/lib/format";
 import { requireOrgContext } from "@/lib/orgs/context";
 import { createClient } from "@/lib/supabase/server";
+
+import { markRead } from "../actions";
 
 type PageProps = { params: Promise<{ contactId: string }> };
 
@@ -68,6 +71,14 @@ export default async function ThreadPage({ params }: PageProps) {
     // over the skeleton it replaces — the same box the fallback holds, in the
     // same flex column, so nothing moves as one becomes the other.
     <div className="thread-enter flex min-h-0 flex-1 flex-col">
+      {/* Renders nothing. Opening a conversation is what marks it read, and
+          the newest message's timestamp is what re-marks it while you sit
+          here watching more arrive. */}
+      <MarkConversationRead
+        contactId={contact.id}
+        latestAt={messages.at(-1)?.created_at ?? null}
+        markRead={markRead}
+      />
       {/* No `reserve-topbar-thread` any more: the bubbles are reserved for by
           the Inbox layout's own header above both panes, so this row is free
           to use its full width. */}

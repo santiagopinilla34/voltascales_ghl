@@ -23,6 +23,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-09-09-unread-badge",
+    date: "2026-09-09",
+    title: "The green count means unread now",
+    body: "It used to count messages nobody had answered, which is why a conversation you read weeks ago still carried a number. It now clears when you open the conversation and comes back when they text again, the way you would expect. Nothing is lost: whether somebody is still waiting on a reply is what the Needs reply tab and the bell tell you, and those are unchanged. Read state is your own — an admin opening a client's inbox does not mark it read for the client.",
+    href: "/inbox",
+    tag: "Improved",
+  },
+  {
     id: "2026-09-09-delivery-receipts",
     date: "2026-09-09",
     title: "Your reply appears the moment you send it",

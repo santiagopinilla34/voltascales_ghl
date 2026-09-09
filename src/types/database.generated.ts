@@ -1138,6 +1138,42 @@ export type Database = {
           },
         ]
       }
+      conversation_reads: {
+        Row: {
+          contact_id: string
+          last_read_at: string
+          org_id: string
+          user_id: string
+        }
+        Insert: {
+          contact_id: string
+          last_read_at?: string
+          org_id: string
+          user_id: string
+        }
+        Update: {
+          contact_id?: string
+          last_read_at?: string
+          org_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_reads_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_reads_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_ledger: {
         Row: {
           cents: number
