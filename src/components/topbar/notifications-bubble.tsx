@@ -139,7 +139,21 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
     [alerts, pendingReadIds],
   );
 
-  const unread = items.filter((alert) => !alert.read).length;
+  /**
+   * Things waiting, not rows waiting.
+   *
+   * Five texts from one person are grouped into a single row — a chatty contact
+   * must not push a failed automation or an empty balance out of the panel —
+   * but they are five things, and counting rows reported them as one. The bell
+   * said "1" while the green badge next to that person's name in the Inbox said
+   * "5", and the two are meant to be the same fact.
+   *
+   * `count` is absent on the kinds that really are one event, so those fall
+   * back to 1.
+   */
+  const unread = items
+    .filter((alert) => !alert.read)
+    .reduce((total, alert) => total + (alert.count ?? 1), 0);
 
   /**
    * Greys the rows immediately, then records the dismissal.

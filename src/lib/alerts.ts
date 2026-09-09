@@ -62,6 +62,19 @@ export type Alert = {
   /** ISO timestamp. Sorted newest first for display. */
   at: string;
   read: boolean;
+  /**
+   * How many things this one row stands for — unread messages, for a reply.
+   *
+   * The bell adds these up rather than counting rows, so five texts from one
+   * person read as five and agree with the green badge beside their name in the
+   * Inbox. Grouping still happens in the list: one chatty contact should not
+   * push a failed automation or an empty balance off the panel.
+   *
+   * Absent on the kinds that are genuinely one event — a booking, an error, a
+   * low balance — where the row and the thing are the same object and the bell
+   * counts it as one.
+   */
+  count?: number;
 };
 
 /**

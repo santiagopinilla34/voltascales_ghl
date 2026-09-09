@@ -221,15 +221,30 @@ export async function markConversationRead(
 export async function getReplyAlerts(
   supabase: SupabaseClient<Database>,
 ): Promise<Alert[]> {
-  const { data, error } = await supabase
-    .from("contacts")
-    .select(`id, name, phone, messages ( id, body, direction, created_at )`)
-    .order("created_at", { referencedTable: "messages", ascending: false })
-    .limit(1, { referencedTable: "messages" });
+  // Was `limit(1)`, for the last message alone. The bell now reports how many
+  // texts are waiting rather than that some are, and the read markers say which
+  // of them count — the same two inputs `listConversations` uses, so the number
+  // on the bell and the badge beside the name cannot disagree.
+  const [{ data, error }, reads] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select(`id, name, phone, messages ( id, body, direction, created_at )`)
+      .order("created_at", { referencedTable: "messages", ascending: false })
+      .limit(MESSAGE_SCAN, { referencedTable: "messages" }),
+    supabase.from("conversation_reads").select("contact_id, last_read_at"),
+  ]);
 
   if (error) {
     throw new Error(`Failed to load waiting replies: ${error.message}`);
   }
+
+  if (reads.error) {
+    console.error("[conversations] read markers unavailable", reads.error);
+  }
+
+  const lastReadAt = new Map(
+    (reads.data ?? []).map((row) => [row.contact_id, row.last_read_at]),
+  );
 
   const alerts: Alert[] = [];
   const overdueBefore =
@@ -239,6 +254,16 @@ export async function getReplyAlerts(
     const last = messages.at(0);
     // "in", not "inbound" — see MessageDirection in src/types/database.ts.
     if (!last || last.direction !== "in") continue;
+
+    // Same rule as the Inbox badge — see `listConversations`, where the
+    // reasoning for skipping outbound rather than stopping at it lives.
+    const readAt = lastReadAt.get(contact.id);
+    let unread = 0;
+    for (const message of messages) {
+      if (message.direction !== "in") continue;
+      if (readAt && message.created_at <= readAt) break;
+      unread += 1;
+    }
 
     // An inbound message with no body is an MMS whose only content was an
     // attachment. Saying so beats an empty row.
@@ -257,7 +282,9 @@ export async function getReplyAlerts(
       level: overdue ? "warn" : "info",
       title: overdue
         ? `${contactLabel(contact)} has been waiting ${waited(last.created_at)}`
-        : `${contactLabel(contact)} replied`,
+        : unread > 1
+          ? `${contactLabel(contact)} sent ${unread} messages`
+          : `${contactLabel(contact)} replied`,
       // The quote stays on the overdue row too. The age is in the title, and
       // what you need in order to decide whether this can wait another hour is
       // what they actually said.
@@ -265,6 +292,11 @@ export async function getReplyAlerts(
       href: `/inbox/${contact.id}`,
       at: last.created_at,
       read: false,
+      // What the bell adds up. At least 1, so a thread that is unanswered but
+      // already read still counts as one thing needing you rather than
+      // vanishing from the total — the row is about the waiting, not about
+      // whether it has been looked at.
+      count: Math.max(1, unread),
     });
   }
 
