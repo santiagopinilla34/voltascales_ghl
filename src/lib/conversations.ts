@@ -47,6 +47,90 @@ export type Conversation = {
 const MESSAGE_SCAN = 10;
 
 /**
+ * How many recent inbound messages are pulled back to count unread ones.
+ *
+ * Flat across the account rather than per conversation, because per-conversation
+ * is the thing PostgREST would not do. Two embeds of `messages` on one query —
+ * the last message for the preview, and a filtered window for the count — share
+ * a table name, and their `order`/`limit` collided: the preview embed came back
+ * unlimited and the counting one came back with a single row, so a thread with
+ * seven unread texts reported one. Aliasing did not separate them.
+ *
+ * One flat query does separate them, and at this app's scale it is exact: the
+ * whole account's inbound history is far short of this. It degrades the way the
+ * rest of this module does — see the note on `listConversations` — by
+ * undercounting the oldest conversations first, which are the ones least likely
+ * to be sitting unread. If that ever stops being true, the answer is the same
+ * as it is there: a view that counts in the database.
+ */
+const UNREAD_FETCH = 1000;
+
+/**
+ * How many unread messages each conversation is holding for this user.
+ *
+ * Shared by the Inbox badge and the notification bell so the two cannot report
+ * different numbers for the same fact — they were built separately once and
+ * immediately disagreed, one counting messages and the other conversations.
+ *
+ * Never throws. A failure here costs the counts, not the Inbox, and it fails
+ * towards over-reporting: with no read markers everything recent looks unread,
+ * which is the safe direction to be wrong in.
+ */
+async function unreadCounts(
+  supabase: SupabaseClient<Database>,
+): Promise<Map<string, number>> {
+  const [reads, inbound] = await Promise.all([
+    // RLS narrows this to the current user's markers in the account they are
+    // working in — see the policy in the migration — so there is nothing to
+    // filter here.
+    supabase.from("conversation_reads").select("contact_id, last_read_at"),
+    supabase
+      .from("messages")
+      .select("contact_id, created_at")
+      .eq("direction", "in")
+      .order("created_at", { ascending: false })
+      .limit(UNREAD_FETCH),
+  ]);
+
+  if (reads.error) {
+    console.error("[conversations] read markers unavailable", reads.error);
+  }
+  if (inbound.error) {
+    console.error("[conversations] unread scan failed", inbound.error);
+    return new Map();
+  }
+
+  const lastReadAt = new Map(
+    (reads.data ?? []).map((row) => [row.contact_id, row.last_read_at]),
+  );
+
+  const counts = new Map<string, number>();
+
+  // Newest first, so the first message at or before a conversation's watermark
+  // ends the count for it — everything after is older and has been seen too.
+  const settled = new Set<string>();
+
+  for (const message of inbound.data ?? []) {
+    if (settled.has(message.contact_id)) continue;
+
+    const readAt = lastReadAt.get(message.contact_id);
+    if (readAt && message.created_at <= readAt) {
+      settled.add(message.contact_id);
+      continue;
+    }
+
+    const next = (counts.get(message.contact_id) ?? 0) + 1;
+    counts.set(message.contact_id, next);
+
+    // The badge renders "9+" past nine, so counting further changes nothing on
+    // screen and only costs work on a thread nobody has opened in a while.
+    if (next >= MESSAGE_SCAN) settled.add(message.contact_id);
+  }
+
+  return counts;
+}
+
+/**
  * Every conversation, most recently active first.
  *
  * One round trip: PostgREST applies `order`/`limit` to the embedded `messages`
@@ -69,72 +153,30 @@ export async function listConversations(
   // small indexed lookup, so making the list wait for them would add a round
   // trip to every render of the Inbox for a number the badge could have had for
   // free.
-  const [conversations, reads] = await Promise.all([
+  const [conversations, unread] = await Promise.all([
     supabase
       .from("contacts")
       .select(
         `id, name, phone, status, tags, ai_enabled, created_at,
          messages ( id, body, direction, sent_by, created_at )`,
       )
+      // One row: this embed is the preview and nothing else now that counting
+      // has a query of its own. It was widened to ten in order to count the
+      // unread run, and that was the bug — ten messages of mixed traffic hold
+      // only as many inbound ones as the agent has left room for.
       .order("created_at", { referencedTable: "messages", ascending: false })
-      // Was 1, for the preview alone. The unread badge needs the run of recent
-      // inbound messages, not just the last one.
-      .limit(MESSAGE_SCAN, { referencedTable: "messages" }),
-    // RLS narrows this to the current user's own markers in the account they
-    // are working in — see the policy in the migration — so there is nothing to
-    // filter here.
-    supabase.from("conversation_reads").select("contact_id, last_read_at"),
+      .limit(1, { referencedTable: "messages" }),
+    unreadCounts(supabase),
   ]);
 
   if (conversations.error) {
     throw new Error(`Failed to load conversations: ${conversations.error.message}`);
   }
 
-  // A failed read is not worth taking the Inbox down for. Losing it means every
-  // conversation counts as unread, which is the safe direction to be wrong in:
-  // it over-reports rather than hiding a message someone has not seen.
-  if (reads.error) {
-    console.error("[conversations] read markers unavailable", reads.error);
-  }
-
-  const lastReadAt = new Map(
-    (reads.data ?? []).map((row) => [row.contact_id, row.last_read_at]),
-  );
-
   return (conversations.data ?? [])
     .map(({ messages, ...contact }) => {
       const lastMessage = messages.at(0) ?? null;
-      const readAt = lastReadAt.get(contact.id);
-
-      // Every inbound message newer than the watermark, skipping outbound ones
-      // rather than stopping at them.
-      //
-      // `continue`, not `break`, and the difference is the whole bug this
-      // replaced. The loop began life counting the *unanswered* run, where
-      // stopping at the first outbound message is the definition — the run ends
-      // when somebody answers. Reused for unread it meant anything leaving the
-      // account reset the count to zero, so a contact who sent four texts and
-      // got an AI reply showed no badge at all: the newest message was
-      // outbound, the loop stopped on the first step, and four unread messages
-      // rendered as none.
-      //
-      // Unread does not care who spoke last. It cares what you have not seen,
-      // and the agent replying on your behalf is not you having read it.
-      //
-      // `break` on the watermark stays correct: the list is newest first, so
-      // the first message already seen is the point past which every remaining
-      // one has been seen too.
-      //
-      // A conversation with no marker has never been opened, so every inbound
-      // message in the window counts — a thread from before this table existed
-      // shows as unread once, which is honest, since nothing ever recorded that
-      // anyone looked at it.
-      let unreadCount = 0;
-      for (const message of messages) {
-        if (message.direction !== "in") continue;
-        if (readAt && message.created_at <= readAt) break;
-        unreadCount += 1;
-      }
+      const unreadCount = unread.get(contact.id) ?? 0;
 
       return {
         contact,
@@ -221,30 +263,21 @@ export async function markConversationRead(
 export async function getReplyAlerts(
   supabase: SupabaseClient<Database>,
 ): Promise<Alert[]> {
-  // Was `limit(1)`, for the last message alone. The bell now reports how many
-  // texts are waiting rather than that some are, and the read markers say which
-  // of them count — the same two inputs `listConversations` uses, so the number
-  // on the bell and the badge beside the name cannot disagree.
-  const [{ data, error }, reads] = await Promise.all([
+  // The bell reports how many texts are waiting rather than that some are, and
+  // it takes that number from `unreadCounts` — the same function the Inbox
+  // badge uses, so the two cannot count the same thing differently.
+  const [{ data, error }, unread] = await Promise.all([
     supabase
       .from("contacts")
       .select(`id, name, phone, messages ( id, body, direction, created_at )`)
       .order("created_at", { referencedTable: "messages", ascending: false })
-      .limit(MESSAGE_SCAN, { referencedTable: "messages" }),
-    supabase.from("conversation_reads").select("contact_id, last_read_at"),
+      .limit(1, { referencedTable: "messages" }),
+    unreadCounts(supabase),
   ]);
 
   if (error) {
     throw new Error(`Failed to load waiting replies: ${error.message}`);
   }
-
-  if (reads.error) {
-    console.error("[conversations] read markers unavailable", reads.error);
-  }
-
-  const lastReadAt = new Map(
-    (reads.data ?? []).map((row) => [row.contact_id, row.last_read_at]),
-  );
 
   const alerts: Alert[] = [];
   const overdueBefore =
@@ -255,15 +288,7 @@ export async function getReplyAlerts(
     // "in", not "inbound" — see MessageDirection in src/types/database.ts.
     if (!last || last.direction !== "in") continue;
 
-    // Same rule as the Inbox badge — see `listConversations`, where the
-    // reasoning for skipping outbound rather than stopping at it lives.
-    const readAt = lastReadAt.get(contact.id);
-    let unread = 0;
-    for (const message of messages) {
-      if (message.direction !== "in") continue;
-      if (readAt && message.created_at <= readAt) break;
-      unread += 1;
-    }
+    const unreadHere = unread.get(contact.id) ?? 0;
 
     // An inbound message with no body is an MMS whose only content was an
     // attachment. Saying so beats an empty row.
@@ -282,8 +307,8 @@ export async function getReplyAlerts(
       level: overdue ? "warn" : "info",
       title: overdue
         ? `${contactLabel(contact)} has been waiting ${waited(last.created_at)}`
-        : unread > 1
-          ? `${contactLabel(contact)} sent ${unread} messages`
+        : unreadHere > 1
+          ? `${contactLabel(contact)} sent ${unreadHere} messages`
           : `${contactLabel(contact)} replied`,
       // The quote stays on the overdue row too. The age is in the title, and
       // what you need in order to decide whether this can wait another hour is
@@ -296,7 +321,7 @@ export async function getReplyAlerts(
       // already read still counts as one thing needing you rather than
       // vanishing from the total — the row is about the waiting, not about
       // whether it has been looked at.
-      count: Math.max(1, unread),
+      count: Math.max(1, unreadHere),
     });
   }
 
