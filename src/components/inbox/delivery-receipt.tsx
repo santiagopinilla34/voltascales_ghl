@@ -31,37 +31,37 @@ import { EASE_OUT } from "./motion";
  * stays "the last outbound message", and a failure on an older one is visible
  * in the account's error alerts instead, where `sendSms` already records it.
  */
-export function DeliveryReceipt({
-  status,
-  /** True while the send is still in flight — an optimistic bubble. */
-  sending = false,
-}: {
-  status: MessageStatus | null;
-  sending?: boolean;
-}) {
+export function DeliveryReceipt({ status }: { status: MessageStatus | null }) {
   const reduce = useReducedMotion();
-  const label = receiptLabel(status, sending);
+  const label = receiptLabel(status);
 
-  // Null covers two states that both mean "nothing to report": a message from
-  // before delivery tracking existed, and a local environment where Twilio has
-  // no callback URL to reach. Both should read as an ordinary sent message
-  // rather than as a message with a problem, so nothing is rendered at all.
+  // Null covers everything with nothing to report: a message still on its way,
+  // one from before delivery tracking existed, and a local environment where
+  // Twilio has no callback URL to reach. All of them should read as an ordinary
+  // message rather than as a message with a problem, so nothing renders at all
+  // and the line simply appears when there is finally something to say.
   if (!label) return null;
 
   const failed = status === "undelivered" || status === "failed";
 
   return (
-    // `mode="wait"` so the words never overlap mid-crossfade. The whole element
-    // is 11px grey text; two of them on top of each other for 140ms is legible
-    // as a smudge and nothing else.
+    // `mode="wait"` so two words can never overlap. With the intermediate
+    // states silent this is nearly always a single fade in from nothing, but a
+    // message going straight to `undelivered` can still replace a "Delivered"
+    // on the row above it, and 11px grey text crossfading into different 11px
+    // grey text reads as a smudge.
     <AnimatePresence mode="wait" initial={false}>
       <motion.span
-        // Keyed on the text, so "Sent" becoming "Delivered" is an exit and an
-        // entrance rather than a silent swap. The fade is the whole point of
-        // the feature: the word should arrive, not blink into place.
+        // Keyed on the text so a change of word is an exit and an entrance
+        // rather than a silent swap. The fade is the whole point: the receipt
+        // should arrive, not blink into place.
         key={label}
-        initial={reduce ? { opacity: 0 } : { opacity: 0, transform: "translateY(2px)" }}
-        animate={reduce ? { opacity: 1 } : { opacity: 1, transform: "translateY(0px)" }}
+        initial={
+          reduce ? { opacity: 0 } : { opacity: 0, transform: "translateY(2px)" }
+        }
+        animate={
+          reduce ? { opacity: 1 } : { opacity: 1, transform: "translateY(0px)" }
+        }
         exit={{ opacity: 0 }}
         transition={
           reduce
@@ -81,32 +81,35 @@ export function DeliveryReceipt({
 }
 
 /**
- * The word under the message, or null for the states worth saying nothing at
- * all about.
+ * The word under the message, or null — which is most of the time.
  *
- * `queued` and `sending` are deliberately silent. They are real states and they
- * are also the uninteresting middle of a process that normally takes under a
- * second — labelling them would mean the receipt flickered through two words on
- * the way to the one the reader wanted, which is worse than waiting for it.
- * The optimistic bubble is the exception: there the reader has just pressed a
- * button and needs to see that something is happening.
+ * Only two things are worth saying: it arrived, or it did not.
+ *
+ * Everything on the way there is silent. `queued`, `sending` and `sent` are all
+ * real states and all of them are the uninteresting middle of something that
+ * normally takes about a second, so labelling them meant the receipt ticked
+ * through two words before reaching the one the reader was waiting for —
+ * "Sending…", then "Sent", then "Delivered", three lines of text for one
+ * message. The arrival is the event; the rest is the machine narrating itself.
+ *
+ * `sent` is the one that looks like it should stay and should not. It means
+ * Twilio handed the message to a carrier, which is not a fact about the
+ * recipient at all — and because it is followed by `delivered` a moment later,
+ * its only effect on screen was to make the word the reader wanted arrive
+ * second.
+ *
+ * The failures stay. A message that never arrived has to say so, or it is
+ * indistinguishable from one that did.
  */
-function receiptLabel(
-  status: MessageStatus | null,
-  sending: boolean,
-): string | null {
-  if (sending) return "Sending…";
-
+function receiptLabel(status: MessageStatus | null): string | null {
   switch (status) {
     case "delivered":
       return "Delivered";
-    case "sent":
-      return "Sent";
     case "undelivered":
       return "Not delivered";
     case "failed":
       return "Failed to send";
-    // `queued`, `sending`, and null — see above.
+    // `queued`, `sending`, `sent`, and null — see above.
     default:
       return null;
   }

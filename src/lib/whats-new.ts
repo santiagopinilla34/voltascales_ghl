@@ -26,7 +26,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: "2026-09-09-delivery-receipts",
     date: "2026-09-09",
     title: "Your reply appears the moment you send it",
-    body: "Pressing Send used to leave you watching a spinner while the message went to the phone network and back. It now appears in the thread straight away, with Sending under it, and the word changes to Delivered once the carrier confirms the text actually reached the handset — so a message that never arrived no longer looks the same as one that did. Only the most recent message you sent carries the note, the way a phone does it.",
+    body: "Pressing Send used to leave you watching a spinner while the message went to the phone network and back. It now appears in the thread straight away, and Delivered fades in underneath once the carrier confirms the text actually reached the handset — so a message that never arrived no longer looks the same as one that did. Only the most recent message you sent carries the note, the way a phone does it.",
     href: "/inbox",
     tag: "New",
   },

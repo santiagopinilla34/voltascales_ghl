@@ -51,8 +51,6 @@ type Row = {
   outbound: boolean;
   sentBy: MessageSender;
   status: MessageStatus | null;
-  /** Still in flight: posted, no row back yet. */
-  sending: boolean;
 };
 
 function rowOf(message: Message): Row {
@@ -63,7 +61,6 @@ function rowOf(message: Message): Row {
     outbound: message.direction === "out",
     sentBy: message.sent_by,
     status: message.status,
-    sending: false,
   };
 }
 
@@ -110,7 +107,6 @@ export function MessageThread({ messages }: { messages: Message[] }) {
       outbound: true,
       sentBy: "human" as MessageSender,
       status: null,
-      sending: true,
     })),
   ];
 
@@ -341,10 +337,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
                   )}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <time
-                        dateTime={row.createdAt}
-                        className="tabular-nums"
-                      >
+                      <time dateTime={row.createdAt} className="tabular-nums">
                         {formatMessageTime(row.createdAt)}
                       </time>
                     </TooltipTrigger>
@@ -362,7 +355,7 @@ export function MessageThread({ messages }: { messages: Message[] }) {
 
                     Only ever on one row in the thread. See `receiptIndex`. */}
                 {index === receiptIndex && (
-                  <DeliveryReceipt status={row.status} sending={row.sending} />
+                  <DeliveryReceipt status={row.status} />
                 )}
               </div>
             </motion.div>
