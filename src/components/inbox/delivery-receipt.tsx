@@ -35,47 +35,56 @@ export function DeliveryReceipt({ status }: { status: MessageStatus | null }) {
   const reduce = useReducedMotion();
   const label = receiptLabel(status);
 
-  // Null covers everything with nothing to report: a message still on its way,
-  // one from before delivery tracking existed, and a local environment where
-  // Twilio has no callback URL to reach. All of them should read as an ordinary
-  // message rather than as a message with a problem, so nothing renders at all
-  // and the line simply appears when there is finally something to say.
-  if (!label) return null;
-
   const failed = status === "undelivered" || status === "failed";
 
   return (
-    // `mode="wait"` so two words can never overlap. With the intermediate
-    // states silent this is nearly always a single fade in from nothing, but a
-    // message going straight to `undelivered` can still replace a "Delivered"
-    // on the row above it, and 11px grey text crossfading into different 11px
-    // grey text reads as a smudge.
+    // `AnimatePresence` is rendered unconditionally, with the emptiness on the
+    // inside. Returning null early instead — the obvious way to write "nothing
+    // to show yet" — is what silently removed the fade: `AnimatePresence` only
+    // animates a child in if it was already mounted when that child appeared,
+    // and `initial={false}` explicitly suppresses whatever it is holding on its
+    // own first render. An early return meant it mounted at the same instant
+    // "Delivered" did, so the one moment the animation exists for was the one
+    // moment it was guaranteed not to play.
+    //
+    // Mounted empty from the start, the word is a genuine entrance and fades
+    // in. `initial={false}` still earns its place: on a page load, a thread
+    // whose last message was delivered days ago should simply have its receipt,
+    // not animate it in as though it had just happened.
+    //
+    // `mode="wait"` so two words can never overlap. Nearly always this is a
+    // single fade in from nothing, but a message going straight to
+    // `undelivered` can replace a "Delivered" above it, and 11px grey text
+    // crossfading into different 11px grey text reads as a smudge.
     <AnimatePresence mode="wait" initial={false}>
-      <motion.span
-        // Keyed on the text so a change of word is an exit and an entrance
-        // rather than a silent swap. The fade is the whole point: the receipt
-        // should arrive, not blink into place.
-        key={label}
-        initial={
-          reduce ? { opacity: 0 } : { opacity: 0, transform: "translateY(2px)" }
-        }
-        animate={
-          reduce ? { opacity: 1 } : { opacity: 1, transform: "translateY(0px)" }
-        }
-        exit={{ opacity: 0 }}
-        transition={
-          reduce
-            ? { duration: 0.12 }
-            : { duration: 0.28, ease: EASE_OUT, opacity: { duration: 0.28 } }
-        }
-        className={
-          failed
-            ? "text-destructive px-1 text-[11px] font-medium"
-            : "text-muted-foreground px-1 text-[11px]"
-        }
-      >
-        {label}
-      </motion.span>
+      {label && (
+        <motion.span
+          // Keyed on the text so a change of word is an exit and an entrance
+          // rather than a silent swap.
+          key={label}
+          initial={
+            reduce
+              ? { opacity: 0 }
+              : { opacity: 0, transform: "translateY(2px)" }
+          }
+          animate={
+            reduce ? { opacity: 1 } : { opacity: 1, transform: "translateY(0px)" }
+          }
+          exit={{ opacity: 0 }}
+          transition={
+            reduce
+              ? { duration: 0.12 }
+              : { duration: 0.28, ease: EASE_OUT, opacity: { duration: 0.28 } }
+          }
+          className={
+            failed
+              ? "text-destructive px-1 text-[11px] font-medium"
+              : "text-muted-foreground px-1 text-[11px]"
+          }
+        >
+          {label}
+        </motion.span>
+      )}
     </AnimatePresence>
   );
 }

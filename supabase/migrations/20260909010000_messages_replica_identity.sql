@@ -1,0 +1,28 @@
+-- Make delivery receipts arrive live.
+--
+-- `messages` has been in the `supabase_realtime` publication since
+-- 20260810080000, and inserts have streamed correctly ever since — a text
+-- arriving has always appeared in the Inbox on its own. Updates did not, and
+-- nobody noticed until `messages.status` gave a row a reason to change after
+-- it was written: a message would go out, the carrier would confirm it
+-- seconds later, and "Delivered" would not appear until something unrelated
+-- forced a refresh. Measured at over a minute in the Inbox with the row
+-- already `delivered` in the database.
+--
+-- The cause is the replica identity, not the publication. Realtime applies RLS
+-- per subscriber, and for an update it has to evaluate the policy against the
+-- *old* row as well as the new one. Under the default replica identity the WAL
+-- carries only the primary key for that old row, so `org_id` is absent, the
+-- "org access" policy cannot be satisfied, and the event is dropped rather than
+-- delivered. Inserts have no old row and so were never affected — which is
+-- exactly why this looked like "realtime works" for two months.
+--
+-- FULL writes the entire previous row into the WAL on every update and delete.
+-- That is a real cost and an acceptable one here: this table is written once
+-- per message and then updated at most a handful of times as a status
+-- advances, so the extra volume is a few hundred bytes per text rather than
+-- anything proportional to reads.
+--
+-- Reversible with `replica identity default` if that ever stops being true.
+
+alter table public.messages replica identity full;
