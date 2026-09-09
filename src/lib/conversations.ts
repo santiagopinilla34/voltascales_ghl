@@ -106,18 +106,32 @@ export async function listConversations(
       const lastMessage = messages.at(0) ?? null;
       const readAt = lastReadAt.get(contact.id);
 
-      // `messages` is newest first, so the unread run is the prefix of inbound
-      // ones newer than the watermark. Counting the prefix rather than
-      // filtering the whole window is deliberate: it stops at the first message
-      // already seen, which is also the first one every older message is behind.
+      // Every inbound message newer than the watermark, skipping outbound ones
+      // rather than stopping at them.
+      //
+      // `continue`, not `break`, and the difference is the whole bug this
+      // replaced. The loop began life counting the *unanswered* run, where
+      // stopping at the first outbound message is the definition — the run ends
+      // when somebody answers. Reused for unread it meant anything leaving the
+      // account reset the count to zero, so a contact who sent four texts and
+      // got an AI reply showed no badge at all: the newest message was
+      // outbound, the loop stopped on the first step, and four unread messages
+      // rendered as none.
+      //
+      // Unread does not care who spoke last. It cares what you have not seen,
+      // and the agent replying on your behalf is not you having read it.
+      //
+      // `break` on the watermark stays correct: the list is newest first, so
+      // the first message already seen is the point past which every remaining
+      // one has been seen too.
       //
       // A conversation with no marker has never been opened, so every inbound
-      // message in the window counts — a thread that arrived before this table
-      // existed shows as unread once, which is honest, since nothing ever
-      // recorded that anyone looked at it.
+      // message in the window counts — a thread from before this table existed
+      // shows as unread once, which is honest, since nothing ever recorded that
+      // anyone looked at it.
       let unreadCount = 0;
       for (const message of messages) {
-        if (message.direction !== "in") break;
+        if (message.direction !== "in") continue;
         if (readAt && message.created_at <= readAt) break;
         unreadCount += 1;
       }

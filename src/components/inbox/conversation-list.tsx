@@ -389,8 +389,21 @@ export function ConversationList({
                             claiming to be new. That question still gets asked,
                             by the Needs reply tab above and the notification
                             bell — neither of which looks like an unread
-                            count. */}
-                        {unreadCount > 0 && (
+                            count.
+
+                            Never on the conversation you have open, and that
+                            clause is doing two jobs. It is the answer to "you
+                            are already looking at it" — a count of messages you
+                            have not read, on the thread displaying them, is
+                            wrong on its face however fast the server agrees.
+                            And it is what makes the badge vanish the instant
+                            you click rather than a beat later: the marker still
+                            has to be written and the list re-queried, and until
+                            this the badge sat there for the whole of that round
+                            trip, which read as the click not having worked. The
+                            client already knows which conversation is open, so
+                            it does not need to be told. */}
+                        {unreadCount > 0 && !active && (
                           <span
                             className="grid size-4 shrink-0 place-items-center rounded-full bg-emerald-600 text-[10px] leading-none font-semibold text-white tabular-nums"
                             aria-label={`${unreadCount} unread`}
