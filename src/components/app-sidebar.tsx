@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AtSign,
   Bot,
@@ -40,6 +42,28 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+
+/**
+ * The active pill moving from one link to the next.
+ *
+ * The same numbers as `SELECT_SPRING` in `components/inbox/motion.ts`, and the
+ * same reasoning: this tracks a click the reader just made, so it has to keep
+ * up with them rather than perform. Restated here rather than imported because
+ * that module is the Inbox's vocabulary and the app shell should not reach into
+ * a feature folder for its own motion — if either moves, the comment in the
+ * other is the thing that says they were meant to match.
+ *
+ * Bounce stays low. A nav that springs is a nav that draws attention to itself
+ * every time you go anywhere.
+ */
+const PILL_SPRING = { type: "spring", duration: 0.32, bounce: 0.1 } as const;
+
+/** Where the active pill sits, in the nav scroller's own coordinates. */
+type PillBox = { top: number; left: number; width: number; height: number };
+
+/** The dot arriving and leaving. Shorter out than in — see EXIT_MS in the Inbox. */
+const DOT_IN = { duration: 0.22, ease: [0.23, 1, 0.32, 1] } as const;
+const DOT_OUT = { duration: 0.12, ease: [0.23, 1, 0.32, 1] } as const;
 
 type NavItem = {
   href: string;
@@ -156,6 +180,7 @@ export function AppSidebar({
   // On a phone the sidebar is a sheet over the page, and tapping a link
   // navigated without shutting it. See the onClick below.
   const { setOpenMobile } = useSidebar();
+  const reduce = useReducedMotion();
 
   // A client's nav is the agency's minus the agency's own pages — and so is
   // the agency's, while it is working inside a client, because those pages are
@@ -174,6 +199,76 @@ export function AppSidebar({
       ? section.items
       : section.items.filter((item) => !item.platformOnly),
   })).filter((section) => section.items.length > 0);
+
+  // Which link the pill belongs to. Prefix match so /inbox/<id> keeps Inbox lit.
+  const activeHref =
+    sections
+      .flatMap((section) => section.items)
+      .find(
+        (item) =>
+          pathname === item.href || pathname.startsWith(`${item.href}/`),
+      )?.href ?? null;
+
+  // Where to draw the pill, in the scroll container's own coordinates.
+  //
+  // Null until the first measurement and whenever no link matches the URL —
+  // both render no pill at all, which is right: a nav with nothing selected
+  // should not be showing a highlight parked on a guess.
+  const [box, setBox] = useState<PillBox | null>(null);
+  const navRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef(new Map<string, HTMLLIElement>());
+
+  // `useLayoutEffect`, so the measurement happens before paint and the pill
+  // never shows up a frame late on the row it just left.
+  useLayoutEffect(() => {
+    function measure() {
+      const container = navRef.current;
+      const row = activeHref ? itemRefs.current.get(activeHref) : null;
+
+      if (!container || !row) {
+        setBox(null);
+        return;
+      }
+
+      const c = container.getBoundingClientRect();
+      const r = row.getBoundingClientRect();
+
+      // Against the container's *content*, not the viewport: the pill is
+      // absolutely positioned inside the scroller, so it has to be placed
+      // where the row sits in the list rather than where it currently appears
+      // on screen. Without the scroll offset the pill would drift by exactly
+      // how far the nav happens to be scrolled.
+      const next = {
+        top: r.top - c.top + container.scrollTop,
+        left: r.left - c.left + container.scrollLeft,
+        width: r.width,
+        height: r.height,
+      };
+
+      // Compared before setting, because this runs from a ResizeObserver and
+      // an unconditional setState there is a loop waiting to happen.
+      setBox((current) =>
+        current &&
+        current.top === next.top &&
+        current.left === next.left &&
+        current.width === next.width &&
+        current.height === next.height
+          ? current
+          : next,
+      );
+    }
+
+    measure();
+
+    // The row moves without the URL changing in two ways that matter: the rail
+    // collapsing to icons (every row narrows) and the window resizing.
+    // Observing the container catches both, and catches the font loading in
+    // late as well.
+    const observer = new ResizeObserver(measure);
+    if (navRef.current) observer.observe(navRef.current);
+
+    return () => observer.disconnect();
+  }, [activeHref, sections.length]);
 
   return (
     // `dark` on the panel, not on the page: the nav column keeps the dark
@@ -294,95 +389,193 @@ export function AppSidebar({
         {accountBadge}
       </SidebarHeader>
 
-      <SidebarContent className="py-2">
-        {sections.map((section) => (
-          // The gap between sections lives on the group rather than under the
-          // heading, so it survives the collapse to icons — where the headings
-          // are gone and the grouping is all that is left of them.
-          <SidebarGroup
-            key={section.label}
-            // px-5 here and on the header and footer, so the whole column
-            // lines up on one gutter. The icon rail is 48px wide and cannot
-            // pay 20 of them twice, hence the override.
-            className="mt-3 px-5 py-0 first:mt-0 group-data-[collapsible=icon]:px-2"
-          >
-            <SidebarGroupLabel
-              className={cn(
-                "text-sidebar-foreground/45 h-6 px-2 text-[0.625rem] font-semibold tracking-[0.14em] uppercase",
-                // The primitive's collapse animation assumes the default h-8.
-                "group-data-[collapsible=icon]:-mt-6",
-              )}
+      {/* `relative`, because the travelling pill below is positioned against
+          this box and scrolls with it. */}
+      <SidebarContent asChild className="relative py-2">
+        <div ref={navRef}>
+          {/* The active pill, drawn once for the whole nav and moved.
+
+              Deliberately *not* a `layoutId` shared between the rows, which is
+              the obvious way to write this and does not work here: Framer's
+              layout projection stalls in this tree — it applies the correct
+              starting transform and never animates it back to zero, leaving
+              the pill parked over the link you just left. The same stall
+              affects the Inbox's selected-conversation marker, which is
+              written that way and has the same symptom, so this is a property
+              of the app rather than of this component.
+
+              Measuring the row and animating `y`/`height` sidesteps projection
+              entirely. It is a plain transform animation on one element that
+              never unmounts, which is the thing Framer is most reliable at,
+              and it survives the collapse to the icon rail and a window resize
+              because the measurement re-runs on both. */}
+          <AnimatePresence initial={false}>
+            {box && (
+              <motion.div
+                aria-hidden
+                key="nav-pill"
+                initial={
+                  reduce
+                    ? { opacity: 0, y: box.top, height: box.height }
+                    : { opacity: 0, y: box.top, height: box.height }
+                }
+                animate={{ opacity: 1, y: box.top, height: box.height }}
+                exit={{ opacity: 0 }}
+                transition={reduce ? { duration: 0 } : PILL_SPRING}
+                style={{ left: box.left, width: box.width }}
+                className={cn(
+                  "pointer-events-none absolute top-0 rounded-lg",
+                  "from-sidebar-accent to-sidebar-accent/45 bg-gradient-to-b",
+                  "ring-1 ring-white/10 dark:ring-white/12",
+                )}
+              />
+            )}
+          </AnimatePresence>
+
+          {sections.map((section) => (
+            // The gap between sections lives on the group rather than under the
+            // heading, so it survives the collapse to icons — where the headings
+            // are gone and the grouping is all that is left of them.
+            <SidebarGroup
+              key={section.label}
+              // px-5 here and on the header and footer, so the whole column
+              // lines up on one gutter. The icon rail is 48px wide and cannot
+              // pay 20 of them twice, hence the override.
+              className="mt-3 px-5 py-0 first:mt-0 group-data-[collapsible=icon]:px-2"
             >
-              {section.label}
-            </SidebarGroupLabel>
+              <SidebarGroupLabel
+                className={cn(
+                  "text-sidebar-foreground/45 h-6 px-2 text-[0.625rem] font-semibold tracking-[0.14em] uppercase",
+                  // The primitive's collapse animation assumes the default h-8.
+                  "group-data-[collapsible=icon]:-mt-6",
+                )}
+              >
+                {section.label}
+              </SidebarGroupLabel>
 
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {section.items.map((item) => {
-                  // Prefix match so /inbox/<id> keeps Inbox highlighted.
-                  const active =
-                    pathname === item.href ||
-                    pathname.startsWith(`${item.href}/`);
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {section.items.map((item) => {
+                    // Prefix match so /inbox/<id> keeps Inbox highlighted.
+                    const active =
+                      pathname === item.href ||
+                      pathname.startsWith(`${item.href}/`);
 
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        tooltip={item.label}
-                        // px-4 rather than the primitive's p-2: the icon wants
-                        // air on its left now that the row is a pill sitting
-                        // inside a gutter rather than a strip spanning the
-                        // panel. The rail's own `p-2!` outranks it, so the
-                        // collapsed icons stay centred in their 32px.
-                        //
-                        // The active pill is a lit surface, not a filled
-                        // rectangle: a flat block of `--sidebar-accent` sat on
-                        // the panel like a swatch. It now falls off towards
-                        // the bottom the way a raised thing catches light, and
-                        // the hairline runs around the whole of it — the two
-                        // together are what make it read as sitting above the
-                        // column rather than being cut out of it.
-                        className={cn(
-                          "rounded-lg px-4",
-                          "data-active:from-sidebar-accent data-active:to-sidebar-accent/45 data-active:bg-gradient-to-b",
-                          "data-active:ring-1 data-active:ring-white/10 dark:data-active:ring-white/12",
-                        )}
+                    return (
+                      <SidebarMenuItem
+                        key={item.href}
+                        // Measured by the pill above. Registered rather than
+                        // queried by selector so the measurement never depends
+                        // on the primitive's markup staying the shape it is.
+                        ref={(el) => {
+                          if (el) itemRefs.current.set(item.href, el);
+                          else itemRefs.current.delete(item.href);
+                        }}
                       >
-                        <Link
-                          href={item.href}
-                          onClick={() => setOpenMobile(false)}
+                        <SidebarMenuButton
+                          asChild
+                          isActive={active}
+                          tooltip={item.label}
+                          // px-4 rather than the primitive's p-2: the icon wants
+                          // air on its left now that the row is a pill sitting
+                          // inside a gutter rather than a strip spanning the
+                          // panel. The rail's own `p-2!` outranks it, so the
+                          // collapsed icons stay centred in their 32px.
+                          //
+                          // The active pill is a lit surface, not a filled
+                          // rectangle: a flat block of `--sidebar-accent` sat on
+                          // the panel like a swatch. It now falls off towards
+                          // the bottom the way a raised thing catches light, and
+                          // the hairline runs around the whole of it — the two
+                          // together are what make it read as sitting above the
+                          // column rather than being cut out of it.
+                          //
+                          // That surface is drawn by the motion.div above rather
+                          // than here, so it can travel between rows. Two things
+                          // follow. The primitive's own `data-active` fill is
+                          // turned off, or the row would carry a stationary
+                          // block of the same colour and the pill would appear
+                          // to slide out from underneath a copy of itself. And
+                          // the row is raised above the pill, since a positioned
+                          // sibling would otherwise paint straight over the
+                          // label and the icon.
+                          className={cn(
+                            "relative z-10 rounded-lg px-4",
+                            "data-active:bg-transparent",
+                          )}
                         >
-                          {/* The icon takes the brand green on the page you
+                          <Link
+                            href={item.href}
+                            onClick={() => setOpenMobile(false)}
+                          >
+                            {/* The icon takes the brand green on the page you
                               are on. It is the same signal as the dot at the
                               other end of the row, and it is the one that
                               survives the collapse to the icon rail, where the
                               label and the dot are both gone. */}
-                          <item.icon
-                            className={cn(
-                              active && "text-emerald-500 dark:text-emerald-400",
-                            )}
-                          />
-                          <span className="flex-1 truncate">{item.label}</span>
-                          {/* The one place green appears in the nav. The
+                            {/* The colour change is left to CSS, which is what
+                              a colour change is for. Only the pill and the dot
+                              need Framer. */}
+                            <item.icon
+                              className={cn(
+                                "transition-colors duration-200",
+                                active &&
+                                  "text-emerald-500 dark:text-emerald-400",
+                              )}
+                            />
+                            <span className="flex-1 truncate">
+                              {item.label}
+                            </span>
+                            {/* The one place green appears in the nav. The
                               filled row already says which page you are on;
                               this says it from the corner of the eye, without
-                              another word of text. */}
-                          {active && (
-                            <span
-                              aria-hidden
-                              className="size-1.5 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_7px_1px] shadow-emerald-500/50 group-data-[collapsible=icon]:hidden"
-                            />
-                          )}
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+                              another word of text.
+
+                              In `AnimatePresence` because the interesting half
+                              is the leaving one: a `{active && …}` dot is
+                              simply gone on the next render, and a light that
+                              cuts out is the one thing on the row that does
+                              not travel with the pill. Now it shrinks away
+                              while the new one grows in, which is the same
+                              gesture the pill is making, at the same moment.
+
+                              Scale rather than movement, so reduced motion
+                              only has to drop the scale and keep the fade. */}
+                            <AnimatePresence initial={false}>
+                              {active && (
+                                <motion.span
+                                  key="active-dot"
+                                  aria-hidden
+                                  initial={
+                                    reduce
+                                      ? { opacity: 0 }
+                                      : { opacity: 0, transform: "scale(0.4)" }
+                                  }
+                                  animate={
+                                    reduce
+                                      ? { opacity: 1 }
+                                      : { opacity: 1, transform: "scale(1)" }
+                                  }
+                                  exit={
+                                    reduce
+                                      ? { opacity: 0 }
+                                      : { opacity: 0, transform: "scale(0.4)" }
+                                  }
+                                  transition={reduce ? DOT_OUT : DOT_IN}
+                                  className="size-1.5 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_7px_1px] shadow-emerald-500/50 group-data-[collapsible=icon]:hidden"
+                                />
+                              )}
+                            </AnimatePresence>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))}
+        </div>
       </SidebarContent>
 
       <SidebarFooter className="px-5 pt-2 pb-4 group-data-[collapsible=icon]:px-2">

@@ -370,9 +370,20 @@ function SidebarSeparator({
   )
 }
 
-function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
+function SidebarContent({
+  className,
+  asChild = false,
+  ...props
+}: React.ComponentProps<"div"> & { asChild?: boolean }) {
+  // `asChild` follows SidebarGroup and SidebarMenuButton below, and exists for
+  // one caller: this element is the nav's scroll container, and Framer's layout
+  // projection needs `layoutScroll`/`layoutRoot` on the scroller itself to
+  // measure a travelling element correctly. Copying these classes onto a
+  // motion.div in the app sidebar would have worked once and then drifted.
+  const Comp = asChild ? Slot.Root : "div"
+
   return (
-    <div
+    <Comp
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
