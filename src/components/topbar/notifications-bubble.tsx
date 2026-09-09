@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   Bell,
   CalendarPlus,
@@ -166,6 +166,25 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
   }
 
   /**
+   * What was on screen when the panel was opened.
+   *
+   * Closing the panel marks things read, and without this it marked *whatever
+   * the list held at that moment* — which is not the same set. The panel stays
+   * open while the app keeps refreshing underneath it, so a text arriving in
+   * the meantime was dismissed by the act of closing a panel that had been
+   * opened before it existed. Permanently: reply alerts are events, so they are
+   * dismissed rather than snoozed and never come back.
+   *
+   * That was reproducible in seconds — open the bell, have somebody text, close
+   * the bell, and the alert for a message nobody had ever looked at was gone
+   * for good.
+   *
+   * A snapshot at open time is the honest set: these are the ones the reader
+   * actually had in front of them.
+   */
+  const seenOnOpen = useRef<ReadonlySet<string>>(new Set());
+
+  /**
    * Opening the panel is reading it.
    *
    * This is the fix for a notification that sat flagged unread for days: read
@@ -179,13 +198,26 @@ export function NotificationsBubble({ alerts }: { alerts: Alert[] }) {
    * gone by the time the panel is shut, which is what "it stays unflagged"
    * asks for.
    *
+   * Bounded by `seenOnOpen`, so "reading it" means the alerts that were in it —
+   * anything that arrives while it is open is still waiting for you.
+   *
    * Usage alerts are snoozed rather than dismissed forever — `isCondition`
    * decides that, server-side — so a low balance still comes back tomorrow
    * instead of being silenced by a glance.
    */
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) dismiss(items.filter((entry) => !entry.read));
+
+    if (next) {
+      seenOnOpen.current = new Set(
+        items.filter((entry) => !entry.read).map((entry) => entry.id),
+      );
+      return;
+    }
+
+    dismiss(
+      items.filter((entry) => !entry.read && seenOnOpen.current.has(entry.id)),
+    );
   }
 
   return (
