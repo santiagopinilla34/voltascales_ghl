@@ -3,7 +3,8 @@
 Automation & CRM tool, run by an agency for its clients. Spec: [PRD.md](./.claude/docs/PRD.md).
 
 Next.js 16 (App Router) · React 19 · TypeScript · Tailwind 4 · shadcn/Radix ·
-Supabase (Postgres + Auth) · Twilio (SMS + Voice) · Anthropic · Resend.
+Framer Motion · Supabase (Postgres + Auth + Realtime) · Twilio (SMS + Voice) ·
+Anthropic and OpenAI · Resend · Stripe.
 
 **Status: all eight PRD build steps are done, plus a second pass well past the
 spec** — booking and a calendar, a pipeline board, invoices, a phone system
@@ -37,12 +38,13 @@ cp .env.example .env.local
 | Supabase | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Everything |
 | Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `TWILIO_FORWARD_TO_NUMBER` | SMS, inbound calls, the Phone System page |
 | Browser calling | `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_TWIML_APP_SID` | The dialer only |
-| Anthropic | `ANTHROPIC_API_KEY` | The agent that answers texts |
+| Anthropic | `ANTHROPIC_API_KEY` | The agent that answers texts, on a Claude model |
+| OpenAI | `OPENAI_API_KEY` | The same agent on a GPT model — the provider is picked per agent |
 | Anthropic admin | `ANTHROPIC_ADMIN_API_KEY` | Live usage and cost on the Usage page. A *different*, far more powerful credential — see below |
 | Firecrawl | `FIRECRAWL_API_KEY` | Rendering JavaScript-heavy pages for the knowledge crawler. Falls back to a free reader |
 | Stripe | `STRIPE_SECRET_KEY`, `STRIPE_CLIENT_ID`, `STRIPE_CONNECT_SCOPE`, `STRIPE_CONNECT_STATE_SECRET`, `STRIPE_WEBHOOK_SECRET` | Payments and Connect onboarding |
 | Resend | `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL` | Booking and hand-off email |
-| App | `APP_BASE_URL` | Signature verification, and the cancel links in booking messages |
+| App | `APP_BASE_URL` | Signature verification, the cancel links in booking messages, and the delivery-receipt callback Twilio posts to |
 | Secrets | `FORM_WEBHOOK_SECRET`, `CRON_SECRET`, `RESEND_WEBHOOK_SECRET` | The unsigned endpoints; each returns 503 while unset |
 
 Anything missing degrades in one place rather than breaking the app: the
@@ -108,12 +110,14 @@ updated in `database.ts`.
 
 ## The app
 
-Everything below `/` is behind the one account. Sidebar order is the order the
-work happens in, with the infrastructure pages grouped after it.
+Everything below `/` is behind the one account. The sidebar is five headed
+sections in the order the work happens in — the work itself, the things that do
+the work for you, the infrastructure underneath, the money, and what is left —
+and the active pill travels between links rather than blinking into place.
 
 | Page | Does |
 | --- | --- |
-| **Inbox** | Two-pane SMS threads. Manual reply, per-contact AI toggle, and the AI's pending draft with the reason it wasn't sent. Refreshes over Supabase Realtime |
+| **Inbox** | Two-pane SMS threads. Manual reply, per-contact AI toggle, and the AI's pending draft with the reason it wasn't sent. A reply appears the moment you send it and picks up *Delivered* when the carrier confirms; the green count beside a name is unread, and read state is your own. Refreshes over Supabase Realtime |
 | **Contacts** | Table, detail form, tags, call history. Add by hand or import a `.vcf` |
 | **Pipeline** | Board across Interested → Booked → Attended → Not Attended → Closed → Contact Again Later → Not Closed |
 | **Calendar** | Month, week and day grids over real bookings. Cancelling from here texts and emails the client |
@@ -132,6 +136,97 @@ work happens in, with the infrastructure pages grouped after it.
 
 The top bar carries three bubbles on every page: **alerts** (the bell),
 **what's new**, and the **dialer**.
+
+## Inbox
+
+Two panes: the conversation list, which lives in the Inbox **layout**, and one
+thread under it. That split is why marking a thread read happens in a client
+component — the App Router does not re-render a layout when only the segment
+under it changes, so a server-side write would clear the marker in the database
+and leave the badge on screen exactly as it was.
+
+### Sending
+
+A reply is drawn into the thread the moment you press Send, before the server
+has a row for it, and reconciles when the row lands. The composer and the
+thread are siblings under the same server page, so the pending message lives in
+a context above both of them (`components/inbox/pending-messages.tsx`) — any
+page that mounts `MessageThread` and `ReplyBox` has to put them both inside
+that provider, keyed on the contact. A bubble whose row never arrives is let go
+after 12 seconds rather than sitting at the end of the thread reading
+"Sending…" for the rest of the session: every route to that is a fault, and in
+all of them Twilio already accepted the text.
+
+### Delivery receipts
+
+`messages.create` resolving means Twilio *accepted* the message, not that a
+handset got it — the gap is minutes on a phone that is switched off and forever
+on a landline. Outbound sends carry a `statusCallback`, and
+`POST /api/webhooks/twilio/sms/status` writes Twilio's `MessageStatus` to
+`messages.status` as it advances.
+
+- The column is **nullable with no default**, and stays null on inbound rows
+  and on anything sent before it existed. Arrival is not a delivery receipt,
+  and a backfilled `sent` would invent a fact nobody observed. The UI reads
+  null as "no receipt to show" rather than as a state.
+- The callback is omitted when `APP_BASE_URL` is unset, which is local
+  development, where Twilio cannot reach your machine. The consequence is
+  intended and visible: a local message stops at the status the send returned
+  instead of claiming a delivery.
+- Only the **last** outbound message in a thread carries its receipt, the way a
+  phone does it — *did it get there* is only ever live about the most recent
+  one. `undelivered` and `failed` are the exception and stay put.
+- The update is narrowed on `twilio_message_sid` — unique across the table and
+  unguessable — and, **for a client subaccount only**, on the organization the
+  signature resolved to. Not unconditionally: `sendSms` falls back to the
+  agency's credentials for an org with no subaccount, so the receipt arrives
+  under the agency's `AccountSid` against a row filed under the client's
+  `org_id`, and an unconditional org clause matches nothing at all — no error,
+  no retry, just a receipt that never lands.
+
+Receipts appear without a refresh because `messages` is `replica identity
+full`. Realtime applies RLS per subscriber and evaluates the policy against the
+**old** row on an update; under the default replica identity the WAL carries
+only the primary key for that row, `org_id` is absent, and the event is
+dropped. Inserts have no old row, which is why realtime looked fine for two
+months.
+
+### Unread
+
+`conversation_reads` holds one watermark per `(user_id, contact_id)`:
+everything up to `last_read_at` has been seen. One row per conversation rather
+than a flag per message, so a thread with two hundred texts costs the same to
+mark read as one with two. It is **per user**, unlike `notification_dismissals`
+— an agency admin reading inside a client's inbox does not mark it read for the
+client, and the marker is filed under the contact's `org_id` rather than the
+caller's own membership.
+
+- The green pill against a name is **unread**. It used to count messages nobody
+  had *answered*, which is why a thread read weeks ago still carried a number;
+  a green pill with a number in it reads as unread in every messaging app
+  anyone has ever used.
+- "Is somebody waiting on me" is a genuinely different question and kept its own
+  home: the **Needs reply** tab, and the lead rows on the bell.
+- A thread only marks itself read while it is actually **visible**.
+  `components/inbox/mark-read.tsx` waits on the tab being on screen, because a
+  conversation left open in a background window went on marking every arriving
+  text read while the badge in front of you never lit up. It re-marks on each
+  new message's timestamp, which is what keeps the thread you are reading from
+  lighting up its own badge.
+- The Inbox badge and the bell read the same `unreadByContact`. They were built
+  separately once and immediately disagreed — one counting messages, the other
+  conversations.
+
+### Motion
+
+The Inbox is where `motion` (Framer Motion) earns its place: the selection
+travels between rows, the AI draft panel grows out of its trigger and leaves
+rather than vanishing, messages arrive with some weight behind them. The shared
+curves and springs are in `components/inbox/motion.ts`, restated from the CSS
+in `globals.css` so the two systems cannot drift into different ideas of what
+"fast" means. Framer Motion does **not** inherit the app's reduced-motion clamp
+— that block only reaches CSS durations — so each of these calls
+`useReducedMotion()` and drops the travel for a fade.
 
 ## Phone system
 
@@ -178,7 +273,8 @@ substitute your forwarding URL for `<BASE>`:
 Buying a number through the Phone System page sets the first two for you.
 Nothing else is configured from the console: the screening, status and
 outbound-status routes are all reached from `action` and `url` attributes on
-the TwiML this app returns.
+the TwiML this app returns, and the SMS status callback is set per message by
+`sendSms` from `APP_BASE_URL`.
 
 Set `APP_BASE_URL` to the same `<BASE>` value. Twilio signs each request over
 the exact URL it called, and the app must reconstruct that URL byte-for-byte to
@@ -226,6 +322,11 @@ so every row can be traced to a Twilio log. Rows created before these columns
 existed hold null, which is why the indexes are plain rather than partial:
 Postgres treats nulls as distinct.
 
+That SID is what the delivery-receipt webhook narrows its update on, which is
+what makes it idempotent for free: a replayed status callback rewrites one row
+to a value it already holds, and an out-of-order one is refused by
+`advancesStatus` rather than walking `delivered` back to `sent`.
+
 ## Conversation AI
 
 An **agent** answers inbound SMS: `chatbots` plus its child tables, edited on
@@ -250,6 +351,18 @@ plus the knowledge bases it may open and whether to reuse the prompt between
 replies. **Training** is knowledge-base triggers — which bases, and when to
 reach for each. **Goals** is the prompt itself in three boxes (personality,
 goal, additional), the model, and the actions.
+
+### Which model answers
+
+Per agent, on **Goals**, from either provider: Claude models through
+`ANTHROPIC_API_KEY`, GPT models through `OPENAI_API_KEY`, with a fallback
+model for when the first one is unavailable. `ai/generate.ts` is the
+dispatcher and holds the retry rules; the OpenAI half of the call lives in
+`generate-openai.ts` and the rules both providers answer under are in
+`contract.ts`. Effort and thinking are encoded as data per model rather than
+inferred, because each accepts a different shape and rejects the others with a
+400. Cost and speed differ a lot between the two, so the Usage page is worth a
+look after a switch.
 
 ### What the agent is given
 
@@ -276,20 +389,46 @@ no per-contact field. Putting `{{first_name}}` in a prompt box would split one
 shared entry into one per person. `settings.prompt_caching` turns it off per
 agent; it changes nothing the model sees.
 
-### Tool use is not wired
+### Tools: booking is wired, the rest are not
 
-`generate.ts` makes a plain text call with **no `tools`**. Book an appointment,
-start an automation and collect contact details are configurable and stored and
-**cannot fire**. The composed prompt says so, which stops the agent claiming to
-have booked things. See [AI_AGENTS_WIRING.md](./.claude/docs/AI_AGENTS_WIRING.md).
+The agent gets real tools — `find_available_times`, `book_appointment`,
+`list_my_appointments`, `cancel_appointment`, `reschedule_appointment` —
+built in `ai/booking-tools.ts` on the same pure slot generation the booking
+page uses, so it offers times that exist and writes the booking during the text
+conversation. Which calendar, whether it may cancel or move a meeting, and
+whether it books at all or only sends the link are per agent, and the sentence
+describing that is composed where the tools are so the two cannot disagree.
+
+Start an automation and collect contact details are still configurable, stored,
+and **cannot fire**. The composed prompt states them as a limitation rather than
+an ability — told it "may book an appointment" with no tool behind it, a model
+will say it has booked one — and booking drops out of that disclaimer exactly
+when it is wired, which an agent with the action ticked and no usable calendar
+is not. See [AI_AGENTS_WIRING.md](./.claude/docs/AI_AGENTS_WIRING.md).
+
+Tools are also why thinking is back on after being turned off everywhere. A
+thinking-off model will occasionally write a tool call into its **visible text**
+instead of emitting a `tool_use` block: the turn succeeds, the call never runs,
+nothing raises, and the bot tells somebody their meeting is booked when nothing
+was written. The token-ratio integrity check is what gave way instead — it runs
+only on turns the model did not think, alongside a new check for exactly that
+leakage.
 
 ### Drafts, sending, and hand-off
 
 Every generated reply is written to `ai_drafts` first, whatever happens next.
 Sending is a separately-gated second step, so "the model said nothing" is
 always distinguishable from "the model was not allowed to speak" — a held reply
-appears in the Inbox with its reason: a newer inbound arrived, AI handling is
-off for that contact, the agent is Suggestive, or Twilio rejected the send.
+appears in the Inbox with its reason: a newer inbound arrived, the agent is
+Suggestive, AI handling was switched off mid-generation, or Twilio rejected the
+send.
+
+Every switch that means "not this conversation, not now" — the agent off, the
+agent paused, AI handling off for the contact — returns **before** the model
+runs, so off costs nothing. Off on a contact used to stop only the send while
+the model went on writing drafts nobody had asked for, billing for one on every
+inbound text. `deliver` re-reads that per-contact flag anyway, which is what
+catches a human taking over *during* a generation.
 
 Generation runs off the response path, from the tail of the SMS webhook via
 `after()`. Nothing upstream can see it fail, which is why every path there
@@ -640,12 +779,38 @@ reminder window is skipped — the confirmation already said the same thing.
 
 ## Alerts and what's new
 
-The bell derives its alerts on every read; nothing fabricates one. Two kinds
-are live — someone waiting on a reply, and a Twilio or Anthropic balance
-approaching its threshold. `missed_call`, `booking` and `automation` are
-defined and not produced yet, on purpose: a list that mixes real rows with
-invented ones is worse than a short list, because you cannot tell which is
-which.
+The bell derives its alerts on every read; nothing fabricates one. Five kinds
+are live — texts you have not read, a thread nobody has answered, a new lead,
+an application error, and a Twilio or Anthropic balance approaching its
+threshold. `missed_call`, `booking` and `automation` are defined and not
+produced yet, on purpose: a list that mixes real rows with invented ones is
+worse than a short list, because you cannot tell which is which.
+
+A message row reads **unread**, from the same `unreadByContact` the Inbox badge
+uses, so the two cannot disagree — they had drifted apart twice before that,
+once counting messages against conversations and once over who spoke last. Who
+spoke last is the wrong question for this row: an agent that answers the
+instant a text lands makes the newest message outbound, so a thread could take
+five texts you had never seen and raise nothing at all. The bell going quiet
+when you open the thread is the intended consequence.
+
+One thread raises one row, but not always the same one. Unread is `reply-<newest
+unread message id>` — an event, named after a specific message so the next text
+raises a new row rather than being silenced by the dismissal of the last. Past
+`REPLY_OVERDUE_HOURS` with nobody having answered, it becomes
+`unanswered-<message id>` instead, which is a **condition**: it is about the
+waiting rather than the reading, so it is still derived from who spoke last, it
+stands whether or not you opened the thread, and it comes back a day at a time
+until somebody replies. Never both at once — a bell that lists one problem
+twice is a bell you stop reading.
+
+The message row says who texted and how many times and does **not** quote them.
+The quote was the thing rendering arbitrary inbound text — emoji, newlines, a
+paragraph — into a fixed two-line row in the corner of the screen, and it is
+not what you need in order to decide to open the thread. The lead rows below it
+still quote, on purpose: they are a different kind of news. The bell totals the
+`count` on each row rather than counting rows, so five texts from one person
+read as five and agree with the green badge beside their name.
 
 The balance rule has exactly one definition, in `src/lib/usage/warnings.ts` —
 the Usage page renders it as a banner and the bell maps it to an alert. A bell
@@ -673,6 +838,7 @@ never reuse or reorder one.
 | `GET /api/twilio/voice-token`            | Session cookie     | Mints a 20-minute Voice access token for the dialer      |
 | `POST /api/webhooks/form`                | `FORM_WEBHOOK_SECRET` | Contact form intake; fires `form_submit`               |
 | `POST /api/webhooks/twilio/sms`          | Twilio signature   | Logs inbound SMS (deduped on `MessageSid`); fires `keyword`, then the AI |
+| `POST /api/webhooks/twilio/sms/status`   | Twilio signature   | Delivery receipts: advances `messages.status`, narrowed on `MessageSid` |
 | `POST /api/webhooks/twilio/voice`        | Twilio signature   | Inbound call: `<Dial>` TwiML forwarding to your phone     |
 | `POST /api/webhooks/twilio/voice/screen` | Twilio signature   | Whisper on the forwarded leg: press a key to be connected |
 | `POST /api/webhooks/twilio/voice/screen/accept` | Twilio signature | Records the keypress against the leg's `CallSid`    |
@@ -717,14 +883,17 @@ src/
   lib/
     env.ts                   Typed env access, fails loudly when unset
     contacts.ts              find-or-create by phone, E.164 normalisation
-    conversations.ts         Thread reads and the reply alerts
+    conversations.ts         Thread reads, unread counts and the reply alerts
     alerts.ts                Alert shapes; notifications.ts holds dismissals
     whats-new.ts             The changelog
     vcard.ts                 .vcf parsing for contact import
     ai/
-      prompt.ts generate.ts  System prompt, conversation build, model call
+      prompt.ts generate.ts  System prompt, conversation build, provider dispatch
+      generate-openai.ts     The OpenAI half of that call
+      contract.ts            The rules both providers answer under
+      booking-tools.ts       The tools the agent can actually call
       respond.ts drafts.ts   The send decision; draft storage
-      integrity.ts models.ts Send safety check; the Settings dropdowns
+      integrity.ts models.ts Send safety check; the model picker
     booking/
       time.ts slots.ts       DST-aware arithmetic and pure slot generation
       queries.ts create.ts   Calendar reads; take a booking end to end
@@ -752,6 +921,7 @@ src/
     twilio/
       client.ts numbers.ts   REST client, sendSms, number management
       voice.ts screening.ts  Dialer env and grants; call screening
+      status.ts              MessageStatus, narrowed to what is stored
       webhook.ts             Signature verification, URL reconstruction, TwiML
   types/
     database.generated.ts    Written by `npm run db:types`. Never edit.
@@ -765,7 +935,16 @@ supabase/
 Tables, in migration order: `contacts`, `messages`, `calls`, `automations`,
 `automation_runs`, `settings`, `ai_drafts`, `pipeline_entries`, `packages`,
 `invoices`, `call_screenings`, `availability_rules`, `blocked_dates`,
-`bookings`, `notification_dismissals`, `a2p_profile`.
+`bookings`, `notification_dismissals`, `a2p_profile`, `organizations`,
+`org_members`, `active_org`, `org_secrets`, `credit_ledger`,
+`payment_connections`, `knowledge_bases`, `knowledge_web_sources`,
+`knowledge_web_pages`, `knowledge_faqs`, `chatbots`,
+`chatbot_knowledge_triggers`, `chatbot_knowledge_trigger_bases`,
+`chatbot_automation_rules`, `chatbot_automation_targets`,
+`chatbot_contact_fields`, `chatbot_knowledge_bases`, `calendar_groups`,
+`calendars`, `calendar_availability_rules`, `calendar_blocked_dates`,
+`calendar_one_time_links`, `app_errors`, `user_availability_rules`,
+`conversation_reads`.
 
 `settings` is one row, forever — `id` is a boolean that must be true, so a
 second insert fails on the primary key rather than quietly creating a shadow
