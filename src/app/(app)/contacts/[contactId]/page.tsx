@@ -8,6 +8,7 @@ import { ContactDetailsForm } from "@/components/contacts/contact-details-form";
 import { StatusBadge } from "@/components/contacts/status-badge";
 import { AiToggle } from "@/components/inbox/ai-toggle";
 import { MessageThread } from "@/components/inbox/message-thread";
+import { PendingMessagesProvider } from "@/components/inbox/pending-messages";
 import { ReplyBox } from "@/components/inbox/reply-box";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { Button } from "@/components/ui/button";
@@ -96,42 +97,21 @@ export default async function ContactDetailPage({ params }: PageProps) {
         />
       </header>
 
-      {/* Thread on the left, record on the right. Stacks below `lg`, where two
-          columns would leave neither wide enough to read.
+      {/* Three columns by subject: who they are, what was said, when you spoke.
+          The record reads left to right and the thread — the thing you came
+          here to do — sits in the middle with the room to be read.
 
-          Below `lg` this is one ordinary scrolling column. The two-pane version
-          relies on each pane scrolling inside a fixed-height shell, and on a
-          phone that shell is shorter than either pane's content — so both panes
-          were being clipped by the app's `overflow-hidden` with no way to
-          scroll to what had been cut off. */}
-      <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto lg:flex-row lg:overflow-hidden">
-        {/* A floor on mobile so the thread stays readable once the details
-            panel below it is competing for the same column. */}
-        <div className="flex min-h-[60vh] min-w-0 flex-1 flex-col border-t lg:min-h-0 lg:border-t-0">
-          <MessageThread messages={messages} />
-          <ReplyBox
-            contactId={contact.id}
-            contactLabel={label}
-            aiEnabled={contact.ai_enabled}
-          />
-        </div>
-
-        <aside className="w-full min-w-0 p-4 lg:w-80 lg:shrink-0 lg:overflow-y-auto lg:border-l">
+          The three only fit at `xl`. At `lg` the two side columns would be
+          40rem of the ~52rem this container gets beside the nav, leaving the
+          thread too narrow to hold a sentence, so the record stacks back into
+          one left-hand column and the thread keeps the rest. Below `lg` it is
+          one ordinary scrolling column: the split panes each scroll inside a
+          fixed-height shell, and on a phone that shell is shorter than any of
+          them — so all three were being clipped by the app's `overflow-hidden`
+          with no way to scroll to what had been cut off. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:grid-rows-[minmax(0,auto)_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,20rem)_minmax(0,1fr)_minmax(0,20rem)] xl:grid-rows-1">
+        <aside className="min-w-0 p-4 lg:col-start-1 lg:row-start-1 lg:overflow-y-auto lg:border-r">
           <ContactDetailsForm contact={contact} />
-
-          <Separator className="my-5" />
-
-          <section>
-            <h2 className="mb-3 text-xs font-semibold tracking-tight">
-              Call history
-              {calls.length > 0 && (
-                <span className="text-muted-foreground ml-1.5 font-normal tabular-nums">
-                  {calls.length}
-                </span>
-              )}
-            </h2>
-            <CallHistory calls={calls} />
-          </section>
 
           <Separator className="my-5" />
 
@@ -145,6 +125,42 @@ export default async function ContactDetailPage({ params }: PageProps) {
               <dd>{formatFullTimestamp(contact.created_at)}</dd>
             </div>
           </dl>
+        </aside>
+
+        {/* A floor on mobile so the thread stays readable once the two panels
+            around it are competing for the same column. */}
+        <div className="flex min-h-[60vh] min-w-0 flex-col border-t lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:min-h-0 lg:border-t-0 xl:row-span-1">
+          {/* The thread and the composer talk to each other through this, so
+              both have to be inside it: `ReplyBox` adds the message it is
+              sending and `MessageThread` is what draws it before the server
+              has caught up. Rendering either one without it throws, which is
+              what this page did — opening any contact was a runtime error,
+              because optimistic sending was added to the Inbox thread and this
+              second place that mounts the same two components was missed.
+
+              Keyed on the contact for the reason the Inbox is: an unsettled
+              message left over from another contact would never reconcile
+              here, and would sit on screen showing somebody else's text. */}
+          <PendingMessagesProvider key={contact.id}>
+            <MessageThread messages={messages} />
+            <ReplyBox
+              contactId={contact.id}
+              contactLabel={label}
+              aiEnabled={contact.ai_enabled}
+            />
+          </PendingMessagesProvider>
+        </div>
+
+        <aside className="min-w-0 border-t p-4 lg:col-start-1 lg:row-start-2 lg:overflow-y-auto lg:border-r xl:col-start-3 xl:row-start-1 xl:border-t-0 xl:border-r-0 xl:border-l">
+          <h2 className="mb-3 text-xs font-semibold tracking-tight">
+            Call history
+            {calls.length > 0 && (
+              <span className="text-muted-foreground ml-1.5 font-normal tabular-nums">
+                {calls.length}
+              </span>
+            )}
+          </h2>
+          <CallHistory calls={calls} />
         </aside>
       </div>
     </div>

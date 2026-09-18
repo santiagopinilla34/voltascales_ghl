@@ -5,20 +5,27 @@ import { X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 /**
  * Chips plus a text field. Enter or comma commits a tag, Backspace on an empty
  * field removes the last one — the conventions people already expect from a tag
  * field, so nobody has to be told how it works.
+ *
+ * `className` reaches the bordered box, so a caller that tints its own fields
+ * can tint this one to match rather than leaving one grey field in a green
+ * form. It merges, so the default border and focus ring stay unless overridden.
  */
 export function TagInput({
   tags,
   onChange,
   disabled,
+  className,
 }: {
   tags: string[];
   onChange: (tags: string[]) => void;
   disabled?: boolean;
+  className?: string;
 }) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,7 +42,10 @@ export function TagInput({
 
   return (
     <div
-      className="border-input focus-within:ring-ring/50 flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border p-1.5 focus-within:ring-[3px]"
+      className={cn(
+        "border-input focus-within:ring-ring/50 flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border p-1.5 focus-within:ring-[3px]",
+        className,
+      )}
       onClick={() => inputRef.current?.focus()}
     >
       {tags.map((tag) => (

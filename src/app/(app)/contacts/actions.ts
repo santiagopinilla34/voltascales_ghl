@@ -13,8 +13,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { ContactStatus } from "@/types/database";
 
 export type ActionResult<T = null> =
-  | { ok: true; value: T }
-  | { ok: false; error: string };
+  { ok: true; value: T } | { ok: false; error: string };
 
 const CONTACT_STATUSES: readonly ContactStatus[] = [
   "new",
@@ -78,6 +77,31 @@ function isPlausibleEmail(value: string): boolean {
 }
 
 /**
+ * Deduplicated case-insensitively but stored as typed: "Lead" and "lead"
+ * would otherwise both sit on the contact and read as a bug.
+ *
+ * Shared by the edit form and the add dialog so a tag typed in either place
+ * lands in the same shape — `contact_tag_added` compares case-insensitively,
+ * and a rule that matches a tag added later has to match the same tag set on
+ * the contact at creation.
+ */
+function normalizeTags(input: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+
+  for (const raw of input) {
+    const tag = raw.trim();
+    const key = tag.toLowerCase();
+    if (tag && !seen.has(key)) {
+      seen.add(key);
+      tags.push(tag);
+    }
+  }
+
+  return tags;
+}
+
+/**
  * Edits the fields a human owns: name, email, business name, status and tags.
  *
  * `phone` is deliberately not editable. It is the natural key every webhook
@@ -104,21 +128,13 @@ export async function updateContact(
 
   const email = input.email.trim();
   if (email && !isPlausibleEmail(email)) {
-    return { ok: false, error: `"${email}" doesn't look like an email address` };
+    return {
+      ok: false,
+      error: `"${email}" doesn't look like an email address`,
+    };
   }
 
-  // Deduplicated case-insensitively but stored as typed: "Lead" and "lead"
-  // would otherwise both sit on the contact and read as a bug.
-  const seen = new Set<string>();
-  const tags: string[] = [];
-  for (const raw of input.tags) {
-    const tag = raw.trim();
-    const key = tag.toLowerCase();
-    if (tag && !seen.has(key)) {
-      seen.add(key);
-      tags.push(tag);
-    }
-  }
+  const tags = normalizeTags(input.tags);
 
   const name = input.name.trim();
   const businessName = input.businessName.trim();
@@ -163,10 +179,21 @@ export async function updateContact(
  * The phone goes through the same normaliser the form webhook uses, so a
  * number typed as "(514) 581-8570" lands as the same row Twilio would create
  * for "+15145818570" rather than a duplicate.
+ *
+ * The phone is the only required field, and the only one that cannot be fixed
+ * afterwards — it is the natural key, so `updateContact` refuses to change it.
+ * Everything else mirrors the edit form and is optional: filling it in here
+ * only saves reopening the contact to type the same thing. Anything omitted
+ * arrives as `undefined` and is left to the column default, which is how a
+ * contact created by an inbound text starts out.
  */
 export async function createContact(input: {
   phone: string;
   name: string;
+  email?: string;
+  businessName?: string;
+  status?: string;
+  tags?: string[];
 }): Promise<ActionResult<{ id: string }>> {
   const supabase = await requireUser();
   if (!supabase) return { ok: false, error: "Not authenticated" };
@@ -180,11 +207,42 @@ export async function createContact(input: {
     };
   }
 
+  // Validated exactly as `updateContact` does, and for the same reason: a
+  // server action is a public endpoint, so what the dialog allows is not a
+  // constraint on what arrives here.
+  if (
+    input.status !== undefined &&
+    !CONTACT_STATUSES.includes(input.status as ContactStatus)
+  ) {
+    return { ok: false, error: `"${input.status}" is not a valid status` };
+  }
+
+  const email = input.email?.trim() ?? "";
+  if (email && !isPlausibleEmail(email)) {
+    return {
+      ok: false,
+      error: `"${email}" doesn't look like an email address`,
+    };
+  }
+
   const name = input.name.trim();
+  const businessName = input.businessName?.trim() ?? "";
+  const tags = normalizeTags(input.tags ?? []);
 
   const { data, error } = await supabase
     .from("contacts")
-    .insert({ phone, name: name || null })
+    .insert({
+      phone,
+      // Empty means "we don't know this", which is null, not "" — the same
+      // rule the edit form writes by.
+      name: name || null,
+      email: email || null,
+      business_name: businessName || null,
+      // Omitted rather than defaulted in here, so the column default stays the
+      // single place a new contact's starting status is decided.
+      ...(input.status ? { status: input.status as ContactStatus } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
+    })
     .select("*")
     .single();
 
@@ -207,10 +265,58 @@ export async function createContact(input: {
     return { ok: false, error: error.message };
   }
 
+  // `contact_created` only, even when the dialog set tags on the way in.
+  //
+  // Tagging an existing contact fires `contact_tag_added`, so setting the same
+  // tag here arguably should too — but that would make one click of Add
+  // contact run two rule chains and send two texts, for real money, at the
+  // moment somebody is still typing the record in. The conservative half is
+  // the one that can be changed later without having already sent anything.
   await dispatchContactCreated(supabase, data);
 
   revalidateContact(data.id);
   return { ok: true, value: { id: data.id } };
+}
+
+/**
+ * Removes a contact for good.
+ *
+ * What goes with them is the database's decision rather than this action's:
+ * messages, calls, AI drafts, pipeline entries and read markers are
+ * `on delete cascade`, while invoices, bookings and automation runs are
+ * `on delete set null` — the money and the audit trail outlive the person
+ * being removed, and a deleted contact must not take an invoice with it.
+ * Doing the same work here in a transaction this action cannot open is how
+ * that guarantee would drift.
+ *
+ * Nothing dispatches. There is no `contact_deleted` trigger, and the rules
+ * people write are about somebody arriving or changing, not leaving.
+ */
+export async function deleteContact(contactId: string): Promise<ActionResult> {
+  const supabase = await requireUser();
+  if (!supabase) return { ok: false, error: "Not authenticated" };
+
+  // Deleted rows are selected back so that matching nothing is an error rather
+  // than a silent success. RLS is a filter, not a gate: a contact belonging to
+  // an org this session is not scoped to produces a delete of zero rows and no
+  // error at all, which would otherwise report as "Contact deleted".
+  const { data, error } = await supabase
+    .from("contacts")
+    .delete()
+    .eq("id", contactId)
+    .select("id");
+
+  if (error) return { ok: false, error: error.message };
+
+  if (!data || data.length === 0) {
+    return {
+      ok: false,
+      error: "That contact no longer exists, or is not yours to delete.",
+    };
+  }
+
+  revalidateContact(contactId);
+  return { ok: true, value: null };
 }
 
 export type ImportSummary = {

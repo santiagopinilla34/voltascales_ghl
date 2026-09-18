@@ -23,6 +23,30 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-09-11-delete-contact",
+    date: "2026-09-11",
+    title: "Contacts can be deleted",
+    body: "There was no way to remove a contact from inside the app — a number typed wrong, a duplicate, or a test record stayed on the list for good. The three-dot menu on a contact row now ends in Delete contact, and it asks first, naming who is about to go and how many messages and calls go with them. Their conversation, calls, AI drafts and pipeline entry are removed with them. Invoices and bookings in their name are deliberately kept: they lose the link to the contact rather than going with them, so the money and the history stay intact.",
+    href: "/contacts",
+    tag: "New",
+  },
+  {
+    id: "2026-09-11-add-contact-fields",
+    date: "2026-09-11",
+    title: "Add contact asks for the whole record, not just a number",
+    body: "Adding someone by hand gave you two boxes — their number and their name — and left you to open the contact afterwards to fill in the rest. The dialog now carries the same fields the contact itself does: email, business name, status and tags. The phone number is still the only one you have to supply, and still the only one you cannot change later, because it is what an incoming text is matched against. Everything else is optional, and anything you skip looks exactly like a contact who texted in cold.",
+    href: "/contacts",
+    tag: "Improved",
+  },
+  {
+    id: "2026-09-11-contact-three-columns",
+    date: "2026-09-11",
+    title: "A contact reads across three columns now",
+    body: "Opening a contact used to put the thread on the left and stack their details on top of their call history down the right, so the two things you glance at were fighting for one narrow strip and the call list started halfway down the screen. Their details now have the left column to themselves, the conversation sits in the middle where it has the room to be read, and call history gets a column of its own on the right. On a narrower screen the two side columns fold back together on the left, and on a phone it stacks the way it always did.",
+    href: "/contacts",
+    tag: "Improved",
+  },
+  {
     id: "2026-09-09-unread-kept-and-named",
     date: "2026-09-09",
     title: "The green count stops vanishing, and the bell says who texted",

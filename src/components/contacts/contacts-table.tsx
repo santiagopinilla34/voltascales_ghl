@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowUpDown,
@@ -9,15 +9,18 @@ import {
   ChevronRight,
   Copy,
   ListFilter,
+  Loader2,
   MessageSquare,
   MoreHorizontal,
   Phone,
   Rows2,
   Rows3,
   Search,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { deleteContact } from "@/app/(app)/contacts/actions";
 import type { ContactWithActivity } from "@/lib/contacts";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import {
@@ -37,7 +40,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -83,6 +95,18 @@ import { cn } from "@/lib/utils";
  * Neither half works with the other half left behind.
  */
 
+/**
+ * Typed by hand to arm the delete, and compared exactly — lowercase "delete"
+ * does not pass.
+ *
+ * The point is not that it is hard to type. It is that deleting a contact is
+ * the one action here with no undo behind it, and a dialog whose confirm
+ * button is a single click away from the menu item that opened it is one
+ * mis-aimed click from taking a customer's whole history. Making the hand do
+ * something deliberate is what separates the two.
+ */
+const DELETE_PHRASE = "DELETE";
+
 /** Rows per page. Above this the table is taller than any laptop window. */
 const PAGE_SIZE = 25;
 
@@ -125,6 +149,22 @@ export function ContactsTable({
   const [compact, setCompact] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
+  // The contact the confirmation is asking about, and null when it is closed.
+  // The whole row rather than an id: the dialog names who is about to go, and
+  // the row it came from is gone from `contacts` by the time it closes.
+  const [deleting, setDeleting] = useState<ContactWithActivity | null>(null);
+  const [deletePending, startDelete] = useTransition();
+  // What has been typed into the confirmation field. Cleared whenever the
+  // dialog opens or closes, so a previous attempt cannot leave the word
+  // sitting there and arm the button for the next contact.
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+
+  const deleteArmed = deleteConfirm === DELETE_PHRASE;
+
+  function askToDelete(contact: ContactWithActivity) {
+    setDeleteConfirm("");
+    setDeleting(contact);
+  }
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -199,6 +239,40 @@ export function ContactsTable({
         else next.add(contact.id);
       }
       return next;
+    });
+  }
+
+  function confirmDelete() {
+    // Checked here and not only on the button, because Enter in the field
+    // reaches this too.
+    if (!deleting || !deleteArmed || deletePending) return;
+
+    const label = contactLabel(deleting);
+
+    startDelete(async () => {
+      const result = await deleteContact(deleting.id);
+
+      if (!result.ok) {
+        // The dialog stays open: the row is still there, and closing it would
+        // read as though the delete had worked.
+        toast.error("Could not delete the contact", {
+          description: result.error,
+        });
+        return;
+      }
+
+      // Dropped from the selection too, or the footer would go on counting a
+      // row that no longer exists.
+      setSelected((previous) => {
+        if (!previous.has(deleting.id)) return previous;
+        const next = new Set(previous);
+        next.delete(deleting.id);
+        return next;
+      });
+
+      setDeleting(null);
+      toast.success(`Deleted ${label}`);
+      router.refresh();
     });
   }
 
@@ -629,6 +703,16 @@ export function ContactsTable({
                             <Copy className="size-4" />
                             Copy email
                           </DropdownMenuItem>
+
+                          <DropdownMenuSeparator />
+
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onSelect={() => askToDelete(contact)}
+                          >
+                            <Trash2 className="size-4" />
+                            Delete contact
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -705,6 +789,111 @@ export function ContactsTable({
           </div>
         )}
       </div>
+
+      {/* Deliberately not closable while the delete is in flight: the dialog
+          is the only thing naming who is being removed, and there is no undo
+          behind it. */}
+      <Dialog
+        open={Boolean(deleting)}
+        onOpenChange={(next) => {
+          if (!next && !deletePending) setDeleting(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this contact?</DialogTitle>
+            <DialogDescription>
+              {deleting && (
+                <>
+                  {contactLabel(deleting)} goes for good, along with
+                  {describeHistory(deleting)}. This cannot be undone.
+                  <br />
+                  <br />
+                  Invoices and bookings in their name are kept — they lose the
+                  link to the contact rather than going with them.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2">
+            <Label htmlFor="delete-confirm">
+              Type {DELETE_PHRASE} to confirm
+            </Label>
+            <Input
+              id="delete-confirm"
+              value={deleteConfirm}
+              onChange={(event) => setDeleteConfirm(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter is what the hand does next after typing the word, and
+                // the button is the only other thing in the dialog that can
+                // take it.
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  confirmDelete();
+                }
+              }}
+              placeholder={DELETE_PHRASE}
+              // Off on all four: a browser filling this in, or correcting the
+              // case of it, would undo the whole point of asking.
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              disabled={deletePending}
+              className="font-mono tracking-wide"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDeleting(null)}
+              disabled={deletePending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={confirmDelete}
+              disabled={deletePending || !deleteArmed}
+            >
+              {deletePending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              Delete contact
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+/**
+ * "their 12 messages and 3 calls", for the confirmation to name what goes.
+ *
+ * Says "their conversation" rather than "0 messages and 0 calls" for someone
+ * added by hand and never contacted: a count of nothing reads as a bug in the
+ * sentence, and the contact is still the thing being deleted.
+ */
+function describeHistory(contact: ContactWithActivity): string {
+  const parts: string[] = [];
+
+  if (contact.messageCount > 0) {
+    parts.push(
+      `${contact.messageCount} message${contact.messageCount === 1 ? "" : "s"}`,
+    );
+  }
+  if (contact.callCount > 0) {
+    parts.push(`${contact.callCount} call${contact.callCount === 1 ? "" : "s"}`);
+  }
+
+  if (parts.length === 0) return " everything on their record";
+
+  return ` their ${parts.join(" and ")}`;
 }
