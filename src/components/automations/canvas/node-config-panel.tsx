@@ -15,7 +15,7 @@ import {
   type MatchMode,
   type TriggerType,
 } from "@/components/automations/editor-shape";
-import { PIPELINE_STAGES } from "@/lib/pipeline-stages";
+import { useStageOptions } from "@/components/automations/stage-options";
 import { TRIGGER_META, type TriggerKey } from "@/components/automations/trigger-meta";
 import { STATUS_OPTIONS } from "@/components/contacts/status-badge";
 import { TagInput } from "@/components/contacts/tag-input";
@@ -190,6 +190,7 @@ function TriggerConfig({
   onChange: (fields: Partial<EditorTrigger>) => void;
 }) {
   const meta = TRIGGER_META[trigger.type as TriggerKey];
+  const stageOptions = useStageOptions();
 
   return (
     <div className="flex flex-col gap-4">
@@ -303,9 +304,9 @@ function TriggerConfig({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ANY}>Any stage</SelectItem>
-              {PIPELINE_STAGES.map((stage) => (
-                <SelectItem key={stage.value} value={stage.value}>
-                  {stage.label}
+              {stageOptions.map((stage) => (
+                <SelectItem key={stage} value={stage}>
+                  {stage}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -390,6 +391,8 @@ function ActionConfig({
   disabled: boolean;
   onChange: (fields: Partial<EditorAction>) => void;
 }) {
+  const stageOptions = useStageOptions();
+
   // The union of every trigger's variables. A rule that fires on two things
   // can use either set — the ones that don't apply on a given run render empty
   // and are reported in the run log, which is better than hiding them here and
@@ -573,11 +576,17 @@ function ActionConfig({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PIPELINE_STAGES.map((stage) => (
-                <SelectItem key={stage.value} value={stage.value}>
-                  {stage.label}
-                </SelectItem>
-              ))}
+              {stageOptions.length === 0 ? (
+                <div className="text-muted-foreground px-2 py-3 text-xs">
+                  No stages yet. Create a pipeline first.
+                </div>
+              ) : (
+                stageOptions.map((stage) => (
+                  <SelectItem key={stage} value={stage}>
+                    {stage}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
         </Field>

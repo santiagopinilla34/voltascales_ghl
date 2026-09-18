@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Contact, Database, PipelineStage } from "@/types/database";
+import type { Contact, Database } from "@/types/database";
 
 import { runAutomationsForEvent } from "./engine";
 
@@ -117,8 +117,8 @@ export async function dispatchContactChanged(
 export async function dispatchStageChanged(
   supabase: SupabaseClient<Database>,
   contact: Contact,
-  stage: PipelineStage,
-  previousStage: PipelineStage | null,
+  stage: string,
+  previousStage: string | null,
 ): Promise<void> {
   // Re-saving a card into the column it is already in is not a move.
   if (previousStage === stage) return;

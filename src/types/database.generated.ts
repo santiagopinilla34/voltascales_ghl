@@ -1759,24 +1759,30 @@ export type Database = {
           created_at: string
           id: string
           org_id: string
+          pipeline_id: string
           stage: string
           stage_changed_at: string
+          value_cents: number
         }
         Insert: {
           contact_id: string
           created_at?: string
           id?: string
           org_id?: string
+          pipeline_id: string
           stage?: string
           stage_changed_at?: string
+          value_cents?: number
         }
         Update: {
           contact_id?: string
           created_at?: string
           id?: string
           org_id?: string
+          pipeline_id?: string
           stage?: string
           stage_changed_at?: string
+          value_cents?: number
         }
         Relationships: [
           {
@@ -1788,6 +1794,106 @@ export type Database = {
           },
           {
             foreignKeyName: "pipeline_entries_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_entries_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_entries_stage_fkey"
+            columns: ["pipeline_id", "stage"]
+            isOneToOne: false
+            referencedRelation: "pipeline_stages"
+            referencedColumns: ["pipeline_id", "name"]
+          },
+        ]
+      }
+      pipeline_stages: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          name: string
+          org_id: string
+          pipeline_id: string
+          position: number
+          show_in_funnel: boolean
+          show_in_pie: boolean
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          name: string
+          org_id: string
+          pipeline_id: string
+          position?: number
+          show_in_funnel?: boolean
+          show_in_pie?: boolean
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          name?: string
+          org_id?: string
+          pipeline_id?: string
+          position?: number
+          show_in_funnel?: boolean
+          show_in_pie?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_stages_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_stages_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipelines: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          org_id: string
+          stage_color_mode: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          org_id: string
+          stage_color_mode?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          org_id?: string
+          stage_color_mode?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipelines_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"

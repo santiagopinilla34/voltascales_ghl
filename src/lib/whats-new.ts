@@ -23,6 +23,30 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-09-18-deals-are-worth-something",
+    date: "2026-09-18",
+    title: "A deal is worth what you say it is worth",
+    body: "Every stage carried a figure, and it was reading the wrong thing: the sum of every invoice ever raised against the people standing in that column. Invoices get raised at the close, so Interested and Booked were permanently CA$0 — the columns where \"what is sitting here worth\" is the entire question were the ones that could never answer it, and the number moved from column to column with the contact instead of belonging to any of them. A deal now carries its own value. Add to pipeline asks for it, and every card shows it: click the amount to change it, Enter to keep it, Escape to leave it alone. The stage total is the sum of its cards, so five deals at CA$200 is a column reading CA$1,000 — which is what a pipeline total was always supposed to mean. Values already on your board were kept, so nothing reads zero that didn't this morning.",
+    href: "/pipeline",
+    tag: "New",
+  },
+  {
+    id: "2026-09-14-board-picks-its-pipeline",
+    date: "2026-09-14",
+    title: "The board shows the pipeline you pick",
+    body: "Creating a pipeline gave you a row in a list and nothing else — the board still ran on one fixed set of seven columns. It runs on whichever pipeline you choose now. Where the search box used to sit there is a picker listing every pipeline you have, and choosing one redraws the board in its stages, with its colours. The link carries the choice, so a particular board is something you can bookmark or send to someone. Switching is also something you can watch happen rather than a screen that blinks: the picker names where it is going the moment you choose, the board you are leaving dims while the new one is read, and its columns deal in from the left instead of arriving all at once. Searching deals has moved along the toolbar rather than going away. Renaming a stage now carries its deals with it, and a stage with deals still standing in it refuses to be deleted until you have moved them.",
+    href: "/pipeline",
+    tag: "New",
+  },
+  {
+    id: "2026-09-14-pipelines-are-real",
+    date: "2026-09-14",
+    title: "Pipelines you can actually create",
+    body: "The Pipelines tab used to be a drawing. You could add one, rename it, duplicate it and delete it, and a reload brought back the single pipeline the board runs on, because there was no table behind any of it. There is now. Create Pipeline opens a real editor: name it, choose whether its stages wear a coloured dot, a filled background or no colour at all, then build the stages themselves — rename them, recolour them from a palette, drag them into the order they run, and say which of them count in the funnel and conversion reports. A contact can stand on as many of your pipelines as you need — someone part-way through Sales can be in Onboarding at the same time, at their own stage and their own value on each, and taking them off one board leaves the others alone. Your existing seven columns are already in the list as Default pipeline.",
+    href: "/pipeline",
+    tag: "New",
+  },
+  {
     id: "2026-09-11-delete-contact",
     date: "2026-09-11",
     title: "Contacts can be deleted",

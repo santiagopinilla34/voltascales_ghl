@@ -7,6 +7,7 @@ import {
   getAutomation,
   listRuns,
 } from "@/lib/automations/queries";
+import { listStageNames } from "@/lib/pipelines";
 import { createClient } from "@/lib/supabase/server";
 
 type PageProps = { params: Promise<{ automationId: string }> };
@@ -41,13 +42,17 @@ export default async function AutomationDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const runs = await listRuns(supabase, automation.id);
+  const [runs, stageOptions] = await Promise.all([
+    listRuns(supabase, automation.id),
+    listStageNames(supabase),
+  ]);
 
   return (
     <WorkflowBuilder
       automation={automation}
       runs={runs}
       runLimit={RUN_LOG_LIMIT}
+      stageOptions={stageOptions}
     />
   );
 }

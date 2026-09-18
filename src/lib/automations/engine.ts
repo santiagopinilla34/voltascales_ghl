@@ -3,7 +3,6 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isOrgSuspended } from "@/lib/orgs/suspension";
-import { pipelineStageLabel } from "@/lib/pipeline-stages";
 import { hasCredit } from "@/lib/billing/credit";
 import { recordAppError } from "@/lib/app-errors";
 import type {
@@ -12,7 +11,6 @@ import type {
   Contact,
   ContactStatus,
   Database,
-  PipelineStage,
 } from "@/types/database";
 
 import { executeAction, templateVariablesFor } from "./actions";
@@ -136,9 +134,9 @@ type AutomationTrigger =
   | {
       trigger: "opportunity_stage_changed";
       contact: Contact;
-      stage: PipelineStage;
+      stage: string;
       /** Null when the contact just joined the board. */
-      previousStage: PipelineStage | null;
+      previousStage: string | null;
     };
 
 /**
@@ -236,9 +234,11 @@ function eventVariables(event: AutomationEvent): TemplateVariables {
       };
     case "opportunity_stage_changed":
       return {
-        stage: pipelineStageLabel(event.stage),
+        // The stage name is already what a person reads — there is no slug
+        // left to translate.
+        stage: event.stage,
         previous_stage: event.previousStage
-          ? pipelineStageLabel(event.previousStage)
+          ? event.previousStage
           : "",
       };
   }

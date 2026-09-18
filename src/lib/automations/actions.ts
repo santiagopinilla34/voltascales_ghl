@@ -8,11 +8,15 @@ import { sendEmail } from "@/lib/notify/email";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/twilio/client";
 import { toMessageStatus } from "@/lib/twilio/status";
-import type { Contact, Database, PipelineStage } from "@/types/database";
+import type { Contact, Database } from "@/types/database";
 
 import type { AutomationAction, MessageTarget } from "./config";
 import type { EventRecipient } from "./engine";
-import { contactVariables, renderTemplate, type TemplateVariables } from "./template";
+import {
+  contactVariables,
+  renderTemplate,
+  type TemplateVariables,
+} from "./template";
 
 /** Twilio rejects bodies over 1600 characters. */
 const MAX_SMS_LENGTH = 1600;
@@ -82,7 +86,9 @@ async function resolveTarget(
     const address = channel === "sms" ? recipient.phone : recipient.email;
     return address?.trim()
       ? { address: address.trim() }
-      : { missing: `no ${channel === "sms" ? "phone number" : "email address"} for the contact` };
+      : {
+          missing: `no ${channel === "sms" ? "phone number" : "email address"} for the contact`,
+        };
   }
 
   // Checked before the settings read, so a calendar with its own alert number
@@ -101,9 +107,7 @@ async function resolveTarget(
   }
 
   const address = settings?.booking_notify_number?.trim();
-  return address
-    ? { address }
-    : { missing: "no alert number set in Settings" };
+  return address ? { address } : { missing: "no alert number set in Settings" };
 }
 
 /**
@@ -118,7 +122,12 @@ export async function executeAction(
     case "send_sms":
       return sendSmsAction(action.to, action.template, context);
     case "send_email":
-      return sendEmailAction(action.to, action.subject, action.template, context);
+      return sendEmailAction(
+        action.to,
+        action.subject,
+        action.template,
+        context,
+      );
     case "add_tag":
       return addTagAction(action.tag, context);
     case "remove_tag":
@@ -247,7 +256,10 @@ async function sendSmsAction(
   if ("missing" in resolved) {
     // Not thrown. A rule that texts the client and alerts you should still
     // reach the client when your own alert number is unset.
-    return { summary: `send_sms (${to}) skipped: ${resolved.missing}`, contact };
+    return {
+      summary: `send_sms (${to}) skipped: ${resolved.missing}`,
+      contact,
+    };
   }
 
   const message = await sendSms(resolved.address, text, context.orgId);
@@ -258,7 +270,9 @@ async function sendSmsAction(
   if (to !== "contact" || !contact) {
     return {
       summary: `send_sms → ${resolved.address} [${message.sid}]${
-        unknown.length > 0 ? ` (unknown placeholders: ${unknown.join(", ")})` : ""
+        unknown.length > 0
+          ? ` (unknown placeholders: ${unknown.join(", ")})`
+          : ""
       }`,
       contact,
     };
@@ -336,7 +350,10 @@ async function sendEmailAction(
 
   const resolved = await resolveTarget(to, "email", context);
   if ("missing" in resolved) {
-    return { summary: `send_email (${to}) skipped: ${resolved.missing}`, contact };
+    return {
+      summary: `send_email (${to}) skipped: ${resolved.missing}`,
+      contact,
+    };
   }
 
   const result = await sendEmail({
@@ -347,7 +364,9 @@ async function sendEmailAction(
   });
 
   if (!result.ok) {
-    throw new Error(`send_email to ${resolved.address} failed: ${result.error}`);
+    throw new Error(
+      `send_email to ${resolved.address} failed: ${result.error}`,
+    );
   }
 
   const unknown = [...new Set([...body.unknown, ...line.unknown])];
@@ -377,7 +396,9 @@ async function addTagAction(
     .single();
 
   if (error || !data) {
-    throw new Error(`add_tag "${tag}" failed: ${error?.message ?? "no row returned"}`);
+    throw new Error(
+      `add_tag "${tag}" failed: ${error?.message ?? "no row returned"}`,
+    );
   }
 
   return { summary: `add_tag "${tag}"`, contact: data };
@@ -464,9 +485,7 @@ async function setAiAction(
     .single();
 
   if (error || !data) {
-    throw new Error(
-      `set_ai failed: ${error?.message ?? "no row returned"}`,
-    );
+    throw new Error(`set_ai failed: ${error?.message ?? "no row returned"}`);
   }
 
   return { summary: `set_ai ${enabled ? "on" : "off"}`, contact: data };
@@ -495,7 +514,9 @@ async function updateFieldAction(
   if (!text) {
     return {
       summary: `update_field "${field}" skipped: the value rendered empty${
-        unknown.length > 0 ? ` (unknown placeholders: ${unknown.join(", ")})` : ""
+        unknown.length > 0
+          ? ` (unknown placeholders: ${unknown.join(", ")})`
+          : ""
       }`,
       contact,
     };
@@ -532,7 +553,10 @@ async function updateFieldAction(
   const suffix =
     unknown.length > 0 ? ` (unknown placeholders: ${unknown.join(", ")})` : "";
 
-  return { summary: `update_field "${field}" → "${text}"${suffix}`, contact: data };
+  return {
+    summary: `update_field "${field}" → "${text}"${suffix}`,
+    contact: data,
+  };
 }
 
 /**
@@ -549,59 +573,163 @@ async function updateFieldAction(
  * actually moved.
  */
 async function setPipelineStageAction(
-  stage: PipelineStage,
+  stage: string,
   { supabase, contact, orgId }: ActionContext,
 ): Promise<ActionResult> {
   if (!contact) return noContact(`set_pipeline_stage "${stage}"`);
 
-  const { data: existing, error: lookupError } = await supabase
+  // Case-insensitively, because a rule is typed by a person and "closed" is
+  // what they will write for a column named "Closed".
+  const wanted = stage.trim().toLowerCase();
+
+  const { data: entries, error: lookupError } = await supabase
     .from("pipeline_entries")
-    .select("id, stage")
-    .eq("contact_id", contact.id)
-    .maybeSingle();
+    .select("id, stage, pipeline_id")
+    .eq("contact_id", contact.id);
 
   if (lookupError) {
-    throw new Error(`set_pipeline_stage "${stage}" failed: ${lookupError.message}`);
+    throw new Error(
+      `set_pipeline_stage "${stage}" failed: ${lookupError.message}`,
+    );
   }
 
-  if (existing?.stage === stage) {
-    return { summary: `set_pipeline_stage "${stage}" (unchanged)`, contact };
+  // Which boards the rule means.
+  //
+  // Since 20260918010000 a contact can stand on several, so this is a list. A
+  // rule naming a stage is saying where in a process somebody is, not which
+  // process they belong to — which is exactly what `listStageNames` already
+  // tells the builder: one organization can have "Closed" on three pipelines
+  // and a rule that says "Closed" means all of them. So it moves them on every
+  // board that has such a column, and leaves the boards that do not alone.
+  //
+  // Someone on no board joins the organization's first pipeline, the one the
+  // Opportunities tab opens on.
+  const standing = entries ?? [];
+  const onNoBoard = standing.length === 0;
+
+  let pipelineIds = [...new Set(standing.map((entry) => entry.pipeline_id))];
+
+  if (onNoBoard) {
+    const { data: fallback } = await supabase
+      .from("pipelines")
+      .select("id")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    pipelineIds = fallback ? [fallback.id] : [];
+  }
+
+  if (pipelineIds.length === 0) {
+    // No pipeline exists at all. Logged and skipped rather than thrown: this
+    // runs off the response path, and a rule that cannot place someone is not
+    // a reason to fail the run that fired it.
+    return {
+      summary: `set_pipeline_stage "${stage}" (skipped — no pipeline to put them on)`,
+      contact,
+    };
+  }
+
+  // Every column of every board in play, in one query rather than one per
+  // board — a contact on three pipelines should not cost three round trips.
+  const { data: columns } = await supabase
+    .from("pipeline_stages")
+    .select("name, pipeline_id")
+    .in("pipeline_id", pipelineIds);
+
+  // The column this stage names, per board. A board missing from this map has
+  // no such column and is skipped.
+  const nameByPipeline = new Map<string, string>();
+
+  for (const column of columns ?? []) {
+    if (column.name.toLowerCase() === wanted) {
+      nameByPipeline.set(column.pipeline_id, column.name);
+    }
+  }
+
+  if (nameByPipeline.size === 0) {
+    // The rule names a stage none of these pipelines has. Skipped and said so,
+    // for the same reason: the run's log is where this is worth reading, and
+    // the composite foreign key would otherwise turn it into a raw 23503.
+    return {
+      summary: `set_pipeline_stage "${stage}" (skipped — no such stage on ${
+        onNoBoard ? "this pipeline" : "any of their pipelines"
+      })`,
+      contact,
+    };
   }
 
   const now = new Date().toISOString();
 
-  const { error } = existing
-    ? await supabase
-        .from("pipeline_entries")
-        .update({ stage, stage_changed_at: now })
-        .eq("id", existing.id)
-    : await supabase
-        .from("pipeline_entries")
-        .insert({
-          contact_id: contact.id,
-          org_id: orgId,
-          stage,
-          stage_changed_at: now,
-        });
+  if (onNoBoard) {
+    const pipelineId = pipelineIds[0];
+    const name = nameByPipeline.get(pipelineId)!;
 
-  if (error) {
-    throw new Error(`set_pipeline_stage "${stage}" failed: ${error.message}`);
+    const { error } = await supabase.from("pipeline_entries").insert({
+      contact_id: contact.id,
+      org_id: orgId,
+      pipeline_id: pipelineId,
+      stage: name,
+      stage_changed_at: now,
+    });
+
+    if (error) {
+      throw new Error(`set_pipeline_stage "${stage}" failed: ${error.message}`);
+    }
+
+    return {
+      summary: `set_pipeline_stage "${name}" (added to the pipeline)`,
+      contact,
+    };
+  }
+
+  const moved: string[] = [];
+
+  for (const entry of standing) {
+    const name = nameByPipeline.get(entry.pipeline_id);
+
+    // Either this board has no column by that name, or the card is already
+    // standing in it. Neither is a move, and re-stamping `stage_changed_at`
+    // for the second would shuffle the column every time the rule fired.
+    if (!name || entry.stage === name) continue;
+
+    const { error } = await supabase
+      .from("pipeline_entries")
+      .update({ stage: name, stage_changed_at: now })
+      .eq("id", entry.id);
+
+    if (error) {
+      throw new Error(`set_pipeline_stage "${stage}" failed: ${error.message}`);
+    }
+
+    moved.push(`"${entry.stage}" → "${name}"`);
   }
 
   return {
-    summary: existing
-      ? `set_pipeline_stage "${existing.stage}" → "${stage}"`
-      : `set_pipeline_stage "${stage}" (added to the pipeline)`,
+    summary:
+      moved.length === 0
+        ? `set_pipeline_stage "${stage}" (unchanged)`
+        : `set_pipeline_stage ${moved.join(", ")}`,
     contact,
   };
 }
 
 /**
- * Takes the contact off the board.
+ * Takes the contact off every board they are on.
  *
- * The entry only. The contact, its messages and its call history are
- * untouched — leaving the pipeline is a statement about the board, which is
- * the same thing the button on the board itself means.
+ * Every board, not one, and that is the only thing it can honestly mean: a
+ * rule has no way to name a pipeline — `set_pipeline_stage` names a *stage*
+ * and resolves it against whichever boards the contact stands on — so there is
+ * no pipeline for this action to be scoped to. "Remove them from the pipeline"
+ * from a rule's point of view is "they are not in any of this any more".
+ *
+ * Someone who wants one board cleared and the others left alone does it from
+ * the card's own menu, which knows exactly which entry it is looking at.
+ *
+ * The entries only. The contact, its messages and its call history are
+ * untouched — leaving a pipeline is a statement about that board, which is the
+ * same thing the button on the board itself means.
  */
 async function removeFromPipelineAction({
   supabase,
@@ -619,11 +747,18 @@ async function removeFromPipelineAction({
     throw new Error(`remove_from_pipeline failed: ${error.message}`);
   }
 
+  // The count, because it is now the interesting part: a contact can have been
+  // on three boards, and a log line that only says "removed" leaves the reader
+  // guessing how much just happened.
+  const removed = data?.length ?? 0;
+
   return {
     summary:
-      (data?.length ?? 0) > 0
-        ? "remove_from_pipeline"
-        : "remove_from_pipeline (was not on the pipeline)",
+      removed === 0
+        ? "remove_from_pipeline (was not on any pipeline)"
+        : removed === 1
+          ? "remove_from_pipeline"
+          : `remove_from_pipeline (${removed} pipelines)`,
     contact,
   };
 }

@@ -61,7 +61,8 @@ function zonedDayKey(date: Date): string {
 function daysBetween(a: Date, b: Date): number {
   const [dayA, dayB] = [zonedDayKey(a), zonedDayKey(b)];
   return Math.round(
-    (Date.parse(`${dayB}T00:00:00Z`) - Date.parse(`${dayA}T00:00:00Z`)) / 86_400_000,
+    (Date.parse(`${dayB}T00:00:00Z`) - Date.parse(`${dayA}T00:00:00Z`)) /
+      86_400_000,
   );
 }
 
@@ -69,7 +70,10 @@ function daysBetween(a: Date, b: Date): number {
  * Compact stamp for list rows: the time if it happened today, a weekday name
  * within the last week, then a date. Mirrors how a phone shows a thread list.
  */
-export function formatListTimestamp(iso: string, now: Date = new Date()): string {
+export function formatListTimestamp(
+  iso: string,
+  now: Date = new Date(),
+): string {
   const date = new Date(iso);
   const elapsed = daysBetween(date, now);
 
@@ -81,7 +85,8 @@ export function formatListTimestamp(iso: string, now: Date = new Date()): string
       timeZone: TIME_ZONE,
     }).format(date);
   }
-  if (date.getUTCFullYear() === now.getUTCFullYear()) return dayAndMonth.format(date);
+  if (date.getUTCFullYear() === now.getUTCFullYear())
+    return dayAndMonth.format(date);
   return dayMonthYear.format(date);
 }
 
@@ -128,7 +133,8 @@ export function formatDayDivider(iso: string, now: Date = new Date()): string {
 
   if (elapsed === 0) return "Today";
   if (elapsed === 1) return "Yesterday";
-  if (date.getUTCFullYear() === now.getUTCFullYear()) return dayAndMonth.format(date);
+  if (date.getUTCFullYear() === now.getUTCFullYear())
+    return dayAndMonth.format(date);
   return dayMonthYear.format(date);
 }
 
@@ -162,6 +168,38 @@ export function formatMoney(cents: number): string {
 }
 
 /**
+ * Dollars as someone typed them, in cents.
+ *
+ * Tolerant of what a person actually puts in a money box — `1500`, `$1,500`,
+ * `1 500.50` all mean the same thing — and null for anything that is not a
+ * number at all, which the caller refuses rather than storing as zero. An
+ * empty box is a real zero: a deal nobody has priced yet is worth nothing
+ * until someone says otherwise, and that is not the same as a typo.
+ *
+ * Rounded to the cent on the way in, so `19.999` cannot become a fraction of
+ * one in a column typed `integer`.
+ */
+export function parseMoneyToCents(input: string): number | null {
+  const cleaned = input.replace(/[$,\s]/g, "");
+  if (cleaned === "") return 0;
+  if (!/^\d+(\.\d{0,2})?$/.test(cleaned)) return null;
+
+  const amount = Number(cleaned);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : null;
+}
+
+/**
+ * Cents as the bare number an editable box should start with.
+ *
+ * No currency symbol and no grouping, unlike `formatMoney`: this is a value
+ * about to be edited, and a field pre-filled with `CA$1,500` asks the person
+ * to delete four characters before they can type.
+ */
+export function centsToMoneyInput(cents: number): string {
+  return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
+}
+
+/**
  * Renders E.164 as a North American number when it looks like one, and returns
  * anything else untouched — a `+44` number formatted with NANP grouping would
  * be worse than leaving it alone.
@@ -189,7 +227,9 @@ export function contactInitials(contact: {
   if (name) {
     const parts = name.split(/\s+/).filter(Boolean);
     const letters =
-      parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0].slice(0, 2);
+      parts.length > 1
+        ? `${parts[0][0]}${parts[parts.length - 1][0]}`
+        : parts[0].slice(0, 2);
     return letters.toUpperCase();
   }
 

@@ -113,15 +113,30 @@ export type OpenAiModel =
 export type AiModel = AnthropicModel | OpenAiModel;
 /** Mirrors `ai_drafts_source_check`. */
 export type AiDraftSource = "shadow" | "preview";
-/** Mirrors `pipeline_entries_stage_check`. Adding one needs a migration. */
-export type PipelineStage =
-  | "interested"
-  | "booked"
-  | "attended"
-  | "not_attended"
-  | "closed"
-  | "contact_again_later"
-  | "not_closed";
+/** Mirrors `pipelines_stage_color_mode_known`. */
+export type StageColorMode = "none" | "dot" | "background";
+/** Mirrors `pipeline_stages_color_known`. Mirrored again by STAGE_COLORS. */
+export type StageColor =
+  | "blue"
+  | "indigo"
+  | "violet"
+  | "purple"
+  | "fuchsia"
+  | "pink"
+  | "rose"
+  | "red"
+  | "orange"
+  | "amber"
+  | "yellow"
+  | "lime"
+  | "green"
+  | "emerald"
+  | "teal"
+  | "cyan"
+  | "sky"
+  | "slate"
+  | "zinc"
+  | "stone";
 /** Mirrors `bookings_status_check`. */
 export type BookingStatus = "confirmed" | "cancelled";
 /** Mirrors `calendars_type_known`. Adding one needs a migration. */
@@ -183,7 +198,8 @@ type RowOverrides = {
   automation_runs: { status: AutomationRunStatus };
   settings: { ai_mode: AiMode; ai_model: AiModel };
   ai_drafts: { source: AiDraftSource };
-  pipeline_entries: { stage: PipelineStage };
+  pipelines: { stage_color_mode: StageColorMode };
+  pipeline_stages: { color: StageColor };
   bookings: { status: BookingStatus };
   calendars: { type: CalendarType };
   knowledge_web_sources: { mode: CrawlMode; status: WebSourceStatus };
@@ -234,6 +250,8 @@ export type AutomationRun = Tables<"automation_runs">;
 export type Settings = Tables<"settings">;
 export type AiDraft = Tables<"ai_drafts">;
 export type PipelineEntry = Tables<"pipeline_entries">;
+export type Pipeline = Tables<"pipelines">;
+export type PipelineStageRow = Tables<"pipeline_stages">;
 export type Package = Tables<"packages">;
 export type Invoice = Tables<"invoices">;
 export type BookingCalendar = Tables<"calendars">;

@@ -1,12 +1,10 @@
 import "server-only";
 
-import { PIPELINE_STAGES, isPipelineStage } from "@/lib/pipeline-stages";
 import type {
   AutomationTriggerType,
   Contact,
   ContactStatus,
   Json,
-  PipelineStage,
 } from "@/types/database";
 
 /**
@@ -360,7 +358,7 @@ export function parseStatusTriggerConfig(
  * there directly. The distinction the board makes — insert versus update —
  * isn't one anybody building a rule is thinking about.
  */
-export type StageTriggerConfig = { stage?: PipelineStage };
+export type StageTriggerConfig = { stage?: string };
 
 export function parseStageTriggerConfig(
   raw: Json,
@@ -381,14 +379,19 @@ export function parseStageTriggerConfig(
   if (raw.stage === undefined || raw.stage === null) {
     return { ok: true, value: {} };
   }
-  if (!isPipelineStage(raw.stage)) {
+  // Any non-empty name. There is no fixed list to check against any more:
+  // stages are rows, each organization has its own, and a rule may name one on
+  // a pipeline this validator cannot see from here. A stage that does not exist
+  // simply never matches — the trigger stays silent rather than misfiring.
+  const stage = nonEmptyString(raw.stage);
+  if (stage === null) {
     return {
       ok: false,
-      error: `trigger_config.stage must be one of ${PIPELINE_STAGES.map((stage) => stage.value).join(", ")}`,
+      error: `trigger_config.stage must be a stage name, or be left out to match any stage`,
     };
   }
 
-  return { ok: true, value: { stage: raw.stage } };
+  return { ok: true, value: { stage } };
 }
 
 // ---------------------------------------------------------------------------
@@ -718,7 +721,7 @@ export type AutomationAction =
   | { type: "set_status"; status: ContactStatus }
   | { type: "set_ai"; enabled: boolean }
   | { type: "update_field"; field: ContactField; value: string }
-  | { type: "set_pipeline_stage"; stage: PipelineStage }
+  | { type: "set_pipeline_stage"; stage: string }
   | { type: "remove_from_pipeline" }
   | { type: "notify_me"; note: string }
   | { type: "webhook"; url: string };
@@ -952,13 +955,17 @@ export function parseActions(raw: Json): ParseResult<AutomationAction[]> {
       }
 
       case "set_pipeline_stage": {
-        if (!isPipelineStage(entry.stage)) {
+        // A name, checked for being a name and nothing more — see the note on
+        // the trigger above. Whether the stage exists is settled when the
+        // action runs, against the pipeline the contact is actually on.
+        const stage = nonEmptyString(entry.stage);
+        if (stage === null) {
           return {
             ok: false,
-            error: `${label} (set_pipeline_stage) needs "stage" to be one of ${PIPELINE_STAGES.map((stage) => stage.value).join(", ")}`,
+            error: `${label} (set_pipeline_stage) needs "stage" to be the name of a stage on one of your pipelines`,
           };
         }
-        actions.push({ type, stage: entry.stage });
+        actions.push({ type, stage });
         break;
       }
 

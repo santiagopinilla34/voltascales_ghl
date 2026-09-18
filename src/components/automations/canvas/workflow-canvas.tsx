@@ -11,7 +11,6 @@ import type {
 } from "@/components/automations/editor-shape";
 import { TRIGGER_META, type TriggerKey } from "@/components/automations/trigger-meta";
 import { ACTION_META } from "@/components/automations/action-meta";
-import { pipelineStageLabel } from "@/lib/pipeline-stages";
 import { cn } from "@/lib/utils";
 
 /**
@@ -129,7 +128,7 @@ function triggerSubtitle(trigger: EditorTrigger): string {
   }
   if (trigger.type === "opportunity_stage_changed") {
     return trigger.stage
-      ? `into ${pipelineStageLabel(trigger.stage)}`
+      ? `into ${trigger.stage}`
       : "any stage";
   }
   return TRIGGER_META[trigger.type as TriggerKey]?.description ?? "";
@@ -154,7 +153,7 @@ function actionSubtitle(action: EditorAction): string {
     case "update_field":
       return `${action.field.replace("_", " ")} → ${action.value.trim() || "nothing set"}`;
     case "set_pipeline_stage":
-      return pipelineStageLabel(action.stage);
+      return action.stage;
     case "remove_from_pipeline":
       return "off the pipeline board";
     case "notify_me":

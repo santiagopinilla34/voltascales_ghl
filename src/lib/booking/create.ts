@@ -13,7 +13,6 @@ import type {
   BookingCalendar,
   Contact,
   Database,
-  PipelineStage,
 } from "@/types/database";
 
 import { getDaySlots } from "./queries";
@@ -89,7 +88,10 @@ export async function createBooking(
   // The caller resolved this row; the id in the request only has to agree with
   // it. A mismatch means the form was edited between render and submit.
   if (input.calendarId !== calendar.id) {
-    return { ok: false, error: "That booking link is out of date. Reload the page." };
+    return {
+      ok: false,
+      error: "That booking link is out of date. Reload the page.",
+    };
   }
 
   if (!calendar.active) {
@@ -125,7 +127,9 @@ export async function createBooking(
   // to a browser we don't control, and could have been edited before it posted
   // back. Only a slot the generator produces *right now* is bookable.
   const day = await getDaySlots(supabase, calendar, dayKeyOf(startsAt), now);
-  const slot = day.slots.find((candidate) => candidate.start === startsAt.toISOString());
+  const slot = day.slots.find(
+    (candidate) => candidate.start === startsAt.toISOString(),
+  );
 
   if (!slot) {
     return {
@@ -149,7 +153,10 @@ export async function createBooking(
     .gte("start_time", now.toISOString());
 
   if (countError) {
-    return { ok: false, error: `Couldn't check your existing bookings: ${countError.message}` };
+    return {
+      ok: false,
+      error: `Couldn't check your existing bookings: ${countError.message}`,
+    };
   }
   if ((count ?? 0) >= MAX_UPCOMING_PER_PHONE) {
     return {
@@ -202,7 +209,11 @@ export async function createBooking(
   // Past this point the meeting exists and is confirmed. Nothing below is
   // allowed to turn into an error the client sees — a CRM bookkeeping failure
   // must not tell someone their booking didn't work when it did.
-  const contact = await attachContact(supabase, booking, { name, email, phone });
+  const contact = await attachContact(supabase, booking, {
+    name,
+    email,
+    phone,
+  });
 
   return { ok: true, booking, contact };
 }
@@ -237,16 +248,87 @@ async function attachContact(
 
     // Where they were, so the automation below can say what the move actually
     // was — and so booking a second slot from Booked doesn't fire as a move.
-    const { data: priorEntry } = await supabase
+    // Every entry, not one: since 20260918010000 a contact can stand on
+    // several boards at once. Oldest first, so which board this picks is
+    // settled by the data rather than by whatever order PostgREST felt like.
+    const { data: priorEntries } = await supabase
       .from("pipeline_entries")
-      .select("stage")
+      .select("stage, pipeline_id")
       .eq("contact_id", contact.id)
-      .maybeSingle();
+      .order("created_at", { ascending: true });
 
-    // Upsert rather than insert: `pipeline_entries.contact_id` is unique, and
-    // someone booking a call may already be sitting in another column. Booking
-    // is the freshest signal there is about where they belong, so it wins over
-    // whatever stage they were in — including Closed.
+    const standing = priorEntries ?? [];
+
+    // Which board, and which of its columns means "booked".
+    //
+    // "Booked" stopped being a value the schema guarantees when stages became
+    // rows people name themselves. A contact already on one or more pipelines
+    // is moved on the longest-standing of *those* that has such a column —
+    // booking a call is not a reason to put somebody onto a board nobody put
+    // them on. Someone on no board at all joins the organization's first.
+    //
+    // The column is found by name, case-insensitively, because a client who
+    // renamed it to "booked" still means the same column.
+    //
+    // A pipeline with no such column is left alone rather than guessed at. The
+    // booking is already written and confirmed by this point — moving someone
+    // into an arbitrary column would be worse than not moving them, and the
+    // log below says so.
+    let candidateIds = standing.map((entry) => entry.pipeline_id);
+
+    if (candidateIds.length === 0) {
+      const { data: fallback } = await supabase
+        .from("pipelines")
+        .select("id")
+        .eq("org_id", booking.org_id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      candidateIds = fallback ? [fallback.id] : [];
+    }
+
+    const { data: columns } =
+      candidateIds.length > 0
+        ? await supabase
+            .from("pipeline_stages")
+            .select("name, pipeline_id")
+            .in("pipeline_id", candidateIds)
+        : { data: null };
+
+    // Walked in candidate order rather than `.find` over the columns, so the
+    // board chosen is the first candidate that has the column — not whichever
+    // row the stage query happened to return first.
+    const booked = candidateIds
+      .map((id) =>
+        (columns ?? []).find(
+          (column) =>
+            column.pipeline_id === id &&
+            column.name.trim().toLowerCase() === "booked",
+        ),
+      )
+      .find((column) => column !== undefined);
+
+    if (!booked) {
+      console.error(
+        `[booking] contact ${contact.id} booked but not moved on the pipeline: no "Booked" stage to move them to`,
+      );
+      return contact;
+    }
+
+    const pipelineId = booked.pipeline_id;
+    const bookedStage = booked.name;
+
+    // Where they were *on that board*, so the automation below says what the
+    // move actually was — and so booking a second slot from Booked doesn't
+    // fire as a move. Their stage on any other board is irrelevant here.
+    const priorStage =
+      standing.find((entry) => entry.pipeline_id === pipelineId)?.stage ?? null;
+
+    // Upsert rather than insert: `(contact_id, pipeline_id)` is unique, and
+    // someone booking a call may already be sitting in another column of this
+    // board. Booking is the freshest signal there is about where they belong,
+    // so it wins over whatever stage they were in — including Closed.
     const { error: pipelineError } = await supabase
       .from("pipeline_entries")
       .upsert(
@@ -257,13 +339,17 @@ async function attachContact(
           // under a known organization.
           org_id: booking.org_id,
           contact_id: contact.id,
-          stage: "booked",
+          pipeline_id: pipelineId,
+          stage: bookedStage,
           // Set explicitly: the column means "entered this stage", and an
           // upsert that left it alone would sort a just-booked card by when it
           // was first put on the board.
           stage_changed_at: new Date().toISOString(),
         },
-        { onConflict: "contact_id" },
+        // The board, not the person: the same contact legitimately has a row
+        // on every pipeline they stand on, and conflicting on `contact_id`
+        // alone would now overwrite whichever one Postgres reached first.
+        { onConflict: "contact_id,pipeline_id" },
       );
 
     if (pipelineError) {
@@ -271,12 +357,7 @@ async function attachContact(
         `[booking] contact ${contact.id} booked but not moved on the pipeline: ${pipelineError.message}`,
       );
     } else {
-      await dispatchStageChanged(
-        supabase,
-        contact,
-        "booked",
-        (priorEntry?.stage as PipelineStage | undefined) ?? null,
-      );
+      await dispatchStageChanged(supabase, contact, bookedStage, priorStage);
     }
 
     return contact;
@@ -312,7 +393,10 @@ async function findOrCreateBookingContact(
     .maybeSingle();
 
   if (selectError) {
-    console.error(`[booking] contact lookup failed for ${client.phone}`, selectError);
+    console.error(
+      `[booking] contact lookup failed for ${client.phone}`,
+      selectError,
+    );
     return null;
   }
 
@@ -331,7 +415,10 @@ async function findOrCreateBookingContact(
       .single();
 
     if (updateError) {
-      console.error(`[booking] could not backfill contact ${existing.id}`, updateError);
+      console.error(
+        `[booking] could not backfill contact ${existing.id}`,
+        updateError,
+      );
       return existing;
     }
     return updated;
@@ -359,6 +446,9 @@ async function findOrCreateBookingContact(
     return raced ?? null;
   }
 
-  console.error(`[booking] could not create contact for ${client.phone}`, insertError);
+  console.error(
+    `[booking] could not create contact for ${client.phone}`,
+    insertError,
+  );
   return null;
 }

@@ -14,6 +14,7 @@ import {
 import { AddActionPanel } from "@/components/automations/canvas/add-action-panel";
 import { AddTriggerPanel } from "@/components/automations/canvas/add-trigger-panel";
 import { NodeConfigPanel } from "@/components/automations/canvas/node-config-panel";
+import { StageOptionsProvider } from "@/components/automations/stage-options";
 import {
   MAX_TRIGGERS,
   WorkflowCanvas,
@@ -87,9 +88,16 @@ export function WorkflowBuilder({
   automation,
   runs,
   runLimit,
+  stageOptions,
 }: {
   automation: Automation | null;
   runs: AutomationRunWithContact[];
+  /**
+   * Every stage name in the organization, for the two fields that name one.
+   * Passed in for the same reason `runLimit` is: this is a Client Component
+   * and the query behind it is server-only.
+   */
+  stageOptions: string[];
   /**
    * Passed in rather than imported: it lives in a server-only module, and a
    * client component reaching for a runtime value from one throws in the
@@ -286,214 +294,220 @@ export function WorkflowBuilder({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Top bar */}
-      <header className="reserve-topbar flex h-20 shrink-0 items-center gap-3 border-b pl-14 md:pl-3">
-        <Button asChild variant="ghost" size="icon-sm" className="shrink-0">
-          <Link href="/automations" aria-label="Back to workflows">
-            <ArrowLeft />
-          </Link>
-        </Button>
+    // Every stage name in the organization, for the trigger and action that
+    // name one. Provided here rather than threaded down: the two dropdowns sit
+    // three components deep and nothing between them has any other reason to
+    // know that pipelines exist.
+    <StageOptionsProvider value={stageOptions}>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Top bar */}
+        <header className="reserve-topbar flex h-20 shrink-0 items-center gap-3 border-b pl-14 md:pl-3">
+          <Button asChild variant="ghost" size="icon-sm" className="shrink-0">
+            <Link href="/automations" aria-label="Back to workflows">
+              <ArrowLeft />
+            </Link>
+          </Button>
 
-        <Input
-          value={state.name}
-          onChange={(event) => patchState({ name: event.target.value })}
-          placeholder="Name this workflow"
-          disabled={pending}
-          aria-label="Workflow name"
-          className="h-8 max-w-xs min-w-0 flex-1 border-transparent bg-transparent px-2 text-sm font-medium shadow-none hover:border-input focus-visible:border-input"
-        />
+          <Input
+            value={state.name}
+            onChange={(event) => patchState({ name: event.target.value })}
+            placeholder="Name this workflow"
+            disabled={pending}
+            aria-label="Workflow name"
+            className="h-8 max-w-xs min-w-0 flex-1 border-transparent bg-transparent px-2 text-sm font-medium shadow-none hover:border-input focus-visible:border-input"
+          />
 
-        {isSystem && (
-          <span
-            className="text-muted-foreground hidden shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium sm:inline"
-            title="Ships with the app. Editable and pausable, but not deletable."
+          {isSystem && (
+            <span
+              className="text-muted-foreground hidden shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium sm:inline"
+              title="Ships with the app. Editable and pausable, but not deletable."
+            >
+              Built in
+            </span>
+          )}
+
+          {/* Shown at every width: hiding it on a phone left the execution logs
+              with no way in at all, which is the tab you reach for when a rule
+              has misbehaved and you are not at your desk. */}
+          <nav className="ml-auto flex shrink-0 items-center gap-1">
+            {(["builder", "logs"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setTab(value)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs transition-colors",
+                  tab === value
+                    ? "bg-accent text-foreground font-medium"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {value === "builder" ? "Builder" : (
+                  <>
+                    <span className="sm:hidden">Logs</span>
+                    <span className="hidden sm:inline">Execution logs</span>
+                  </>
+                )}
+              </button>
+            ))}
+          </nav>
+
+          {/* Draft / Publish. Only for a rule that exists — a draft that has
+              never been saved has nothing to publish. */}
+          {automation && (
+            <div className="flex shrink-0 items-center gap-2">
+              {/* The words go on a phone; the switch keeps its aria-label, and
+                  a rule's state is on the list page it came from anyway. */}
+              <span
+                className={cn(
+                  "hidden text-xs sm:inline",
+                  activeState ? "text-muted-foreground" : "font-medium",
+                )}
+              >
+                Draft
+              </span>
+              <Switch
+                checked={activeState}
+                disabled={pending}
+                aria-label={activeState ? "Unpublish" : "Publish"}
+                onCheckedChange={(next) => {
+                  startTransition(async () => {
+                    setActiveState(next);
+                    const result = await setAutomationActive(automation.id, next);
+                    if (!result.ok) {
+                      toast.error("Could not change the workflow", {
+                        description: result.error,
+                      });
+                      return;
+                    }
+                    if (!next && isSystem) {
+                      toast.warning("Unpublished", {
+                        description:
+                          "This is a built-in workflow — nothing will be sent until it is published again.",
+                      });
+                    } else {
+                      toast.success(next ? "Published" : "Unpublished");
+                    }
+                    router.refresh();
+                  });
+                }}
+              />
+              <span
+                className={cn(
+                  "hidden text-xs sm:inline",
+                  activeState ? "font-medium" : "text-muted-foreground",
+                )}
+              >
+                Publish
+              </span>
+            </div>
+          )}
+
+          <Button
+            type="button"
+            size="sm"
+            onClick={save}
+            disabled={pending}
+            className="shrink-0"
           >
-            Built in
-          </span>
+            {pending ? <Loader2 className="animate-spin" /> : <Check />}
+            {automation ? "Save" : "Create"}
+          </Button>
+        </header>
+
+        {error && (
+          <p
+            role="alert"
+            className="text-destructive bg-destructive/10 shrink-0 border-b px-4 py-2 text-xs"
+          >
+            {error}
+          </p>
         )}
 
-        {/* Shown at every width: hiding it on a phone left the execution logs
-            with no way in at all, which is the tab you reach for when a rule
-            has misbehaved and you are not at your desk. */}
-        <nav className="ml-auto flex shrink-0 items-center gap-1">
-          {(["builder", "logs"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setTab(value)}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-xs transition-colors",
-                tab === value
-                  ? "bg-accent text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {value === "builder" ? "Builder" : (
-                <>
-                  <span className="sm:hidden">Logs</span>
-                  <span className="hidden sm:inline">Execution logs</span>
-                </>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        {/* Draft / Publish. Only for a rule that exists — a draft that has
-            never been saved has nothing to publish. */}
-        {automation && (
-          <div className="flex shrink-0 items-center gap-2">
-            {/* The words go on a phone; the switch keeps its aria-label, and
-                a rule's state is on the list page it came from anyway. */}
-            <span
-              className={cn(
-                "hidden text-xs sm:inline",
-                activeState ? "text-muted-foreground" : "font-medium",
-              )}
-            >
-              Draft
-            </span>
-            <Switch
-              checked={activeState}
-              disabled={pending}
-              aria-label={activeState ? "Unpublish" : "Publish"}
-              onCheckedChange={(next) => {
-                startTransition(async () => {
-                  setActiveState(next);
-                  const result = await setAutomationActive(automation.id, next);
-                  if (!result.ok) {
-                    toast.error("Could not change the workflow", {
-                      description: result.error,
-                    });
-                    return;
-                  }
-                  if (!next && isSystem) {
-                    toast.warning("Unpublished", {
-                      description:
-                        "This is a built-in workflow — nothing will be sent until it is published again.",
-                    });
-                  } else {
-                    toast.success(next ? "Published" : "Unpublished");
-                  }
-                  router.refresh();
-                });
-              }}
-            />
-            <span
-              className={cn(
-                "hidden text-xs sm:inline",
-                activeState ? "font-medium" : "text-muted-foreground",
-              )}
-            >
-              Publish
-            </span>
-          </div>
+        {droppedActions && (
+          <p className="shrink-0 border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <TriangleAlert className="mr-1.5 inline size-3.5" />
+            This workflow contains a step the builder can&apos;t show. Saving will
+            remove it.
+          </p>
         )}
 
-        <Button
-          type="button"
-          size="sm"
-          onClick={save}
-          disabled={pending}
-          className="shrink-0"
-        >
-          {pending ? <Loader2 className="animate-spin" /> : <Check />}
-          {automation ? "Save" : "Create"}
-        </Button>
-      </header>
-
-      {error && (
-        <p
-          role="alert"
-          className="text-destructive bg-destructive/10 shrink-0 border-b px-4 py-2 text-xs"
-        >
-          {error}
-        </p>
-      )}
-
-      {droppedActions && (
-        <p className="shrink-0 border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-          <TriangleAlert className="mr-1.5 inline size-3.5" />
-          This workflow contains a step the builder can&apos;t show. Saving will
-          remove it.
-        </p>
-      )}
-
-      {tab === "logs" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="mx-auto max-w-2xl">
-            <RunLog runs={runs} limit={runLimit} />
+        {tab === "logs" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="mx-auto max-w-2xl">
+              <RunLog runs={runs} limit={runLimit} />
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
-          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-            <WorkflowCanvas
-              state={state}
-              selected={selection}
-              onSelect={(next) => {
-                setSelection(next);
-                // Picking something on the canvas answers the question the
-                // picker was asking, so the picker gets out of the way.
-                if (next.length > 0) setPanel(null);
-              }}
-              onAddTrigger={() => setPanel({ kind: "add-trigger" })}
-              onRemoveTrigger={removeTrigger}
-              onAddAction={(index) => setPanel({ kind: "add-action", index })}
-              onRemoveAction={removeAction}
-              onDeleteSelected={deleteSelected}
-            />
+        ) : (
+          <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+              <WorkflowCanvas
+                state={state}
+                selected={selection}
+                onSelect={(next) => {
+                  setSelection(next);
+                  // Picking something on the canvas answers the question the
+                  // picker was asking, so the picker gets out of the way.
+                  if (next.length > 0) setPanel(null);
+                }}
+                onAddTrigger={() => setPanel({ kind: "add-trigger" })}
+                onRemoveTrigger={removeTrigger}
+                onAddAction={(index) => setPanel({ kind: "add-action", index })}
+                onRemoveAction={removeAction}
+                onDeleteSelected={deleteSelected}
+              />
 
-            {/* The filters live on the rule rather than on a node, so they get
-                their own way in — GHL shows them on the trigger card, which is
-                where the canvas surfaces them too. */}
-            <button
-              type="button"
-              onClick={() => {
-                setPanel(null);
-                setSelection([{ kind: "conditions" }]);
-              }}
-              aria-label="Filters"
-              className="bg-card text-muted-foreground hover:text-foreground absolute top-4 right-4 z-10 flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-sm transition-colors"
-            >
-              <Filter className="size-3.5" />
-              {/* The label goes on a narrow screen, where the corner has to
-                  share the top edge with the selection pill. */}
-              <span className="hidden sm:inline">Filters</span>
-            </button>
+              {/* The filters live on the rule rather than on a node, so they get
+                  their own way in — GHL shows them on the trigger card, which is
+                  where the canvas surfaces them too. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setPanel(null);
+                  setSelection([{ kind: "conditions" }]);
+                }}
+                aria-label="Filters"
+                className="bg-card text-muted-foreground hover:text-foreground absolute top-4 right-4 z-10 flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-sm transition-colors"
+              >
+                <Filter className="size-3.5" />
+                {/* The label goes on a narrow screen, where the corner has to
+                    share the top edge with the selection pill. */}
+                <span className="hidden sm:inline">Filters</span>
+              </button>
+            </div>
+
+            {panel?.kind === "add-trigger" && (
+              <AddTriggerPanel
+                existing={state.triggers.map((trigger) => trigger.type)}
+                onPick={addTrigger}
+                onClose={() => setPanel(null)}
+              />
+            )}
+
+            {panel?.kind === "add-action" && (
+              <AddActionPanel
+                onPick={(type) => addAction(panel.index, type)}
+                onClose={() => setPanel(null)}
+              />
+            )}
+
+            {/* One node, one panel. Several selected is a bulk action, not a
+                form, so the canvas offers the delete and the panel stays shut. */}
+            {!panel && selection.length === 1 && (
+              <NodeConfigPanel
+                state={state}
+                selection={selection[0]}
+                disabled={pending}
+                onClose={() => setSelection([])}
+                onPatchState={patchState}
+                onPatchTrigger={patchTrigger}
+                onPatchAction={patchAction}
+                onRemove={removalFor(selection[0])}
+              />
+            )}
           </div>
-
-          {panel?.kind === "add-trigger" && (
-            <AddTriggerPanel
-              existing={state.triggers.map((trigger) => trigger.type)}
-              onPick={addTrigger}
-              onClose={() => setPanel(null)}
-            />
-          )}
-
-          {panel?.kind === "add-action" && (
-            <AddActionPanel
-              onPick={(type) => addAction(panel.index, type)}
-              onClose={() => setPanel(null)}
-            />
-          )}
-
-          {/* One node, one panel. Several selected is a bulk action, not a
-              form, so the canvas offers the delete and the panel stays shut. */}
-          {!panel && selection.length === 1 && (
-            <NodeConfigPanel
-              state={state}
-              selection={selection[0]}
-              disabled={pending}
-              onClose={() => setSelection([])}
-              onPatchState={patchState}
-              onPatchTrigger={patchTrigger}
-              onPatchAction={patchAction}
-              onRemove={removalFor(selection[0])}
-            />
-          )}
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </StageOptionsProvider>
   );
 }
